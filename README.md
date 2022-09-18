@@ -1,2 +1,2 @@
-# maiac
-Maia C Compiler
+# MaiaC
+Maia C Compiler.
