@@ -1,0 +1,34 @@
+control-line:
+    # define identifier token-sequence
+    # define identifier(identifier, ... , identifier) token-sequence
+    # undef identifier
+    # include <filename>
+    # include "filename"
+    # line constant "filename"
+    # line constant
+    # error token-sequenceopt
+    # pragma token-sequenceopt
+    #
+    preprocessor-conditional
+
+preprocessor-conditional:
+    if-line text elif-parts else-partopt #endif
+
+if-line:
+    # if constant-expression
+    # ifdef identifier
+    # ifndef identifier
+
+elif-parts:
+    elif-line text
+    elif-partsopt
+
+elif-line:
+    # elif constant-expression
+
+else-part:
+    else-line text
+
+else-line:
+    #else
+    

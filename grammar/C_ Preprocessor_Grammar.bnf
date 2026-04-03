@@ -1,0 +1,38 @@
+(* Preprocessor Grammar - ANSI C (C89/C90) from K&R 2nd Edition, Appendix A *)
+
+control-line ::= '# define' identifier token-sequence
+               | '# define' identifier '(' identifier-list ')' token-sequence
+               | '# undef' identifier
+               | '# include' '<' filename '>'
+               | '# include' '"' filename '"'
+               | '# line' constant
+               | '# line' constant '"' filename '"'
+               | '# error' token-sequence?
+               | '# pragma' token-sequence?
+               | '#'
+               | preprocessor-conditional
+
+preprocessor-conditional ::= if-line text elif-parts? else-part? '#endif'
+
+if-line ::= '# if' constant-expression
+          | '# ifdef' identifier
+          | '# ifndef' identifier
+
+elif-parts ::= elif-line text
+             | elif-parts elif-line text
+
+elif-line ::= '# elif' constant-expression
+
+else-part ::= else-line text
+
+else-line ::= '#else'
+
+(* Auxiliary definitions *)
+identifier-list ::= identifier
+                   | identifier-list ',' identifier
+
+token-sequence ::= ( token )*
+text ::= ( source-character )*
+
+(* Note: The following symbols are defined in the main grammar *)
+(* identifier, constant, constant-expression, token, source-character *)

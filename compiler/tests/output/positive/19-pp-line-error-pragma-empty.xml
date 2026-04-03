@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<translationUnit>
+  <translationUnitItem>
+    <PreprocessingDirective>#line 120 "virtual.c"
+</PreprocessingDirective>
+  </translationUnitItem>
+  <translationUnitItem>
+    <PreprocessingDirective>#error this is an error directive test
+</PreprocessingDirective>
+  </translationUnitItem>
+  <translationUnitItem>
+    <PreprocessingDirective>#pragma once
+</PreprocessingDirective>
+  </translationUnitItem>
+  <translationUnitItem>
+    <PreprocessingDirective>#
+</PreprocessingDirective>
+  </translationUnitItem>
+  <translationUnitItem>
+    <externalDeclaration>
+      <declaration>
+        <declarationSpecifiers>
+          <typeSpecifierSequence>
+            <builtinTypeSpecifier>
+              <TOKEN>int</TOKEN>
+            </builtinTypeSpecifier>
+          </typeSpecifierSequence>
+        </declarationSpecifiers> 
+        <initDeclaratorList>
+          <initDeclarator>
+            <declarator>
+              <directDeclarator>
+                <directDeclaratorBase>
+                  <Identifier>b</Identifier>
+                </directDeclaratorBase>
+              </directDeclarator>
+            </declarator> 
+            <TOKEN>=</TOKEN> 
+            <initializer>
+              <assignmentExpression>
+                <conditionalExpression>
+                  <logicalOrExpression>
+                    <logicalAndExpression>
+                      <inclusiveOrExpression>
+                        <exclusiveOrExpression>
+                          <andExpression>
+                            <equalityExpression>
+                              <relationalExpression>
+                                <shiftExpression>
+                                  <additiveExpression>
+                                    <multiplicativeExpression>
+                                      <castExpression>
+                                        <unaryExpression>
+                                          <postfixExpression>
+                                            <primaryExpression>
+                                              <constant>
+                                                <IntegerConstant>4</IntegerConstant>
+                                              </constant>
+                                            </primaryExpression>
+                                          </postfixExpression>
+                                        </unaryExpression>
+                                      </castExpression>
+                                    </multiplicativeExpression>
+                                  </additiveExpression>
+                                </shiftExpression>
+                              </relationalExpression>
+                            </equalityExpression>
+                          </andExpression>
+                        </exclusiveOrExpression>
+                      </inclusiveOrExpression>
+                    </logicalAndExpression>
+                  </logicalOrExpression>
+                </conditionalExpression>
+              </assignmentExpression>
+            </initializer>
+          </initDeclarator>
+        </initDeclaratorList>
+        <TOKEN>;</TOKEN>
+      </declaration>
+    </externalDeclaration>
+  </translationUnitItem>
+</translationUnit>

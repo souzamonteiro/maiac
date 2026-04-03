@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<translationUnit>
+  <translationUnitItem>
+    <externalDeclaration>
+      <declaration>
+        <declarationSpecifiers>
+          <declarationSpecifierPrefix>
+            <storageClassSpecifier>
+              <TOKEN>typedef</TOKEN>
+            </storageClassSpecifier>
+          </declarationSpecifierPrefix> 
+          <typeSpecifierSequence>
+            <builtinTypeSpecifier>
+              <TOKEN>int</TOKEN>
+            </builtinTypeSpecifier>
+          </typeSpecifierSequence>
+        </declarationSpecifiers> 
+        <initDeclaratorList>
+          <initDeclarator>
+            <declarator>
+              <directDeclarator>
+                <directDeclaratorBase>
+                  <Identifier>myint</Identifier>
+                </directDeclaratorBase>
+              </directDeclarator>
+            </declarator>
+          </initDeclarator>
+        </initDeclaratorList>
+        <TOKEN>;</TOKEN>
+      </declaration>
+    </externalDeclaration>
+  </translationUnitItem>
+</translationUnit>

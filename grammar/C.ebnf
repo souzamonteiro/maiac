@@ -1,0 +1,411 @@
+translationUnit ::= translationUnitItem+
+
+translationUnitItem ::= externalDeclaration
+                      | PreprocessingDirective
+                      | Comment
+
+externalDeclaration ::= functionDefinition
+                      | declaration
+
+functionDefinition ::= declarationSpecifiers? declarator declarationList? compoundStatement
+
+declaration ::= declarationSpecifiers initDeclaratorList? ';'
+
+declarationList ::= declaration+
+
+declarationSpecifiers ::= declarationSpecifierPrefix* typeSpecifierSequence declarationSpecifierSuffix*
+
+declarationSpecifierPrefix ::= storageClassSpecifier
+                             | typeQualifier
+
+declarationSpecifierSuffix ::= typeQualifier
+
+storageClassSpecifier ::= 'auto' | 'register' | 'static' | 'extern' | 'typedef'
+
+typeSpecifier ::= builtinTypeSpecifier
+                | namedTypeSpecifier
+
+typeSpecifierSequence ::= builtinTypeSpecifier+
+                        | namedTypeSpecifier
+
+builtinTypeSpecifier ::= 'void' | 'char' | 'short' | 'int' | 'long' | 'float' | 'double'
+                       | 'signed' | 'unsigned'
+
+namedTypeSpecifier ::= structOrUnionSpecifier
+                     | enumSpecifier
+                     | typedefName
+                
+typeQualifier ::= 'const' | 'volatile'
+                 
+structOrUnionSpecifier ::= structOrUnion Identifier? '{' structDeclarationList '}'
+                         | structOrUnion Identifier
+                         
+structOrUnion ::= 'struct' | 'union'
+                 
+structDeclarationList ::= structDeclaration+
+                        
+initDeclaratorList ::= initDeclarator ( ',' initDeclarator )*
+                     
+initDeclarator ::= declarator '=' initializer
+                 | declarator
+                 
+structDeclaration ::= specifierQualifierList structDeclaratorList ';'
+
+specifierQualifierList ::= typeQualifier* typeSpecifierSequence typeQualifier*
+                         
+structDeclaratorList ::= structDeclarator ( ',' structDeclarator )*
+                       
+structDeclarator ::= declarator
+                   | declarator? ':' constantExpression
+                   
+enumSpecifier ::= 'enum' Identifier? '{' enumeratorList '}'
+                | 'enum' Identifier
+                
+enumeratorList ::= enumerator ( ',' enumerator )*
+                 
+enumerator ::= Identifier '=' constantExpression
+             | Identifier
+             
+declarator ::= pointer? directDeclarator
+              
+directDeclarator ::= directDeclaratorBase directDeclaratorSuffix*
+
+directDeclaratorBase ::= Identifier
+                       | '(' declarator ')'
+
+directDeclaratorSuffix ::= '[' constantExpression? ']'
+                         | '(' parameterTypeList ')'
+                         | '(' identifierList? ')'
+                   
+pointer ::= '*' typeQualifierList?
+          | '*' typeQualifierList? pointer
+          
+typeQualifierList ::= typeQualifier+
+                    
+parameterTypeList ::= parameterList
+                    | parameterList ',' '...'
+                    
+parameterList ::= parameterDeclaration ( ',' parameterDeclaration )*
+                
+parameterDeclaration ::= declarationSpecifiers declarator
+                       | declarationSpecifiers abstractDeclarator?
+                       
+identifierList ::= Identifier ( ',' Identifier )*
+                 
+initializer ::= assignmentExpression
+              | '{' initializerList '}'
+              | '{' initializerList ',' '}'
+              
+initializerList ::= initializer ( ',' initializer )*
+                  
+typeName ::= specifierQualifierList abstractDeclarator?
+            
+abstractDeclarator ::= pointer
+                     | pointer? directAbstractDeclarator
+                     
+directAbstractDeclarator ::= '(' abstractDeclarator ')' directAbstractDeclaratorSuffix*
+                           | directAbstractDeclaratorSuffix+
+
+directAbstractDeclaratorSuffix ::= '[' constantExpression? ']'
+                                 | '(' parameterTypeList? ')'
+                           
+typedefName ::= Identifier
+               
+statement ::= labeledStatement
+            | expressionStatement
+            | compoundStatement
+            | selectionStatement
+            | iterationStatement
+            | jumpStatement
+            | Comment
+            
+labeledStatement ::= Identifier ':' statement
+                   | 'case' constantExpression ':' statement
+                   | 'default' ':' statement
+                   
+expressionStatement ::= expression? ';'
+                       
+compoundStatement ::= '{' blockItem* '}'
+
+blockItem ::= statement
+            | declaration
+
+statementList ::= statement+
+                
+selectionStatement ::= 'if' '(' expression ')' statement 'else' statement
+                     | 'if' '(' expression ')' statement
+                     | 'switch' '(' expression ')' statement
+                     
+iterationStatement ::= 'while' '(' expression ')' statement
+                     | 'do' statement 'while' '(' expression ')' ';'
+                     | 'for' '(' declaration expression? ';' expression? ')' statement
+                     | 'for' '(' expression? ';' expression? ';' expression? ')' statement
+                     
+jumpStatement ::= 'goto' Identifier ';'
+                | 'continue' ';'
+                | 'break' ';'
+                | 'return' expression? ';'
+                
+expression ::= assignmentExpression ( ',' assignmentExpression )*
+             
+assignmentExpression ::= conditionalExpression assignmentOperator assignmentExpression
+                       | conditionalExpression
+                       
+assignmentOperator ::= '=' | '*=' | '/=' | '%=' | '+=' | '-=' | '<<=' | '>>=' | '&=' | '^=' | '|='
+                      
+conditionalExpression ::= logicalOrExpression '?' expression ':' conditionalExpression
+                        | logicalOrExpression
+                        
+constantExpression ::= conditionalExpression
+                      
+logicalOrExpression ::= logicalAndExpression ( '||' logicalAndExpression )*
+                      
+logicalAndExpression ::= inclusiveOrExpression ( '&&' inclusiveOrExpression )*
+                       
+inclusiveOrExpression ::= exclusiveOrExpression ( '|' exclusiveOrExpression )*
+                        
+exclusiveOrExpression ::= andExpression ( '^' andExpression )*
+                        
+andExpression ::= equalityExpression ( '&' equalityExpression )*
+                
+equalityExpression ::= relationalExpression ( ( '==' | '!=' ) relationalExpression )*
+                     
+relationalExpression ::= shiftExpression ( ( '<' | '>' | '<=' | '>=' ) shiftExpression )*
+                       
+shiftExpression ::= additiveExpression ( ( '<<' | '>>' ) additiveExpression )*
+                  
+additiveExpression ::= multiplicativeExpression ( ( '+' | '-' ) multiplicativeExpression )*
+                     
+multiplicativeExpression ::= castExpression ( ( '*' | '/' | '%' ) castExpression )*
+                           
+castExpression ::= unaryExpression
+                 | '(' typeName ')' castExpression
+                 
+unaryExpression ::= postfixExpression
+                  | Comment unaryExpression
+                  | '++' unaryExpression
+                  | '--' unaryExpression
+                  | unaryOperator castExpression
+                  | 'sizeof' unaryExpression
+                  | 'sizeof' '(' typeName ')'
+                  
+unaryOperator ::= '&' | '*' | '+' | '-' | '~' | '!'
+                 
+postfixExpression ::= primaryExpression postfixSuffix*
+
+postfixSuffix ::= '[' expression ']'
+                | '(' argumentExpressionList? ')'
+                | '.' Identifier
+                | '->' Identifier
+                | '++'
+                | '--'
+                    
+primaryExpression ::= Identifier
+                    | constant
+                    | StringLiteral
+                    | '(' expression ')'
+                    
+argumentExpressionList ::= assignmentExpression ( ',' assignmentExpression )*
+                         
+constant ::= IntegerConstant
+           | CharacterConstant
+           | FloatingConstant
+           | Identifier
+           
+Ignore ::= WhiteSpace
+        /* ws: definition */
+
+<?TOKENS?>
+
+EOF ::= $
+
+Identifier ::= IdentifierName - ( Keyword | ConstantKeyword )
+
+IdentifierName ::= IdentifierStart IdentifierPart*
+
+IdentifierStart ::= [A-Z]
+                  | '_'
+                  | [a-z]
+                  | [#xC0-#xD6]
+                  | [#xD8-#xF6]
+                  | [#xF8-#x2FF]
+                  | [#x370-#x37D]
+                  | [#x37F-#x1FFF]
+                  | [#x200C-#x200D]
+                  | [#x2070-#x218F]
+                  | [#x2C00-#x2FEF]
+                  | [#x3001-#xD7FF]
+                  | [#xF900-#xFDCF]
+                  | [#xFDF0-#xFFFD]
+                  | [#x10000-#xEFFFF]
+
+IdentifierPart ::= IdentifierStart
+                 | [0-9]
+                 | '-'
+                 | '.'
+                 | #xB7
+                 | [#x0300-#x036F]
+                 | [#x203F-#x2040]
+
+Keyword ::= 'auto'
+          | 'break'
+          | 'case'
+          | 'char'
+          | 'const'
+          | 'continue'
+          | 'default'
+          | 'do'
+          | 'double'
+          | 'else'
+          | 'enum'
+          | 'extern'
+          | 'float'
+          | 'for'
+          | 'goto'
+          | 'if'
+          | 'int'
+          | 'long'
+          | 'register'
+          | 'return'
+          | 'short'
+          | 'signed'
+          | 'sizeof'
+          | 'static'
+          | 'struct'
+          | 'switch'
+          | 'typedef'
+          | 'union'
+          | 'unsigned'
+          | 'void'
+          | 'volatile'
+          | 'while'
+
+ConstantKeyword ::= 'true' | 'false' | 'null'
+
+IntegerConstant ::= DecimalConstant
+                  | OctalConstant
+                  | HexadecimalConstant
+                  | BinaryConstant
+
+DecimalConstant ::= [1-9] [0-9]*
+
+OctalConstant ::= '0' [0-7]*
+
+HexadecimalConstant ::= '0' [xX] [0-9a-fA-F]+
+
+BinaryConstant ::= '0' [bB] [01]+
+
+FloatingConstant ::= DecimalFloatingConstant
+                   | HexadecimalFloatingConstant
+
+DecimalFloatingConstant ::= [0-9]+ '.' [0-9]* ExponentPart? FloatSuffix?
+                          | '.' [0-9]+ ExponentPart? FloatSuffix?
+                          | [0-9]+ ExponentPart FloatSuffix?
+                          | [0-9]+ FloatSuffix
+
+ExponentPart ::= [eE] [+#x2D]? [0-9]+
+
+FloatSuffix ::= [fFlL]
+
+HexadecimalFloatingConstant ::= '0' [xX] HexadecimalPrefix BinaryExponentPart FloatSuffix?
+                              | '0' [xX] HexadecimalPrefix BinaryExponentPart FloatSuffix?
+
+HexadecimalPrefix ::= [0-9a-fA-F]+ '.' [0-9a-fA-F]*
+                   | '.' [0-9a-fA-F]+
+                   | [0-9a-fA-F]+
+
+BinaryExponentPart ::= [pP] [+#x2D]? [0-9]+
+
+CharacterConstant ::= '\\'? "'" CChar+ "'"
+
+CChar ::= [!-~]
+        | #x20
+        | EscapeSequence
+
+EscapeSequence ::= SimpleEscapeSequence
+                 | OctalEscapeSequence
+                 | HexadecimalEscapeSequence
+                 | UniversalCharacterName
+
+SimpleEscapeSequence ::= '\\' ['"\?\\abfnrtv]
+
+OctalEscapeSequence ::= '\\' [0-7] [0-7]? [0-7]?
+
+HexadecimalEscapeSequence ::= '\\' [xX] [0-9a-fA-F]+
+
+UniversalCharacterName ::= '\\' 'u' [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]
+                         | '\\' 'U' [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]
+                                   [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]
+
+StringLiteral ::= '"' SChar* '"'
+
+SChar ::= [!#-~]
+        | #x20
+        | #x9
+        | EscapeSequence
+
+WhiteSpace ::= ( Space | NewLine )+
+
+Space ::= #x20
+        | #x9
+        | #xB
+        | #xC
+
+NewLine ::= #xA
+          | #xD
+          | #xD #xA
+
+Comment ::= MultiLineComment
+          | SingleLineComment
+
+MultiLineComment ::= '/*' ( .* - ( .* '*/' .* ) ) '*/'
+
+SingleLineComment ::= '//' [^\n\r]* ( NewLine | EOF )
+
+PreprocessingDirective ::= PpControlLine
+                         | PpIfLine
+                         | PpElifLine
+                         | PpElseLine
+                         | PpEndifLine
+                         | PpEmptyLine
+
+PpControlLine ::= '#' Space* 'define' Space+ IdentifierName PpDefineTail
+                | '#' Space* 'undef' Space+ IdentifierName Space* ( NewLine | EOF )
+                | '#' Space* 'include' Space+ PpHeaderName Space* ( NewLine | EOF )
+                | '#' Space* 'line' Space+ IntegerConstant ( Space+ PpHeaderName )? Space* ( NewLine | EOF )
+                | '#' Space* 'error' ( Space+ PpTokenSequence )? Space* ( NewLine | EOF )
+                | '#' Space* 'pragma' ( Space+ PpTokenSequence )? Space* ( NewLine | EOF )
+
+PpDefineTail ::= ( Space+ PpTokenSequence )? Space* ( NewLine | EOF )
+               | '(' Space* PpParameterList? Space* ')' ( Space+ PpTokenSequence )? Space* ( NewLine | EOF )
+
+PpParameterList ::= IdentifierName ( Space* ',' Space* IdentifierName )* ( Space* ',' Space* '...' )?
+                  | '...'
+
+PpIfLine ::= '#' Space* 'if' Space+ PpTokenSequence? Space* ( NewLine | EOF )
+           | '#' Space* 'ifdef' Space+ IdentifierName Space* ( NewLine | EOF )
+           | '#' Space* 'ifndef' Space+ IdentifierName Space* ( NewLine | EOF )
+
+PpElifLine ::= '#' Space* 'elif' Space+ PpTokenSequence? Space* ( NewLine | EOF )
+
+PpElseLine ::= '#' Space* 'else' Space* ( NewLine | EOF )
+
+PpEndifLine ::= '#' Space* 'endif' Space* ( NewLine | EOF )
+
+PpEmptyLine ::= '#' Space* ( NewLine | EOF )
+
+PpHeaderName ::= '<' PpAngleHeaderChar+ '>'
+               | '"' PpQuoteHeaderChar* '"'
+
+PpAngleHeaderChar ::= [#x20-#x3D]
+                    | [#x3F-#x7E]
+                    | #x9
+
+PpQuoteHeaderChar ::= [#x20-#x21]
+                    | [#x23-#x7E]
+                    | #x9
+
+PpTokenSequence ::= PpTokenChar+
+
+PpTokenChar ::= [#x20-#x7E]
+              | #x9
