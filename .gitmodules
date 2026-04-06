@@ -1,0 +1,6 @@
+[submodule "maiacc"]
+	path = maiacc
+	url = https://github.com/souzamonteiro/maiacc.git
+[submodule "maiawasm"]
+	path = maiawasm
+	url = https://github.com/souzamonteiro/maiawasm.git
