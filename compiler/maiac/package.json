@@ -1,0 +1,11 @@
+{
+  "name": "maiac-compiler-v1",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Layered MaiaC compiler scaffold (C subset -> WAT)",
+  "main": "src/pipeline/compile.js",
+  "scripts": {
+    "compile": "node src/cli/maiac.js",
+    "test": "node --test tests/e2e/smoke.test.js"
+  }
+}
