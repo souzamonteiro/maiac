@@ -1,0 +1,720 @@
+'use strict';
+
+function escapeRegex(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseCIntegerLiteral(text) {
+  const value = String(text || '').trim().replace(/[uUlL]+$/g, '');
+  if (/^0[xX][0-9a-fA-F]+$/.test(value)) return parseInt(value.slice(2), 16);
+  if (/^0[bB][01]+$/.test(value)) return parseInt(value.slice(2), 2);
+  if (/^0[0-7]+$/.test(value) && value.length > 1) return parseInt(value.slice(1), 8);
+  return parseInt(value, 10);
+}
+
+function parseCCharacterLiteral(text) {
+  const raw = String(text || '').trim();
+  const body = raw.replace(/^L?'/, '').replace(/'$/, '');
+
+  const escapes = {
+    '\\n': 10,
+    '\\r': 13,
+    '\\t': 9,
+    '\\0': 0,
+    '\\a': 7,
+    '\\b': 8,
+    '\\f': 12,
+    '\\v': 11,
+    "\\'": 39,
+    '\\"': 34,
+    '\\\\': 92
+  };
+
+  if (Object.prototype.hasOwnProperty.call(escapes, body)) {
+    return escapes[body];
+  }
+
+  if (/^\\x[0-9a-fA-F]+$/.test(body)) {
+    return parseInt(body.slice(2), 16);
+  }
+
+  if (/^\\[0-7]{1,3}$/.test(body)) {
+    return parseInt(body.slice(1), 8);
+  }
+
+  return body.codePointAt(0);
+}
+
+function normalizeNewlines(source) {
+  return String(source || '').replace(/\r\n?/g, '\n');
+}
+
+function joinLineContinuations(source) {
+  return normalizeNewlines(source).replace(/\\\n/g, ' ');
+}
+
+function synthesizeTypedefTag(kind, alias) {
+  return `__maiac_${kind}_${alias}`;
+}
+
+function injectAnonymousTypedefTags(source) {
+  let text = String(source || '');
+
+  for (const kind of ['struct', 'union', 'enum']) {
+    const pattern = new RegExp(`typedef\\s+${kind}\\s*\\{([\\s\\S]*?)\\}\\s*([A-Za-z_]\\w*)\\s*;`, 'g');
+    text = text.replace(pattern, (_match, body, alias) => {
+      const tag = synthesizeTypedefTag(kind, alias);
+      return `typedef ${kind} ${tag} {${body}} ${alias};`;
+    });
+  }
+
+  return text;
+}
+
+function collectNamedAggregateTags(source) {
+  const tags = [];
+  const text = String(source || '');
+  const pattern = /\b(?:struct|union)\s+([A-Za-z_]\w*)\s*\{/g;
+  let match = null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    tags.push(match[1]);
+  }
+
+  return tags;
+}
+
+function collectTypedefAliases(source) {
+  const text = String(source || '');
+  const aliases = new Map([
+    ['size_t', 'int']
+  ]);
+
+  const patterns = [
+    {
+      regex: /typedef\s+struct\s+([A-Za-z_]\w*)\s*\{[\s\S]*?\}\s*([A-Za-z_]\w*)\s*;/g,
+      createReplacement: (match) => `struct ${match[1]}`,
+      aliasIndex: 2
+    },
+    {
+      regex: /typedef\s+union\s+([A-Za-z_]\w*)\s*\{[\s\S]*?\}\s*([A-Za-z_]\w*)\s*;/g,
+      createReplacement: (match) => `union ${match[1]}`,
+      aliasIndex: 2
+    },
+    {
+      regex: /typedef\s+enum\s+([A-Za-z_]\w*)\s*\{[\s\S]*?\}\s*([A-Za-z_]\w*)\s*;/g,
+      createReplacement: (match) => `enum ${match[1]}`,
+      aliasIndex: 2
+    },
+    {
+      regex: /typedef\s+struct\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*;/g,
+      createReplacement: (match) => `struct ${match[1]}`,
+      aliasIndex: 2
+    },
+    {
+      regex: /typedef\s+enum\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*;/g,
+      createReplacement: (match) => `enum ${match[1]}`,
+      aliasIndex: 2
+    },
+    {
+      regex: /typedef\s+union\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*;/g,
+      createReplacement: (match) => `union ${match[1]}`,
+      aliasIndex: 2
+    },
+    {
+      regex: /typedef\s+([A-Za-z_][\w\s]*?)\s*(\*+)\s*([A-Za-z_]\w*)\s*;/g,
+      createReplacement: (match) => `${String(match[1] || '').trim()} ${match[2]}`.trim(),
+      aliasIndex: 3
+    },
+    {
+      regex: /typedef\s+([A-Za-z_][\w\s]*?)\s+([A-Za-z_]\w*)\s*;/g,
+      createReplacement: (match) => String(match[1] || '').trim(),
+      aliasIndex: 2
+    }
+  ];
+
+  for (const pattern of patterns) {
+    let match = null;
+    while ((match = pattern.regex.exec(text)) !== null) {
+      const aliasName = match[pattern.aliasIndex];
+      if (!aliasName || aliases.has(aliasName)) {
+        continue;
+      }
+      aliases.set(aliasName, pattern.createReplacement(match));
+    }
+  }
+
+  return aliases;
+}
+
+function collectPreprocessorMacros(source) {
+  const macros = new Map();
+  const cleanedLines = [];
+
+  for (const line of normalizeNewlines(source).split('\n')) {
+    const trimmed = line.trim();
+
+    if (/^#\s*define\b/.test(trimmed)) {
+      const rest = trimmed.replace(/^#\s*define\s+/, '');
+      const functionMatch = rest.match(/^([A-Za-z_]\w*)\(([^)]*)\)\s*(.*)$/);
+
+      if (functionMatch) {
+        const [, name, paramsText, bodyText] = functionMatch;
+        const params = paramsText.trim()
+          ? paramsText.split(',').map((param) => param.trim()).filter(Boolean)
+          : [];
+        macros.set(name, {
+          kind: 'function',
+          params,
+          body: String(bodyText || '').trim()
+        });
+      } else {
+        const objectMatch = rest.match(/^([A-Za-z_]\w*)(?:\s+(.*))?$/);
+        if (objectMatch) {
+          macros.set(objectMatch[1], {
+            kind: 'object',
+            params: [],
+            body: String(objectMatch[2] || '1').trim()
+          });
+        }
+      }
+
+      cleanedLines.push('');
+      continue;
+    }
+
+    if (/^#/.test(trimmed)) {
+      cleanedLines.push('');
+      continue;
+    }
+
+    cleanedLines.push(line);
+  }
+
+  return {
+    macros,
+    text: cleanedLines.join('\n')
+  };
+}
+
+function readMacroInvocation(text, openParenIndex) {
+  if (text[openParenIndex] !== '(') {
+    return null;
+  }
+
+  const args = [];
+  let current = '';
+  let depth = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let index = openParenIndex; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (inSingleQuote) {
+      current += char;
+      if (char === '\\' && next != null) {
+        current += next;
+        index += 1;
+        continue;
+      }
+      if (char === "'") {
+        inSingleQuote = false;
+      }
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      current += char;
+      if (char === '\\' && next != null) {
+        current += next;
+        index += 1;
+        continue;
+      }
+      if (char === '"') {
+        inDoubleQuote = false;
+      }
+      continue;
+    }
+
+    if (char === "'") {
+      current += char;
+      inSingleQuote = true;
+      continue;
+    }
+
+    if (char === '"') {
+      current += char;
+      inDoubleQuote = true;
+      continue;
+    }
+
+    if (char === '(') {
+      depth += 1;
+      if (depth > 1) {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        const finalArg = current.trim();
+        if (finalArg || args.length > 0) {
+          args.push(finalArg);
+        }
+        return {
+          args,
+          endIndex: index + 1
+        };
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === ',' && depth === 1) {
+      args.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  return null;
+}
+
+function expandFunctionMacro(macro, args) {
+  let expanded = String(macro.body || '');
+
+  for (let index = 0; index < macro.params.length; index += 1) {
+    const param = macro.params[index];
+    const value = `(${String(args[index] || '').trim()})`;
+    expanded = expanded.replace(new RegExp(`\\b${escapeRegex(param)}\\b`, 'g'), value);
+  }
+
+  return expanded ? `(${expanded})` : '';
+}
+
+function expandMacrosOnce(source, macros) {
+  let result = '';
+  let index = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (inLineComment) {
+      result += char;
+      if (char === '\n') {
+        inLineComment = false;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      result += char;
+      if (char === '*' && next === '/') {
+        result += '/';
+        index += 2;
+        inBlockComment = false;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (inSingleQuote) {
+      result += char;
+      if (char === '\\' && next != null) {
+        result += next;
+        index += 2;
+        continue;
+      }
+      if (char === "'") {
+        inSingleQuote = false;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      result += char;
+      if (char === '\\' && next != null) {
+        result += next;
+        index += 2;
+        continue;
+      }
+      if (char === '"') {
+        inDoubleQuote = false;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (char === '/' && next === '/') {
+      result += '//';
+      index += 2;
+      inLineComment = true;
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      result += '/*';
+      index += 2;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (char === "'") {
+      result += char;
+      index += 1;
+      inSingleQuote = true;
+      continue;
+    }
+
+    if (char === '"') {
+      result += char;
+      index += 1;
+      inDoubleQuote = true;
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(char)) {
+      let cursor = index + 1;
+      while (cursor < source.length && /[A-Za-z0-9_]/.test(source[cursor])) {
+        cursor += 1;
+      }
+
+      const identifier = source.slice(index, cursor);
+      const macro = macros.get(identifier);
+
+      if (!macro) {
+        result += identifier;
+        index = cursor;
+        continue;
+      }
+
+      if (macro.kind === 'object') {
+        result += macro.body ? `(${macro.body})` : '1';
+        index = cursor;
+        continue;
+      }
+
+      let callIndex = cursor;
+      while (callIndex < source.length && /\s/.test(source[callIndex])) {
+        callIndex += 1;
+      }
+
+      if (source[callIndex] !== '(') {
+        result += identifier;
+        index = cursor;
+        continue;
+      }
+
+      const invocation = readMacroInvocation(source, callIndex);
+      if (!invocation) {
+        result += identifier;
+        index = cursor;
+        continue;
+      }
+
+      result += expandFunctionMacro(macro, invocation.args);
+      index = invocation.endIndex;
+      continue;
+    }
+
+    result += char;
+    index += 1;
+  }
+
+  return result;
+}
+
+function expandMacros(source, macros) {
+  let text = String(source || '');
+
+  for (let iteration = 0; iteration < 8; iteration += 1) {
+    const expanded = expandMacrosOnce(text, macros);
+    if (expanded === text) {
+      break;
+    }
+    text = expanded;
+  }
+
+  return text;
+}
+
+function preprocessCSource(source) {
+  let text = injectAnonymousTypedefTags(joinLineContinuations(source));
+  const { macros, text: withoutDirectives } = collectPreprocessorMacros(text);
+  text = expandMacros(withoutDirectives, macros);
+
+  const typedefAliases = collectTypedefAliases(text);
+  const functionPointerAliases = new Map();
+  const pointerAliases = new Map();
+  const strippedKeywords = new Set(['static', 'register', 'extern', 'auto']);
+
+  text = text.replace(
+    /([A-Za-z_][\w\s*]*?)\*\*\s*([A-Za-z_]\w*)\s*=\s*&\s*([A-Za-z_]\w*)\s*;/g,
+    (_match, baseType, aliasName, targetName) => {
+      pointerAliases.set(aliasName, targetName);
+      const normalizedType = String(baseType || 'int').trim().replace(/\s+/g, ' ');
+      return `${normalizedType} *${aliasName} = ${targetName};`;
+    }
+  );
+
+  text = text.replace(
+    /([A-Za-z_][\w\s*]*?)\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\(([^;{}]*)\)\s*=\s*&\s*([A-Za-z_]\w*)\s*;/g,
+    (_match, returnType, aliasName, _params, targetName) => {
+      functionPointerAliases.set(aliasName, targetName);
+      const normalizedType = String(returnType || 'int').trim().replace(/\s+/g, ' ');
+      return `${normalizedType} *${aliasName} = 0;`;
+    }
+  );
+
+  for (const [aliasName, targetName] of functionPointerAliases.entries()) {
+    text = text.replace(new RegExp(`\\(\\s*\\*\\s*${escapeRegex(aliasName)}\\s*\\)\\s*\\(`, 'g'), `${targetName}(`);
+    text = text.replace(new RegExp(`\\b${escapeRegex(aliasName)}\\s*\\(`, 'g'), `${targetName}(`);
+  }
+
+  for (const aliasName of pointerAliases.keys()) {
+    text = text.replace(new RegExp(`\\*\\*\\s*${escapeRegex(aliasName)}\\b`, 'g'), `*${aliasName}`);
+  }
+
+  let result = '';
+  let index = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let inPreprocessor = false;
+  let inTypedefStatement = false;
+  let typedefBraceDepth = 0;
+  let lineHasOnlyWhitespace = true;
+
+  while (index < text.length) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (inPreprocessor) {
+      if (char === '\n') {
+        result += '\n';
+        inPreprocessor = false;
+        lineHasOnlyWhitespace = true;
+      } else {
+        result += ' ';
+      }
+      index += 1;
+      continue;
+    }
+
+    if (inLineComment) {
+      if (char === '\n') {
+        result += '\n';
+        inLineComment = false;
+        lineHasOnlyWhitespace = true;
+      } else {
+        result += ' ';
+      }
+      index += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (char === '*' && next === '/') {
+        result += '  ';
+        index += 2;
+        inBlockComment = false;
+        continue;
+      }
+      result += char === '\n' ? '\n' : ' ';
+      if (char === '\n') {
+        lineHasOnlyWhitespace = true;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (inSingleQuote) {
+      result += char;
+      if (char === '\\' && next != null) {
+        result += next;
+        index += 2;
+        continue;
+      }
+      if (char === "'") {
+        inSingleQuote = false;
+      }
+      index += 1;
+      lineHasOnlyWhitespace = false;
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      result += char;
+      if (char === '\\' && next != null) {
+        result += next;
+        index += 2;
+        continue;
+      }
+      if (char === '"') {
+        inDoubleQuote = false;
+      }
+      index += 1;
+      lineHasOnlyWhitespace = false;
+      continue;
+    }
+
+    if (lineHasOnlyWhitespace && char === '#') {
+      result += ' ';
+      index += 1;
+      inPreprocessor = true;
+      continue;
+    }
+
+    if (char === '/' && next === '/') {
+      result += '  ';
+      index += 2;
+      inLineComment = true;
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      result += '  ';
+      index += 2;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (char === "'") {
+      let literal = char;
+      let cursor = index + 1;
+      let closed = false;
+
+      while (cursor < text.length) {
+        const current = text[cursor];
+        literal += current;
+
+        if (current === '\\' && cursor + 1 < text.length) {
+          literal += text[cursor + 1];
+          cursor += 2;
+          continue;
+        }
+
+        cursor += 1;
+        if (current === "'") {
+          closed = true;
+          break;
+        }
+      }
+
+      if (closed) {
+        try {
+          result += String(parseCCharacterLiteral(literal));
+          index = cursor;
+          lineHasOnlyWhitespace = false;
+          continue;
+        } catch (_error) {
+          result += literal;
+          index = cursor;
+          lineHasOnlyWhitespace = false;
+          continue;
+        }
+      }
+
+      result += char;
+      inSingleQuote = true;
+      index += 1;
+      lineHasOnlyWhitespace = false;
+      continue;
+    }
+
+    if (char === '"') {
+      result += char;
+      inDoubleQuote = true;
+      index += 1;
+      lineHasOnlyWhitespace = false;
+      continue;
+    }
+
+    if (char === '-' && next === '>') {
+      result += '.__arrow__.';
+      index += 2;
+      lineHasOnlyWhitespace = false;
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(char)) {
+      let cursor = index + 1;
+      while (cursor < text.length && /[A-Za-z0-9_]/.test(text[cursor])) {
+        cursor += 1;
+      }
+
+      const identifier = text.slice(index, cursor);
+      if (identifier === 'typedef') {
+        inTypedefStatement = true;
+      }
+
+      const allowTypedefSubstitution = !inTypedefStatement || typedefBraceDepth > 0;
+
+      if (allowTypedefSubstitution && strippedKeywords.has(identifier)) {
+        result += ' '.repeat(identifier.length);
+      } else if (allowTypedefSubstitution && typedefAliases.has(identifier)) {
+        result += typedefAliases.get(identifier);
+      } else {
+        result += identifier;
+      }
+
+      index = cursor;
+      lineHasOnlyWhitespace = false;
+      continue;
+    }
+
+    if (/[0-9]/.test(char)) {
+      const previous = index > 0 ? text[index - 1] : '';
+      if (!/[A-Za-z0-9_.]/.test(previous || '')) {
+        const remaining = text.slice(index);
+        const numericMatch = remaining.match(/^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[0-7]+|[0-9]+)([uUlL]+)?\b/);
+        if (numericMatch && (numericMatch[2] || /^0[xXbB]/.test(numericMatch[1]) || /^0[0-7]+$/.test(numericMatch[1]))) {
+          result += String(parseCIntegerLiteral(numericMatch[1]));
+          index += numericMatch[0].length;
+          lineHasOnlyWhitespace = false;
+          continue;
+        }
+      }
+    }
+
+    result += char;
+    if (inTypedefStatement && char === '{') {
+      typedefBraceDepth += 1;
+    } else if (inTypedefStatement && char === '}') {
+      typedefBraceDepth = Math.max(0, typedefBraceDepth - 1);
+    }
+    if (char === ';' && (!inTypedefStatement || typedefBraceDepth === 0)) {
+      inTypedefStatement = false;
+    }
+    if (char === '\n') {
+      lineHasOnlyWhitespace = true;
+    } else if (!/\s/.test(char)) {
+      lineHasOnlyWhitespace = false;
+    }
+    index += 1;
+  }
+
+  return result;
+}
+
+module.exports = {
+  collectNamedAggregateTags,
+  collectTypedefAliases,
+  preprocessCSource,
+  normalizeSourceForCurrentParser: preprocessCSource
+};

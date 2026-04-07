@@ -1,0 +1,3975 @@
+#!/usr/bin/env node
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const Parser = require('./c-parser');
+const { ParseTreeCollector, printTree } = require('./parse-tree-collector');
+const { renderModule } = require('./wat-templates');
+const {
+  preprocessCSource,
+  collectNamedAggregateTags,
+  collectTypedefAliases: collectTypedefAliasesFromPreprocessor
+} = require('./c-preprocessor');
+
+let WatAssembler = null;
+try {
+  WatAssembler = require('../maiawasm/assembler/wat-assembler.js');
+} catch (_error) {
+  WatAssembler = null;
+}
+
+const SUPPORTED_BACKENDS = {
+  wat: emitWatFromModule
+};
+
+class CompilationError extends Error {
+  constructor(message, nodeName = null) {
+    super(nodeName ? `${message} (${nodeName})` : message);
+    this.name = 'CompilationError';
+  }
+}
+
+function getNodeName(node) {
+  return node && node.kind === 'nonterminal' ? String(node.name || '').trim() : null;
+}
+
+function isNonterminal(node, name = null) {
+  return !!node && node.kind === 'nonterminal' && (!name || getNodeName(node) === name);
+}
+
+function isTerminal(node, token = null) {
+  return !!node && node.kind === 'terminal' && (!token || node.token === token);
+}
+
+function childNodes(node) {
+  return Array.isArray(node && node.children) ? node.children : [];
+}
+
+function nonterminalChildren(node, name = null) {
+  return childNodes(node).filter((child) => isNonterminal(child, name));
+}
+
+function terminalChildren(node, token = null) {
+  return childNodes(node).filter((child) => isTerminal(child, token));
+}
+
+function firstNonterminal(node, name) {
+  return nonterminalChildren(node, name)[0] || null;
+}
+
+function firstTerminal(node, token = null) {
+  return terminalChildren(node, token)[0] || null;
+}
+
+function findFirst(node, predicate) {
+  if (!node) return null;
+  if (predicate(node)) return node;
+  for (const child of childNodes(node)) {
+    const match = findFirst(child, predicate);
+    if (match) return match;
+  }
+  return null;
+}
+
+function findAll(node, predicate, results = []) {
+  if (!node) return results;
+  if (predicate(node)) results.push(node);
+  for (const child of childNodes(node)) {
+    findAll(child, predicate, results);
+  }
+  return results;
+}
+
+function findFirstNonterminal(node, name) {
+  return findFirst(node, (candidate) => isNonterminal(candidate, name));
+}
+
+function findFirstTerminal(node, token) {
+  return findFirst(node, (candidate) => isTerminal(candidate, token));
+}
+
+function sanitizeIdentifier(name) {
+  return String(name || 'unnamed').replace(/[^A-Za-z0-9_.$-]/g, '_');
+}
+
+function alignTo(value, alignment) {
+  const safeAlignment = Math.max(1, alignment || 1);
+  return Math.ceil(value / safeAlignment) * safeAlignment;
+}
+
+function countPointerDepthInDeclarator(declaratorNode) {
+  return findAll(
+    declaratorNode,
+    (candidate) => candidate && candidate.kind === 'terminal' && candidate.token === 'TOKEN__2A_'
+  ).length;
+}
+
+function getTypeSize(watType = 'i32') {
+  switch (watType) {
+    case 'i64':
+    case 'f64':
+      return 8;
+    default:
+      return 4;
+  }
+}
+
+function getDimensionProduct(dimensions = []) {
+  const validDimensions = Array.isArray(dimensions)
+    ? dimensions.filter((value) => Number.isInteger(value) && value > 0)
+    : [];
+
+  return validDimensions.length > 0
+    ? validDimensions.reduce((product, value) => product * value, 1)
+    : 1;
+}
+
+function getSymbolArrayDimensions(symbol) {
+  if (!symbol) return [];
+  if (Array.isArray(symbol.arrayDimensions) && symbol.arrayDimensions.length > 0) {
+    return [...symbol.arrayDimensions];
+  }
+  if (Number.isInteger(symbol.arrayLength) && symbol.arrayLength > 0) {
+    return [symbol.arrayLength];
+  }
+  return [];
+}
+
+function getSymbolSize(symbol) {
+  if (!symbol) return 4;
+  if (symbol.structLayout && (symbol.isStruct || symbol.typeKind === 'struct')) {
+    return symbol.structLayout.size || 4;
+  }
+  if (symbol.isArray) {
+    return getTypeSize(symbol.baseWatType || symbol.watType || 'i32') * getDimensionProduct(getSymbolArrayDimensions(symbol));
+  }
+  if ((symbol.pointerDepth || 0) > 0) return 4;
+  return getTypeSize(symbol.baseWatType || symbol.watType || 'i32');
+}
+
+function resolveDirectSymbol(name, context) {
+  return context.locals.get(name)
+    || context.params.get(name)
+    || context.module.globalsByName.get(name)
+    || null;
+}
+
+function extractStructTagNameFromSpecifierNode(structSpecifier) {
+  if (!structSpecifier) return null;
+
+  for (const child of childNodes(structSpecifier)) {
+    if (isNonterminal(child, 'structDeclarationList')) {
+      break;
+    }
+
+    if (isTerminal(child, 'Identifier')) {
+      return child.value;
+    }
+
+    const nestedIdentifier = findFirstTerminal(child, 'Identifier');
+    if (nestedIdentifier) {
+      return nestedIdentifier.value;
+    }
+  }
+
+  return null;
+}
+
+function createStructLayout(fields = [], preferredName = null) {
+  let offset = 0;
+  const layout = {
+    name: preferredName || null,
+    size: 0,
+    fields: [],
+    fieldsByName: new Map()
+  };
+
+  for (const field of fields) {
+    const fieldSize = getSymbolSize(field);
+    const alignment = fieldSize >= 8 ? 8 : 4;
+    offset = alignTo(offset, alignment);
+
+    const layoutField = {
+      ...field,
+      offset,
+      size: fieldSize
+    };
+
+    layout.fields.push(layoutField);
+    layout.fieldsByName.set(layoutField.sourceName, layoutField);
+    offset += fieldSize;
+  }
+
+  layout.size = alignTo(offset, 4);
+  return layout;
+}
+
+function extractStructFieldDefinitions(structDeclarationList, moduleModel = null) {
+  if (!structDeclarationList) {
+    return [];
+  }
+
+  const fields = [];
+
+  for (const structDeclaration of nonterminalChildren(structDeclarationList, 'structDeclaration')) {
+    const specifierQualifierList = firstNonterminal(structDeclaration, 'specifierQualifierList');
+    const fieldTypeInfo = extractDeclarationTypeInfo(specifierQualifierList, moduleModel);
+    const structDeclaratorList = firstNonterminal(structDeclaration, 'structDeclaratorList');
+
+    for (const structDeclarator of nonterminalChildren(structDeclaratorList, 'structDeclarator')) {
+      const declaratorNode = firstNonterminal(structDeclarator, 'declarator');
+      if (!declaratorNode) {
+        continue;
+      }
+
+      const declaratorInfo = extractDeclaratorInfo(declaratorNode);
+      const arrayDimensions = extractArrayDimensionsFromDeclarator(declaratorNode);
+      const isArray = arrayDimensions.length > 0;
+      const pointerDepth = declaratorInfo.pointerDepth || 0;
+      const isStruct = fieldTypeInfo.typeKind === 'struct' && pointerDepth === 0;
+      const watType = (isStruct || pointerDepth > 0 || isArray) ? 'i32' : fieldTypeInfo.baseWatType;
+
+      fields.push({
+        sourceName: declaratorInfo.sourceName,
+        name: declaratorInfo.name,
+        cType: fieldTypeInfo.cType,
+        typeKind: fieldTypeInfo.typeKind,
+        structName: fieldTypeInfo.structName || null,
+        structLayout: fieldTypeInfo.structLayout || null,
+        isStruct,
+        pointerDepth,
+        baseWatType: fieldTypeInfo.baseWatType,
+        watType,
+        isArray,
+        arrayLength: isArray ? (arrayDimensions[0] ?? null) : null,
+        arrayDimensions
+      });
+    }
+  }
+
+  return fields;
+}
+
+function extractDeclarationTypeInfo(specifierNode, moduleModel = null) {
+  const structSpecifier = findTypeSpecifierNode(specifierNode, 'structOrUnionSpecifier');
+
+  if (structSpecifier) {
+    const structName = extractStructTagNameFromSpecifierNode(structSpecifier);
+    const structDeclarationList = firstNonterminal(structSpecifier, 'structDeclarationList');
+    const structLayout = structDeclarationList
+      ? createStructLayout(extractStructFieldDefinitions(structDeclarationList, moduleModel), structName)
+      : (structName && moduleModel ? resolveStructLayout(structName, moduleModel, null) : null);
+
+    return {
+      typeKind: 'struct',
+      cType: structName ? `struct ${structName}` : 'struct',
+      structName,
+      structLayout,
+      baseWatType: 'i32'
+    };
+  }
+
+  const cType = extractBuiltinType(specifierNode);
+  return {
+    typeKind: 'builtin',
+    cType,
+    structName: null,
+    structLayout: null,
+    baseWatType: mapCTypeToWat(cType)
+  };
+}
+
+function registerStructLayout(layout, moduleModel, explicitName = null) {
+  if (!layout || !moduleModel) {
+    return layout || null;
+  }
+
+  if (!moduleModel.structsByName) {
+    moduleModel.structsByName = new Map();
+  }
+  if (!moduleModel.pendingStructLayouts) {
+    moduleModel.pendingStructLayouts = [];
+  }
+
+  let name = explicitName || layout.name;
+  if (!name && Array.isArray(moduleModel.pendingAggregateTags) && moduleModel.pendingAggregateTags.length > 0) {
+    name = moduleModel.pendingAggregateTags.shift() || null;
+  }
+
+  if (name) {
+    layout.name = name;
+    moduleModel.structsByName.set(name, layout);
+    moduleModel.pendingStructLayouts = moduleModel.pendingStructLayouts.filter((candidate) => candidate !== layout);
+  } else if (!moduleModel.pendingStructLayouts.includes(layout)) {
+    moduleModel.pendingStructLayouts.push(layout);
+  }
+
+  return layout;
+}
+
+function finalizeStructLayout(layout, moduleModel, seenLayouts = new Set()) {
+  if (!layout || !moduleModel || seenLayouts.has(layout)) {
+    return layout || null;
+  }
+
+  seenLayouts.add(layout);
+
+  let offset = 0;
+  for (const field of layout.fields || []) {
+    if (field.isStruct && !field.structLayout && field.structName) {
+      field.structLayout = resolveStructLayout(field.structName, moduleModel, null, seenLayouts);
+    } else if (field.structLayout) {
+      finalizeStructLayout(field.structLayout, moduleModel, seenLayouts);
+    }
+
+    const fieldSize = getSymbolSize(field);
+    const alignment = fieldSize >= 8 ? 8 : 4;
+    offset = alignTo(offset, alignment);
+    field.offset = offset;
+    field.size = fieldSize;
+    offset += fieldSize;
+  }
+
+  layout.size = alignTo(offset, 4);
+  return layout;
+}
+
+function resolveStructLayout(structName, moduleModel, inlineLayout = null, seenLayouts = new Set()) {
+  if (!moduleModel) {
+    return inlineLayout || null;
+  }
+
+  let layout = null;
+
+  if (inlineLayout) {
+    layout = registerStructLayout(inlineLayout, moduleModel, structName || inlineLayout.name || null);
+  } else if (structName && moduleModel.structsByName && moduleModel.structsByName.has(structName)) {
+    layout = moduleModel.structsByName.get(structName);
+  } else if (structName && moduleModel.pendingStructLayouts && moduleModel.pendingStructLayouts.length > 0) {
+    const matchingPending = moduleModel.pendingStructLayouts.find((candidate) => candidate && candidate.name === structName);
+    const unnamedPending = moduleModel.pendingStructLayouts.find((candidate) => candidate && !candidate.name);
+    const fallbackLayout = matchingPending || unnamedPending || moduleModel.pendingStructLayouts[0];
+    layout = registerStructLayout(fallbackLayout, moduleModel, structName || (fallbackLayout && fallbackLayout.name) || null);
+  }
+
+  return layout ? finalizeStructLayout(layout, moduleModel, seenLayouts) : null;
+}
+
+function resolveMemberAccess(name, context) {
+  const parts = String(name || '').split('.').filter(Boolean);
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const baseName = parts[0];
+  const baseSymbol = resolveDirectSymbol(baseName, context);
+  if (!baseSymbol) {
+    throw new CompilationError(`Unknown base symbol '${baseName}'`, context.function.sourceName);
+  }
+
+  if (baseSymbol.stackOffset == null) {
+    throw new CompilationError(`Struct member access is currently supported only for frame-backed locals and parameters ('${baseName}')`, context.function.sourceName);
+  }
+
+  let index = 1;
+  let structLayout = null;
+  let addressInstructions = null;
+
+  if (parts[index] === '__arrow__') {
+    if ((baseSymbol.pointerDepth || 0) <= 0) {
+      throw new CompilationError(`'${baseName}' is not a pointer-to-struct value`, context.function.sourceName);
+    }
+
+    structLayout = resolveStructLayout(baseSymbol.structName, context.module, baseSymbol.structLayout || null);
+    if (!structLayout) {
+      throw new CompilationError(`Unknown struct layout for pointer '${baseName}'`, context.function.sourceName);
+    }
+
+    addressInstructions = compileExpression(
+      { kind: 'terminal', token: 'Identifier', value: baseName },
+      context,
+      { keepValue: true }
+    );
+    index += 1;
+  } else {
+    structLayout = resolveStructLayout(baseSymbol.structName, context.module, baseSymbol.structLayout || null);
+    if (!structLayout) {
+      throw new CompilationError(`Unknown struct layout for '${baseName}'`, context.function.sourceName);
+    }
+    addressInstructions = emitAddressOfSymbol(baseName, context);
+  }
+
+  let field = null;
+
+  while (index < parts.length) {
+    const fieldName = parts[index];
+    if (fieldName === '__arrow__') {
+      throw new CompilationError(`Malformed struct pointer access near '${name}'`, context.function.sourceName);
+    }
+
+    field = structLayout.fieldsByName.get(fieldName);
+    if (!field) {
+      throw new CompilationError(`Unknown struct field '${fieldName}' on '${parts.slice(0, index).join('.')}'`, context.function.sourceName);
+    }
+
+    addressInstructions = addressInstructions.concat(`i32.const ${field.offset}`, 'i32.add');
+    const nextPart = parts[index + 1] || null;
+
+    if (nextPart === '__arrow__') {
+      if ((field.pointerDepth || 0) <= 0) {
+        throw new CompilationError(`Field '${fieldName}' is not a pointer and cannot use '->'`, context.function.sourceName);
+      }
+
+      structLayout = resolveStructLayout(field.structName, context.module, field.structLayout || null);
+      if (!structLayout) {
+        throw new CompilationError(`Unknown pointed struct layout for field '${fieldName}'`, context.function.sourceName);
+      }
+
+      addressInstructions = addressInstructions.concat(getLoadOpcodeForType(field.watType || 'i32'));
+      index += 2;
+      continue;
+    }
+
+    if (nextPart) {
+      if (!field.isStruct) {
+        throw new CompilationError(`Field '${fieldName}' is not a nested struct`, context.function.sourceName);
+      }
+
+      structLayout = resolveStructLayout(field.structName, context.module, field.structLayout || null);
+      if (!structLayout) {
+        throw new CompilationError(`Unknown nested struct layout for field '${fieldName}'`, context.function.sourceName);
+      }
+    } else {
+      structLayout = field.isStruct
+        ? resolveStructLayout(field.structName, context.module, field.structLayout || null)
+        : null;
+    }
+
+    index += 1;
+  }
+
+  return {
+    baseSymbol,
+    field,
+    addressInstructions,
+    watType: field ? (field.watType || field.baseWatType || 'i32') : (baseSymbol.watType || 'i32'),
+    isStruct: !!(field && field.isStruct),
+    structLayout
+  };
+}
+
+function parseCIntegerLiteral(text) {
+  const value = String(text).trim();
+  if (/^0[xX][0-9a-fA-F]+$/.test(value)) return parseInt(value.slice(2), 16);
+  if (/^0[bB][01]+$/.test(value)) return parseInt(value.slice(2), 2);
+  if (/^0[0-7]+$/.test(value) && value.length > 1) return parseInt(value.slice(1), 8);
+  return parseInt(value, 10);
+}
+
+function parseCFloatingLiteral(text) {
+  const raw = String(text || '').trim();
+  const normalized = raw.replace(/[fFlL]+$/, '');
+  const numericValue = Number(normalized);
+
+  if (Number.isFinite(numericValue)) {
+    return numericValue;
+  }
+
+  if (/^0[xX][0-9a-fA-F]+$/.test(normalized)) {
+    return parseInt(normalized.slice(2), 16);
+  }
+
+  return 0;
+}
+
+function parseCCharacterLiteral(text) {
+  const raw = String(text).trim();
+  const body = raw.replace(/^L?'/, '').replace(/'$/, '');
+
+  const escapes = {
+    '\\n': 10,
+    '\\r': 13,
+    '\\t': 9,
+    '\\0': 0,
+    '\\a': 7,
+    '\\b': 8,
+    '\\f': 12,
+    '\\v': 11,
+    "\\'": 39,
+    '\\"': 34,
+    '\\\\': 92
+  };
+
+  if (Object.prototype.hasOwnProperty.call(escapes, body)) {
+    return escapes[body];
+  }
+
+  if (/^\\x[0-9a-fA-F]+$/.test(body)) {
+    return parseInt(body.slice(2), 16);
+  }
+
+  if (/^\\[0-7]{1,3}$/.test(body)) {
+    return parseInt(body.slice(1), 8);
+  }
+
+  return body.codePointAt(0);
+}
+
+function parseCStringLiteral(text) {
+  const raw = String(text).trim();
+  const body = raw.replace(/^L?"/, '').replace(/"$/, '');
+  const escapes = {
+    'n': 10,
+    'r': 13,
+    't': 9,
+    '0': 0,
+    'a': 7,
+    'b': 8,
+    'f': 12,
+    'v': 11,
+    "'": 39,
+    '"': 34,
+    '\\': 92
+  };
+  const values = [];
+
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+
+    if (char !== '\\') {
+      const codePoint = body.codePointAt(index);
+      values.push(codePoint);
+      if (codePoint > 0xFFFF) {
+        index += 1;
+      }
+      continue;
+    }
+
+    const next = body[index + 1];
+    if (next == null) {
+      values.push(92);
+      continue;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(escapes, next)) {
+      values.push(escapes[next]);
+      index += 1;
+      continue;
+    }
+
+    if (next === 'x' || next === 'X') {
+      let hex = '';
+      let cursor = index + 2;
+      while (cursor < body.length && /[0-9a-fA-F]/.test(body[cursor])) {
+        hex += body[cursor];
+        cursor += 1;
+      }
+      if (hex) {
+        values.push(parseInt(hex, 16));
+        index = cursor - 1;
+        continue;
+      }
+    }
+
+    if (/[0-7]/.test(next)) {
+      let octal = next;
+      let cursor = index + 2;
+      while (cursor < body.length && octal.length < 3 && /[0-7]/.test(body[cursor])) {
+        octal += body[cursor];
+        cursor += 1;
+      }
+      values.push(parseInt(octal, 8));
+      index = cursor - 1;
+      continue;
+    }
+
+    values.push(next.codePointAt(0));
+    index += 1;
+  }
+
+  return values;
+}
+
+function encodeI32WordsAsBytes(values) {
+  const bytes = [];
+
+  for (const value of values) {
+    const normalized = Number(value) >>> 0;
+    bytes.push(
+      normalized & 0xFF,
+      (normalized >>> 8) & 0xFF,
+      (normalized >>> 16) & 0xFF,
+      (normalized >>> 24) & 0xFF
+    );
+  }
+
+  return bytes;
+}
+
+function findTypeSpecifierNode(specifierNode, targetName, visited = new Set()) {
+  if (!specifierNode || visited.has(specifierNode)) {
+    return null;
+  }
+
+  if (isNonterminal(specifierNode, targetName)) {
+    return specifierNode;
+  }
+
+  visited.add(specifierNode);
+
+  const allowedContainers = new Set([
+    'declarationSpecifiers',
+    'declarationSpecifier',
+    'specifierQualifierList',
+    'specifierQualifier',
+    'typeSpecifier',
+    'typeSpecifierSequence',
+    'namedTypeSpecifier',
+    'typeQualifier',
+    'storageClassSpecifier'
+  ]);
+
+  for (const child of childNodes(specifierNode)) {
+    if (isNonterminal(child, targetName)) {
+      return child;
+    }
+
+    if (child && child.kind === 'nonterminal' && allowedContainers.has(getNodeName(child))) {
+      const nested = findTypeSpecifierNode(child, targetName, visited);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractBuiltinType(specifierNode) {
+  const builtinType = findTypeSpecifierNode(specifierNode, 'builtinTypeSpecifier');
+  if (!builtinType) return 'int';
+
+  const keywords = findAll(
+    builtinType,
+    (candidate) => candidate && candidate.kind === 'terminal' && /^TOKEN_[A-Za-z]/.test(candidate.token)
+  ).map((terminal) => terminal.value);
+
+  return keywords.join(' ').trim() || 'int';
+}
+
+function mapCTypeToWat(cType) {
+  const normalized = String(cType || 'int').replace(/\s+/g, ' ').trim();
+
+  if (normalized.includes('void')) return null;
+  if (normalized.includes('double')) return 'i32';
+  if (normalized.includes('float')) return 'i32';
+  if (normalized.includes('long')) return 'i64';
+  return 'i32';
+}
+
+function selectCommonWatType(leftType = 'i32', rightType = 'i32') {
+  if (leftType === rightType) return leftType;
+  if (leftType === 'f64' || rightType === 'f64') return 'f64';
+  if (leftType === 'f32' || rightType === 'f32') return 'f32';
+  if (leftType === 'i64' || rightType === 'i64') return 'i64';
+  return 'i32';
+}
+
+function coerceInstructionsToType(instructions, sourceType = 'i32', targetType = 'i32') {
+  const from = sourceType || targetType || 'i32';
+  const to = targetType || from || 'i32';
+
+  if (!instructions || from === to || !to) {
+    return Array.isArray(instructions) ? [...instructions] : [];
+  }
+
+  const result = [...instructions];
+
+  if (to === 'i32') {
+    if (from === 'f64') return result.concat('i32.trunc_f64_s');
+    if (from === 'f32') return result.concat('i32.trunc_f32_s');
+    if (from === 'i64') return result.concat('i32.wrap_i64');
+    return result;
+  }
+
+  if (to === 'i64') {
+    if (from === 'i32') return result.concat('i64.extend_i32_s');
+    if (from === 'f32') return result.concat('i64.trunc_f32_s');
+    if (from === 'f64') return result.concat('i64.trunc_f64_s');
+    return result;
+  }
+
+  if (to === 'f32') {
+    if (from === 'i32') return result.concat('f32.convert_i32_s');
+    if (from === 'i64') return result.concat('f32.convert_i64_s');
+    if (from === 'f64') return result.concat('f32.demote_f64');
+    return result;
+  }
+
+  if (to === 'f64') {
+    if (from === 'i32') return result.concat('f64.convert_i32_s');
+    if (from === 'i64') return result.concat('f64.convert_i64_s');
+    if (from === 'f32') return result.concat('f64.promote_f32');
+    return result;
+  }
+
+  return result;
+}
+
+function extractTypeInfoFromTypeName(typeNameNode) {
+  const specifierQualifierList = firstNonterminal(typeNameNode, 'specifierQualifierList') || typeNameNode;
+  const typeInfo = extractDeclarationTypeInfo(specifierQualifierList);
+  const pointerDepth = countPointerDepthInDeclarator(typeNameNode);
+  const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
+  const baseWatType = typeInfo.baseWatType || 'i32';
+  const watType = (pointerDepth > 0 || isStruct) ? 'i32' : baseWatType;
+
+  return {
+    ...typeInfo,
+    pointerDepth,
+    isStruct,
+    baseWatType,
+    watType
+  };
+}
+
+function getSizeFromTypeInfo(typeInfo, context = null) {
+  if (!typeInfo) {
+    return 4;
+  }
+
+  if ((typeInfo.pointerDepth || 0) > 0) {
+    return 4;
+  }
+
+  if (typeInfo.isStruct || typeInfo.typeKind === 'struct') {
+    const structLayout = context
+      ? resolveStructLayout(typeInfo.structName || null, context.module, typeInfo.structLayout || null)
+      : typeInfo.structLayout;
+    return (structLayout && structLayout.size) || 4;
+  }
+
+  return getTypeSize(typeInfo.baseWatType || typeInfo.watType || 'i32');
+}
+
+function getSizeOfTypeNameNode(typeNameNode, context) {
+  return getSizeFromTypeInfo(extractTypeInfoFromTypeName(typeNameNode), context);
+}
+
+function getSizeOfExpressionNode(node, context) {
+  const simpleIdentifier = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
+  if (simpleIdentifier) {
+    if (simpleIdentifier === 'NULL') {
+      return 4;
+    }
+    const symbol = resolveSymbol(simpleIdentifier, context);
+    if (symbol) {
+      return getSymbolSize(symbol);
+    }
+  }
+
+  return getTypeSize(inferExpressionType(node, context) || 'i32');
+}
+
+function evaluateConstantExpression(node, constants = new Map()) {
+  if (!node) {
+    return 0;
+  }
+
+  if (node.kind === 'terminal') {
+    if (node.token === 'IntegerConstant') return parseCIntegerLiteral(node.value);
+    if (node.token === 'CharacterConstant') return parseCCharacterLiteral(node.value);
+    if (node.token === 'Identifier') {
+      if (constants.has(node.value)) {
+        return constants.get(node.value);
+      }
+      if (node.value === 'NULL') {
+        return 0;
+      }
+      throw new CompilationError(`Unknown constant '${node.value}'`, 'constantExpression');
+    }
+    return 0;
+  }
+
+  const nodeName = getNodeName(node);
+  const nestedChildren = nonterminalChildren(node);
+  const pieces = childNodes(node).filter((child) => child.kind === 'nonterminal' || child.kind === 'terminal');
+
+  if (['constant', 'primaryExpression', 'expression', 'assignmentExpression'].includes(nodeName) && nestedChildren.length > 0) {
+    return evaluateConstantExpression(nestedChildren[nestedChildren.length - 1], constants);
+  }
+
+  if (nodeName === 'conditionalExpression') {
+    if (!firstTerminal(node, 'TOKEN__3F_')) {
+      return nestedChildren.length > 0 ? evaluateConstantExpression(nestedChildren[0], constants) : 0;
+    }
+
+    const conditionNode = firstNonterminal(node, 'logicalOrExpression');
+    const trueNode = firstNonterminal(node, 'expression');
+    const falseNode = nestedChildren[nestedChildren.length - 1];
+    return evaluateConstantExpression(conditionNode, constants)
+      ? evaluateConstantExpression(trueNode, constants)
+      : evaluateConstantExpression(falseNode, constants);
+  }
+
+  if (nodeName === 'unaryExpression') {
+    const unaryOperatorNode = firstNonterminal(node, 'unaryOperator');
+    const operatorTerminal = unaryOperatorNode ? firstTerminal(unaryOperatorNode) : null;
+    const operandNode = nestedChildren.find((child) => child !== unaryOperatorNode);
+
+    if (operatorTerminal) {
+      const value = evaluateConstantExpression(operandNode, constants);
+      switch (operatorTerminal.token) {
+        case 'TOKEN__2B_': return value;
+        case 'TOKEN__2D_': return -value;
+        case 'TOKEN__7E_': return ~value;
+        case 'TOKEN__21_': return value ? 0 : 1;
+        default: break;
+      }
+    }
+  }
+
+  const evaluableNodeNames = new Set([
+    'multiplicativeExpression',
+    'additiveExpression',
+    'shiftExpression',
+    'relationalExpression',
+    'equalityExpression',
+    'andExpression',
+    'exclusiveOrExpression',
+    'inclusiveOrExpression',
+    'logicalAndExpression',
+    'logicalOrExpression'
+  ]);
+
+  if (evaluableNodeNames.has(nodeName) && pieces.length > 0) {
+    let value = evaluateConstantExpression(pieces[0], constants);
+
+    for (let index = 1; index < pieces.length; index += 2) {
+      const operatorNode = pieces[index];
+      const rightNode = pieces[index + 1];
+      if (!operatorNode || operatorNode.kind !== 'terminal' || !rightNode) {
+        continue;
+      }
+      const right = evaluateConstantExpression(rightNode, constants);
+      switch (operatorNode.value) {
+        case '*': value *= right; break;
+        case '/': value = right === 0 ? 0 : Math.trunc(value / right); break;
+        case '%': value = right === 0 ? 0 : (value % right); break;
+        case '+': value += right; break;
+        case '-': value -= right; break;
+        case '<<': value <<= right; break;
+        case '>>': value >>= right; break;
+        case '<': value = value < right ? 1 : 0; break;
+        case '<=': value = value <= right ? 1 : 0; break;
+        case '>': value = value > right ? 1 : 0; break;
+        case '>=': value = value >= right ? 1 : 0; break;
+        case '==': value = value === right ? 1 : 0; break;
+        case '!=': value = value !== right ? 1 : 0; break;
+        case '&': value &= right; break;
+        case '^': value ^= right; break;
+        case '|': value |= right; break;
+        case '&&': value = (value && right) ? 1 : 0; break;
+        case '||': value = (value || right) ? 1 : 0; break;
+        default: break;
+      }
+    }
+
+    return value;
+  }
+
+  return nestedChildren.length > 0 ? evaluateConstantExpression(nestedChildren[0], constants) : 0;
+}
+
+function registerEnumConstantsFromDeclaration(declarationNode, moduleModel) {
+  const enumSpecifier = findFirstNonterminal(declarationNode, 'enumSpecifier');
+  if (!enumSpecifier || !moduleModel) {
+    return;
+  }
+
+  if (!moduleModel.enumValues) {
+    moduleModel.enumValues = new Map();
+  }
+
+  let nextValue = 0;
+  for (const enumerator of findAll(enumSpecifier, (candidate) => isNonterminal(candidate, 'enumerator'))) {
+    const identifier = firstTerminal(enumerator, 'Identifier');
+    if (!identifier) {
+      continue;
+    }
+
+    const constantExpression = firstNonterminal(enumerator, 'constantExpression');
+    const explicitInteger = constantExpression ? findFirstTerminal(constantExpression, 'IntegerConstant') : null;
+    const explicitCharacter = constantExpression ? findFirstTerminal(constantExpression, 'CharacterConstant') : null;
+    const value = constantExpression
+      ? (explicitInteger
+        ? parseCIntegerLiteral(explicitInteger.value)
+        : (explicitCharacter
+          ? parseCCharacterLiteral(explicitCharacter.value)
+          : evaluateConstantExpression(constantExpression, moduleModel.enumValues)))
+      : nextValue;
+    nextValue = value + 1;
+    moduleModel.enumValues.set(identifier.value, value);
+
+    if (!moduleModel.globalsByName.has(identifier.value)) {
+      const enumDef = {
+        sourceName: identifier.value,
+        name: sanitizeIdentifier(identifier.value),
+        exportName: identifier.value,
+        cType: 'enum',
+        typeKind: 'enum',
+        watType: 'i32',
+        baseWatType: 'i32',
+        pointerDepth: 0,
+        mutable: false,
+        exported: false,
+        initExpression: `(i32.const ${value})`
+      };
+      moduleModel.globals.push(enumDef);
+      moduleModel.globalsByName.set(enumDef.sourceName, enumDef);
+    }
+  }
+}
+
+function extractParameters(parameterListNode) {
+  if (!parameterListNode) return [];
+
+  return nonterminalChildren(parameterListNode, 'parameterDeclaration')
+    .map((parameterNode, index) => {
+      const declarationSpecifiers = firstNonterminal(parameterNode, 'declarationSpecifiers');
+      const declaratorNode = firstNonterminal(parameterNode, 'declarator');
+      const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers);
+      const rawPointerDepth = declaratorNode ? countPointerDepthInDeclarator(declaratorNode) : 0;
+      const declaredAsArray = declaratorNode ? hasArrayDeclaratorSuffix(declaratorNode) : false;
+      const arrayDimensions = declaratorNode ? extractArrayDimensionsFromDeclarator(declaratorNode) : [];
+      const pointerDepth = declaredAsArray ? Math.max(1, rawPointerDepth) : rawPointerDepth;
+      const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
+      const baseWatType = typeInfo.baseWatType || 'i32';
+      const watType = (pointerDepth > 0 || isStruct) ? 'i32' : baseWatType;
+      const nameTerminal = declaratorNode ? findFirstTerminal(declaratorNode, 'Identifier') : null;
+      const originalName = nameTerminal ? nameTerminal.value : `arg${index}`;
+
+      if (!nameTerminal && typeInfo.baseWatType == null && pointerDepth === 0) {
+        return null;
+      }
+
+      return {
+        sourceName: originalName,
+        name: sanitizeIdentifier(originalName),
+        cType: typeInfo.cType,
+        typeKind: typeInfo.typeKind,
+        structName: typeInfo.structName || null,
+        structLayout: typeInfo.structLayout || null,
+        isStruct,
+        pointerDepth,
+        declaredAsArray,
+        arrayLength: declaredAsArray ? (arrayDimensions[0] ?? null) : null,
+        arrayDimensions: declaredAsArray ? arrayDimensions : [],
+        baseWatType,
+        watType
+      };
+    })
+    .filter(Boolean);
+}
+
+function extractDeclaratorInfo(declaratorNode) {
+  const directDeclarator = firstNonterminal(declaratorNode, 'directDeclarator')
+    || findFirstNonterminal(declaratorNode, 'directDeclarator');
+
+  if (!directDeclarator) {
+    throw new CompilationError('Expected a direct declarator', getNodeName(declaratorNode));
+  }
+
+  const identifier = findFirstTerminal(directDeclarator, 'Identifier');
+  if (!identifier) {
+    throw new CompilationError('Could not find an identifier inside the declarator', getNodeName(directDeclarator));
+  }
+
+  const parameterList = findFirstNonterminal(directDeclarator, 'parameterList');
+
+  return {
+    sourceName: identifier.value,
+    name: sanitizeIdentifier(identifier.value),
+    pointerDepth: countPointerDepthInDeclarator(declaratorNode),
+    params: extractParameters(parameterList)
+  };
+}
+
+function hasArrayDeclaratorSuffix(declaratorNode) {
+  return !!findFirst(
+    declaratorNode,
+    (candidate) => isNonterminal(candidate, 'directDeclaratorSuffix') && !!firstTerminal(candidate, 'TOKEN__5B_')
+  );
+}
+
+function hasFunctionDeclaratorSuffix(declaratorNode) {
+  return !!findFirst(
+    declaratorNode,
+    (candidate) => isNonterminal(candidate, 'directDeclaratorSuffix') && !!firstTerminal(candidate, 'TOKEN__28_')
+  );
+}
+
+function extractArrayDimensionsFromDeclarator(declaratorNode) {
+  const suffixes = findAll(declaratorNode, (candidate) => isNonterminal(candidate, 'directDeclaratorSuffix'));
+  const dimensions = [];
+
+  for (const suffix of suffixes) {
+    if (!firstTerminal(suffix, 'TOKEN__5B_')) {
+      continue;
+    }
+
+    const lengthNode = findFirstTerminal(suffix, 'IntegerConstant');
+    dimensions.push(lengthNode ? parseCIntegerLiteral(lengthNode.value) : null);
+  }
+
+  return dimensions;
+}
+
+function extractArrayLengthFromDeclarator(declaratorNode) {
+  const dimensions = extractArrayDimensionsFromDeclarator(declaratorNode)
+    .filter((value) => Number.isInteger(value) && value > 0);
+  return dimensions.length > 0 ? dimensions[0] : null;
+}
+
+function inferArrayLengthFromInitializer(initializerNode) {
+  if (!initializerNode) {
+    return null;
+  }
+
+  const stringValues = getStringLiteralInitializerValues(initializerNode);
+  if (stringValues) {
+    return stringValues.length + 1;
+  }
+
+  const initializerList = firstNonterminal(initializerNode, 'initializerList');
+  if (!initializerList) {
+    return null;
+  }
+
+  const elements = nonterminalChildren(initializerList, 'initializer');
+  return elements.length > 0 ? elements.length : null;
+}
+
+function extractDeclarationItems(declarationNode, moduleModel = null) {
+  const declarationSpecifiers = firstNonterminal(declarationNode, 'declarationSpecifiers');
+  const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
+  const baseWatType = typeInfo.baseWatType || 'i32';
+  const initDeclaratorList = firstNonterminal(declarationNode, 'initDeclaratorList');
+
+  if (!initDeclaratorList) {
+    return [];
+  }
+
+  return nonterminalChildren(initDeclaratorList, 'initDeclarator').map((initDeclaratorNode, index) => {
+    const declaratorNode = firstNonterminal(initDeclaratorNode, 'declarator');
+    const declaratorInfo = extractDeclaratorInfo(declaratorNode);
+    const initializerNode = firstNonterminal(initDeclaratorNode, 'initializer');
+    const isFunctionDeclaration = hasFunctionDeclaratorSuffix(declaratorNode);
+    const arrayDimensions = extractArrayDimensionsFromDeclarator(declaratorNode);
+    const normalizedArrayDimensions = [...arrayDimensions];
+
+    if (
+      normalizedArrayDimensions.length > 0
+      && !(Number.isInteger(normalizedArrayDimensions[0]) && normalizedArrayDimensions[0] > 0)
+    ) {
+      const inferredLength = inferArrayLengthFromInitializer(initializerNode);
+      if (Number.isInteger(inferredLength) && inferredLength > 0) {
+        normalizedArrayDimensions[0] = inferredLength;
+      }
+    }
+
+    const isArray = normalizedArrayDimensions.length > 0;
+    const isStruct = typeInfo.typeKind === 'struct' && declaratorInfo.pointerDepth === 0;
+    const watType = (declaratorInfo.pointerDepth > 0 || isArray || isStruct) ? 'i32' : baseWatType;
+
+    return {
+      sourceName: declaratorInfo.sourceName || `value${index}`,
+      name: declaratorInfo.name || `value${index}`,
+      cType: typeInfo.cType,
+      typeKind: typeInfo.typeKind,
+      structName: typeInfo.structName || null,
+      structLayout: typeInfo.structLayout || null,
+      isStruct,
+      pointerDepth: declaratorInfo.pointerDepth || 0,
+      baseWatType,
+      watType,
+      isArray,
+      isFunctionDeclaration,
+      params: declaratorInfo.params || [],
+      arrayLength: isArray ? (normalizedArrayDimensions[0] ?? null) : null,
+      arrayDimensions: normalizedArrayDimensions,
+      initializer: initializerNode
+    };
+  });
+}
+
+function collectTypedefAliases(source) {
+  return collectTypedefAliasesFromPreprocessor(source);
+}
+
+function normalizeSourceForCurrentParser(source) {
+  return preprocessCSource(source);
+}
+
+function parseCSource(source) {
+  const normalizedSource = normalizeSourceForCurrentParser(source);
+  const collector = new ParseTreeCollector();
+  const parser = new Parser(normalizedSource, collector);
+
+  parser.parse();
+
+  if (!collector.root) {
+    throw new Error('No AST was generated from the parsed input');
+  }
+
+  return {
+    ast: collector.root,
+    json: collector.toJSON(),
+    xml: collector.toXml(),
+    collector,
+    normalizedSource
+  };
+}
+
+function functionRequiresLinearMemory(functionNode) {
+  return !!findFirst(functionNode, (candidate) => {
+    if (isNonterminal(candidate, 'pointer')) {
+      return true;
+    }
+
+    if (isNonterminal(candidate, 'structOrUnionSpecifier')) {
+      return true;
+    }
+
+    if (isTerminal(candidate, 'Identifier') && /\./.test(String(candidate.value || ''))) {
+      return true;
+    }
+
+    if (isNonterminal(candidate, 'directDeclaratorSuffix') && firstTerminal(candidate, 'TOKEN__5B_')) {
+      return true;
+    }
+
+    if (isNonterminal(candidate, 'postfixSuffix') && firstTerminal(candidate, 'TOKEN__5B_')) {
+      return true;
+    }
+
+    if (isNonterminal(candidate, 'unaryOperator')) {
+      const operator = firstTerminal(candidate);
+      return !!operator && ['TOKEN__26_', 'TOKEN__2A_'].includes(operator.token);
+    }
+
+    return false;
+  });
+}
+
+function buildGlobalInitializerExpression(initializerNode, globalDef) {
+  if (!initializerNode) {
+    return `(${globalDef.watType}.const 0)`;
+  }
+
+  const integerConstant = findFirstTerminal(initializerNode, 'IntegerConstant');
+  if (integerConstant) {
+    const value = parseCIntegerLiteral(integerConstant.value);
+    const opcode = globalDef.watType === 'i64' ? 'i64.const' : 'i32.const';
+    return `(${opcode} ${value})`;
+  }
+
+  const charConstant = findFirstTerminal(initializerNode, 'CharacterConstant');
+  if (charConstant) {
+    return `(i32.const ${parseCCharacterLiteral(charConstant.value)})`;
+  }
+
+  const floatingConstant = findFirstTerminal(initializerNode, 'FloatingConstant');
+  if (floatingConstant) {
+    const numericValue = parseCFloatingLiteral(floatingConstant.value);
+    if (globalDef.watType === 'f32') {
+      return `(f32.const ${numericValue})`;
+    }
+    if (globalDef.watType === 'f64') {
+      return `(f64.const ${numericValue})`;
+    }
+    if (globalDef.watType === 'i64') {
+      return `(i64.const ${Math.trunc(numericValue)})`;
+    }
+    return `(i32.const ${Math.trunc(numericValue)})`;
+  }
+
+  throw new CompilationError(
+    `Only literal global initializers are supported right now for '${globalDef.sourceName}'`,
+    getNodeName(initializerNode)
+  );
+}
+
+function buildModuleModel(ast, options = {}) {
+  const translationItems = nonterminalChildren(ast, 'translationUnitItem');
+  const moduleModel = {
+    globals: [],
+    functions: [],
+    exports: [],
+    memories: [],
+    dataSegments: [],
+    usesLinearMemory: false,
+    globalsByName: new Map(),
+    functionsByName: new Map(),
+    structsByName: new Map(),
+    pendingStructLayouts: [],
+    pendingAggregateTags: Array.isArray(options.aggregateTags) ? [...options.aggregateTags] : [],
+    enumValues: new Map(),
+    stringLiterals: new Map(),
+    nextDataOffset: 0
+  };
+
+  const functionBodies = [];
+
+  for (const item of translationItems) {
+    const externalDeclaration = firstNonterminal(item, 'externalDeclaration');
+    if (!externalDeclaration) continue;
+
+    const functionDefinition = firstNonterminal(externalDeclaration, 'functionDefinition');
+    if (functionDefinition) {
+      const declarationSpecifiers = firstNonterminal(functionDefinition, 'declarationSpecifiers');
+      const declaratorNode = firstNonterminal(functionDefinition, 'declarator');
+      const declaratorInfo = extractDeclaratorInfo(declaratorNode);
+      const resultType = mapCTypeToWat(extractBuiltinType(declarationSpecifiers));
+
+      const functionModel = {
+        sourceName: declaratorInfo.sourceName,
+        name: declaratorInfo.name,
+        exportName: declaratorInfo.sourceName,
+        cType: extractBuiltinType(declarationSpecifiers),
+        resultType,
+        params: declaratorInfo.params,
+        locals: [],
+        instructions: []
+      };
+
+      moduleModel.functions.push(functionModel);
+      moduleModel.functionsByName.set(functionModel.sourceName, functionModel);
+      functionBodies.push({ node: functionDefinition, model: functionModel });
+      continue;
+    }
+
+    const declaration = firstNonterminal(externalDeclaration, 'declaration');
+    if (declaration) {
+      registerEnumConstantsFromDeclaration(declaration, moduleModel);
+
+      const declarationSpecifiers = firstNonterminal(declaration, 'declarationSpecifiers');
+      const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
+      if (typeInfo.typeKind === 'struct') {
+        registerStructLayout(typeInfo.structLayout, moduleModel, typeInfo.structName || null);
+      }
+
+      for (const itemDef of extractDeclarationItems(declaration, moduleModel)) {
+        if (itemDef.isFunctionDeclaration) {
+          continue;
+        }
+
+        const globalDef = {
+          sourceName: itemDef.sourceName,
+          name: itemDef.name,
+          exportName: itemDef.sourceName,
+          cType: itemDef.cType,
+          typeKind: itemDef.typeKind,
+          structName: itemDef.structName || null,
+          structLayout: itemDef.structLayout || null,
+          isStruct: !!itemDef.isStruct,
+          watType: itemDef.watType,
+          baseWatType: itemDef.baseWatType,
+          pointerDepth: itemDef.pointerDepth || 0,
+          mutable: true,
+          exported: true,
+          initExpression: buildGlobalInitializerExpression(itemDef.initializer, itemDef)
+        };
+        moduleModel.globals.push(globalDef);
+        moduleModel.globalsByName.set(globalDef.sourceName, globalDef);
+      }
+    }
+  }
+
+  for (const body of functionBodies) {
+    compileFunctionBody(body.node, body.model, moduleModel);
+  }
+
+  if (moduleModel.usesLinearMemory) {
+    moduleModel.memories = [{ name: 'mem', pages: 1 }];
+
+    if (!moduleModel.globalsByName.has('__stack_ptr')) {
+      const stackPointerGlobal = {
+        sourceName: '__stack_ptr',
+        name: '__stack_ptr',
+        exportName: '__stack_ptr',
+        watType: 'i32',
+        baseWatType: 'i32',
+        pointerDepth: 0,
+        mutable: true,
+        exported: false,
+        initExpression: '(i32.const 1024)'
+      };
+      moduleModel.globals.unshift(stackPointerGlobal);
+      moduleModel.globalsByName.set(stackPointerGlobal.sourceName, stackPointerGlobal);
+    }
+  }
+
+  moduleModel.exports = [
+    ...moduleModel.functions
+      .filter((fn) => fn.exported !== false)
+      .map((fn) => ({
+        kind: 'func',
+        internalName: fn.name,
+        exportName: fn.exportName
+      })),
+    ...(moduleModel.usesLinearMemory
+      ? [{ kind: 'memory', internalName: 'mem', exportName: 'memory' }]
+      : []),
+    ...moduleModel.globals
+      .filter((globalDef) => globalDef.exported !== false)
+      .map((globalDef) => ({
+        kind: 'global',
+        internalName: globalDef.name,
+        exportName: globalDef.exportName
+      }))
+  ];
+
+  return moduleModel;
+}
+
+function compileFunctionBody(functionNode, functionModel, moduleModel) {
+  const context = {
+    module: moduleModel,
+    function: functionModel,
+    params: new Map(),
+    locals: new Map(),
+    internalLocals: new Map(),
+    scopeStack: [],
+    usedLocalNames: new Set((functionModel.params || []).map((param) => param.name)),
+    loopStack: [],
+    breakStack: [],
+    nextLabelId: 0,
+    usesLinearMemory: functionRequiresLinearMemory(functionNode),
+    frameSize: 0
+  };
+
+  for (const param of functionModel.params) {
+    context.params.set(param.sourceName, param);
+    if (context.usesLinearMemory) {
+      allocateStackSlot(context, param);
+    }
+  }
+
+  if (context.usesLinearMemory) {
+    ensureInternalLocal(context, '__frame', 'i32');
+  }
+
+  const compoundStatement = firstNonterminal(functionNode, 'compoundStatement');
+  if (!compoundStatement) {
+    throw new CompilationError('Expected a compound statement inside the function body', functionModel.sourceName);
+  }
+
+  const bodyInstructions = compileCompoundStatement(compoundStatement, context);
+  functionModel.instructions = [
+    ...buildFunctionPrologue(context),
+    ...bodyInstructions
+  ];
+
+  if (functionModel.resultType) {
+    if (functionModel.resultType === 'i32') {
+      functionModel.instructions.push('i32.const 0');
+    } else if (functionModel.resultType === 'i64') {
+      functionModel.instructions.push('i64.const 0');
+    } else if (functionModel.resultType === 'f32') {
+      functionModel.instructions.push('f32.const 0');
+    } else if (functionModel.resultType === 'f64') {
+      functionModel.instructions.push('f64.const 0');
+    }
+    functionModel.instructions.push(...buildFunctionEpilogue(context), 'return');
+  }
+
+  moduleModel.usesLinearMemory = moduleModel.usesLinearMemory || context.usesLinearMemory;
+}
+
+function pushScope(context) {
+  if (!context.scopeStack) {
+    context.scopeStack = [];
+  }
+  context.scopeStack.push([]);
+}
+
+function popScope(context) {
+  if (!context.scopeStack || context.scopeStack.length === 0) {
+    return;
+  }
+
+  const bindings = context.scopeStack.pop();
+  for (let index = bindings.length - 1; index >= 0; index -= 1) {
+    const binding = bindings[index];
+    if (binding.previousSymbol) {
+      context.locals.set(binding.name, binding.previousSymbol);
+    } else {
+      context.locals.delete(binding.name);
+    }
+  }
+}
+
+function allocateUniqueLocalName(context, preferredName) {
+  const baseName = sanitizeIdentifier(preferredName || 'local');
+  if (!context.usedLocalNames) {
+    context.usedLocalNames = new Set();
+  }
+
+  let candidate = baseName;
+  let suffix = 1;
+  while (context.usedLocalNames.has(candidate)) {
+    candidate = `${baseName}_${suffix}`;
+    suffix += 1;
+  }
+
+  context.usedLocalNames.add(candidate);
+  return candidate;
+}
+
+function registerScopedLocal(context, localEntry, nodeName = null) {
+  if (!context.scopeStack || context.scopeStack.length === 0) {
+    pushScope(context);
+  }
+
+  const currentScope = context.scopeStack[context.scopeStack.length - 1];
+  if (currentScope.some((binding) => binding.name === localEntry.sourceName) || context.params.has(localEntry.sourceName)) {
+    throw new CompilationError(`Duplicate local symbol '${localEntry.sourceName}'`, nodeName || localEntry.sourceName);
+  }
+
+  const previousSymbol = context.locals.get(localEntry.sourceName) || null;
+  currentScope.push({ name: localEntry.sourceName, previousSymbol });
+  context.locals.set(localEntry.sourceName, localEntry);
+}
+
+function compileCompoundStatement(compoundNode, context) {
+  const instructions = [];
+  pushScope(context);
+
+  try {
+    for (const blockItem of nonterminalChildren(compoundNode, 'blockItem')) {
+      const declaration = firstNonterminal(blockItem, 'declaration');
+      if (declaration) {
+        instructions.push(...compileLocalDeclaration(declaration, context));
+        continue;
+      }
+
+      const statement = firstNonterminal(blockItem, 'statement');
+      if (statement) {
+        instructions.push(...compileStatement(statement, context));
+      }
+    }
+  } finally {
+    popScope(context);
+  }
+
+  return instructions;
+}
+
+function compileLocalDeclaration(declarationNode, context) {
+  const instructions = [];
+
+  for (const localDef of extractDeclarationItems(declarationNode, context.module)) {
+    const structLayout = localDef.typeKind === 'struct'
+      ? resolveStructLayout(localDef.structName || null, context.module, localDef.structLayout || null)
+      : null;
+
+    const localEntry = {
+      sourceName: localDef.sourceName,
+      name: allocateUniqueLocalName(context, localDef.name),
+      cType: localDef.cType,
+      typeKind: localDef.typeKind,
+      structName: localDef.structName || null,
+      structLayout,
+      watType: localDef.watType,
+      baseWatType: localDef.baseWatType,
+      pointerDepth: localDef.pointerDepth || 0,
+      declaredAsArray: !!localDef.declaredAsArray,
+      isStruct: !!localDef.isStruct,
+      isArray: !!localDef.isArray,
+      arrayLength: localDef.arrayLength || null,
+      arrayDimensions: Array.isArray(localDef.arrayDimensions) ? [...localDef.arrayDimensions] : []
+    };
+
+    if (localDef.typeKind === 'struct' && !structLayout && localDef.pointerDepth === 0) {
+      throw new CompilationError(`Unknown struct type for '${localDef.sourceName}'`, getNodeName(declarationNode));
+    }
+
+    if (context.usesLinearMemory) {
+      allocateStackSlot(context, localEntry);
+    }
+
+    registerScopedLocal(context, localEntry, getNodeName(declarationNode));
+    context.function.locals.push(localEntry);
+
+    if (localDef.initializer) {
+      if (localEntry.isArray || localEntry.isStruct) {
+        instructions.push(...compileAggregateInitializer(localEntry, localDef.initializer, context));
+      } else {
+        const rhsInstructions = compileInitializerValue(localDef.initializer, context, localEntry.watType || 'i32');
+        if (context.usesLinearMemory) {
+          instructions.push(...emitStoreInstructions(localEntry.sourceName, rhsInstructions, context, false));
+        } else {
+          instructions.push(...rhsInstructions);
+          instructions.push(`local.set $${localEntry.name}`);
+        }
+      }
+    }
+  }
+
+  return instructions;
+}
+
+function getZeroValueInstructions(watType = 'i32') {
+  switch (watType) {
+    case 'i64': return ['i64.const 0'];
+    case 'f32': return ['f32.const 0'];
+    case 'f64': return ['f64.const 0'];
+    default: return ['i32.const 0'];
+  }
+}
+
+function getInitializerElements(initializerNode) {
+  if (!initializerNode) {
+    return [];
+  }
+
+  const initializerList = firstNonterminal(initializerNode, 'initializerList');
+  if (initializerList) {
+    return nonterminalChildren(initializerList, 'initializer');
+  }
+
+  return [initializerNode];
+}
+
+function inferInitializerValueType(initializerNode, context) {
+  const elements = getInitializerElements(initializerNode);
+  const targetNode = elements[0] || initializerNode;
+  return targetNode ? (inferExpressionType(targetNode, context) || 'i32') : 'i32';
+}
+
+function compileInitializerValue(initializerNode, context, expectedType = null) {
+  const elements = getInitializerElements(initializerNode);
+  if (elements.length > 1) {
+    throw new CompilationError('Nested aggregate initializers are not supported yet', getNodeName(initializerNode));
+  }
+
+  const targetNode = elements[0] || initializerNode;
+  const instructions = targetNode ? compileExpression(targetNode, context, { keepValue: true }) : ['i32.const 0'];
+  if (!expectedType) {
+    return instructions;
+  }
+
+  return coerceInstructionsToType(instructions, inferInitializerValueType(initializerNode, context), expectedType);
+}
+
+function getStringLiteralInitializerValues(initializerNode) {
+  if (!initializerNode) {
+    return null;
+  }
+
+  const initializerList = firstNonterminal(initializerNode, 'initializerList');
+  if (initializerList) {
+    return null;
+  }
+
+  const stringLiteral = findFirstTerminal(initializerNode, 'StringLiteral');
+  return stringLiteral ? parseCStringLiteral(stringLiteral.value) : null;
+}
+
+function withAddressOffset(addressInstructions, offset = 0) {
+  if (!offset) {
+    return [...addressInstructions];
+  }
+
+  return [
+    ...addressInstructions,
+    `i32.const ${offset}`,
+    'i32.add'
+  ];
+}
+
+function getArrayElementDescriptor(targetInfo) {
+  const dimensions = getSymbolArrayDimensions(targetInfo);
+  if (dimensions.length === 0) {
+    return null;
+  }
+
+  const remainingDimensions = dimensions.slice(1);
+  const baseWatType = targetInfo.baseWatType || targetInfo.watType || 'i32';
+
+  return {
+    sourceName: targetInfo.sourceName,
+    name: targetInfo.name,
+    cType: targetInfo.cType,
+    typeKind: targetInfo.typeKind,
+    structName: targetInfo.structName || null,
+    structLayout: targetInfo.structLayout || null,
+    isStruct: !!targetInfo.isStruct,
+    pointerDepth: targetInfo.pointerDepth || 0,
+    baseWatType,
+    watType: (remainingDimensions.length > 0 || targetInfo.isStruct || (targetInfo.pointerDepth || 0) > 0)
+      ? 'i32'
+      : baseWatType,
+    isArray: remainingDimensions.length > 0,
+    arrayLength: remainingDimensions.length > 0 ? (remainingDimensions[0] ?? null) : null,
+    arrayDimensions: remainingDimensions
+  };
+}
+
+function compileZeroInitializerToAddress(targetInfo, addressInstructions, context) {
+  if (targetInfo.isArray) {
+    const declaredLength = targetInfo.arrayLength || getSymbolArrayDimensions(targetInfo)[0] || 0;
+    const elementDescriptor = getArrayElementDescriptor(targetInfo);
+    const stride = getSymbolSize(elementDescriptor || { watType: targetInfo.baseWatType || targetInfo.watType || 'i32' });
+    const instructions = [];
+
+    for (let index = 0; index < declaredLength; index += 1) {
+      instructions.push(
+        ...compileZeroInitializerToAddress(
+          elementDescriptor,
+          withAddressOffset(addressInstructions, index * stride),
+          context
+        )
+      );
+    }
+
+    return instructions;
+  }
+
+  if (targetInfo.isStruct) {
+    const structLayout = resolveStructLayout(targetInfo.structName || null, context.module, targetInfo.structLayout || null);
+    if (!structLayout) {
+      throw new CompilationError(`Unknown struct type for '${targetInfo.sourceName}'`, targetInfo.sourceName);
+    }
+
+    const instructions = [];
+    for (const field of structLayout.fields) {
+      instructions.push(
+        ...compileZeroInitializerToAddress(
+          field,
+          withAddressOffset(addressInstructions, field.offset),
+          context
+        )
+      );
+    }
+    return instructions;
+  }
+
+  const valueType = targetInfo.baseWatType || targetInfo.watType || 'i32';
+  return emitStoreToAddress(addressInstructions, getZeroValueInstructions(valueType), valueType, context, false);
+}
+
+function flattenInitializerSequence(initializerNode, output = []) {
+  if (!initializerNode) {
+    return output;
+  }
+
+  const initializerList = firstNonterminal(initializerNode, 'initializerList');
+  if (!initializerList) {
+    output.push(initializerNode);
+    return output;
+  }
+
+  for (const child of nonterminalChildren(initializerList, 'initializer')) {
+    flattenInitializerSequence(child, output);
+  }
+
+  return output;
+}
+
+function consumeAggregateInitializerValuesToAddress(targetInfo, initializerValues, state, addressInstructions, context) {
+  if (targetInfo.isArray) {
+    const declaredLength = targetInfo.arrayLength || getSymbolArrayDimensions(targetInfo)[0] || 0;
+    const elementDescriptor = getArrayElementDescriptor(targetInfo);
+    const elementType = elementDescriptor && !elementDescriptor.isArray && !elementDescriptor.isStruct
+      ? (elementDescriptor.baseWatType || elementDescriptor.watType || 'i32')
+      : (targetInfo.baseWatType || targetInfo.watType || 'i32');
+    const stride = getSymbolSize(elementDescriptor || { watType: elementType });
+    const instructions = [];
+
+    for (let index = 0; index < declaredLength; index += 1) {
+      const elementAddress = withAddressOffset(addressInstructions, index * stride);
+      if (elementDescriptor && (elementDescriptor.isArray || elementDescriptor.isStruct)) {
+        instructions.push(
+          ...consumeAggregateInitializerValuesToAddress(
+            elementDescriptor,
+            initializerValues,
+            state,
+            elementAddress,
+            context
+          )
+        );
+      } else if (state.index < initializerValues.length) {
+        const valueInstructions = compileInitializerValue(initializerValues[state.index], context, elementType);
+        state.index += 1;
+        instructions.push(...emitStoreToAddress(elementAddress, valueInstructions, elementType, context, false));
+      } else {
+        instructions.push(...compileZeroInitializerToAddress(elementDescriptor || targetInfo, elementAddress, context));
+      }
+    }
+
+    return instructions;
+  }
+
+  if (targetInfo.isStruct) {
+    const structLayout = resolveStructLayout(targetInfo.structName || null, context.module, targetInfo.structLayout || null);
+    if (!structLayout) {
+      throw new CompilationError(`Unknown struct type for '${targetInfo.sourceName}'`, targetInfo.sourceName);
+    }
+
+    const instructions = [];
+    for (const field of structLayout.fields) {
+      const fieldAddress = withAddressOffset(addressInstructions, field.offset);
+      if (field.isArray || field.isStruct) {
+        instructions.push(
+          ...consumeAggregateInitializerValuesToAddress(
+            field,
+            initializerValues,
+            state,
+            fieldAddress,
+            context
+          )
+        );
+      } else if (state.index < initializerValues.length) {
+        const valueType = field.baseWatType || field.watType || 'i32';
+        const valueInstructions = compileInitializerValue(initializerValues[state.index], context, valueType);
+        state.index += 1;
+        instructions.push(...emitStoreToAddress(fieldAddress, valueInstructions, valueType, context, false));
+      } else {
+        instructions.push(...compileZeroInitializerToAddress(field, fieldAddress, context));
+      }
+    }
+
+    return instructions;
+  }
+
+  if (state.index < initializerValues.length) {
+    const valueType = targetInfo.baseWatType || targetInfo.watType || 'i32';
+    const valueInstructions = compileInitializerValue(initializerValues[state.index], context, valueType);
+    state.index += 1;
+    return emitStoreToAddress(addressInstructions, valueInstructions, valueType, context, false);
+  }
+
+  return compileZeroInitializerToAddress(targetInfo, addressInstructions, context);
+}
+
+function compileAggregateInitializerToAddress(targetInfo, initializerNode, addressInstructions, context) {
+  if (targetInfo.isArray) {
+    const declaredLength = targetInfo.arrayLength || getSymbolArrayDimensions(targetInfo)[0] || 0;
+    const stringValues = getStringLiteralInitializerValues(initializerNode);
+    const hasInitializerList = !!firstNonterminal(initializerNode, 'initializerList');
+    const elementDescriptor = getArrayElementDescriptor(targetInfo);
+    const elementType = elementDescriptor && !elementDescriptor.isArray && !elementDescriptor.isStruct
+      ? (elementDescriptor.baseWatType || elementDescriptor.watType || 'i32')
+      : (targetInfo.baseWatType || 'i32');
+    const stride = getSymbolSize(elementDescriptor || { watType: elementType });
+
+    if (!declaredLength) {
+      throw new CompilationError(`Array '${targetInfo.sourceName}' requires a fixed length for initialization`, targetInfo.sourceName);
+    }
+
+    if (stringValues) {
+      if (!String(targetInfo.cType || '').includes('char') || (elementDescriptor && (elementDescriptor.isArray || elementDescriptor.isStruct))) {
+        throw new CompilationError(
+          `String literal array initialization is currently supported only for flat char arrays ('${targetInfo.sourceName}')`,
+          targetInfo.sourceName
+        );
+      }
+
+      if (stringValues.length > declaredLength) {
+        throw new CompilationError(`String literal is too large for array '${targetInfo.sourceName}'`, targetInfo.sourceName);
+      }
+
+      const instructions = [];
+      const paddedValues = [...stringValues];
+      if (paddedValues.length < declaredLength) {
+        paddedValues.push(0);
+      }
+      while (paddedValues.length < declaredLength) {
+        paddedValues.push(0);
+      }
+
+      for (let index = 0; index < declaredLength; index += 1) {
+        instructions.push(
+          ...emitStoreToAddress(
+            withAddressOffset(addressInstructions, index * stride),
+            [`i32.const ${paddedValues[index] ?? 0}`],
+            elementType,
+            context,
+            false
+          )
+        );
+      }
+
+      return instructions;
+    }
+
+    if (!hasInitializerList) {
+      throw new CompilationError(
+        `Array initialization currently requires brace initializers for '${targetInfo.sourceName}'`,
+        targetInfo.sourceName
+      );
+    }
+  } else if (targetInfo.isStruct && !firstNonterminal(initializerNode, 'initializerList')) {
+    throw new CompilationError(
+      `Struct copy initialization is not supported yet for '${targetInfo.sourceName}'`,
+      targetInfo.sourceName
+    );
+  }
+
+  const initializerValues = flattenInitializerSequence(initializerNode);
+  const state = { index: 0 };
+  const instructions = consumeAggregateInitializerValuesToAddress(
+    targetInfo,
+    initializerValues,
+    state,
+    addressInstructions,
+    context
+  );
+
+  if (state.index < initializerValues.length) {
+    const aggregateKind = targetInfo.isArray ? 'array' : (targetInfo.isStruct ? 'struct' : 'object');
+    throw new CompilationError(`Too many initializer elements for ${aggregateKind} '${targetInfo.sourceName}'`, targetInfo.sourceName);
+  }
+
+  return instructions;
+}
+
+function compileAggregateInitializer(localEntry, initializerNode, context) {
+  return compileAggregateInitializerToAddress(
+    localEntry,
+    initializerNode,
+    emitAddressOfSymbol(localEntry.sourceName, context),
+    context
+  );
+}
+
+function compileArrayInitializer(localEntry, initializerNode, context) {
+  return compileAggregateInitializer(localEntry, initializerNode, context);
+}
+
+function ensureInternalLocal(context, baseName, watType = 'i32') {
+  const key = `${baseName}:${watType}`;
+  if (!context.internalLocals.has(key)) {
+    const localEntry = {
+      sourceName: baseName,
+      name: sanitizeIdentifier(baseName),
+      watType,
+      internal: true
+    };
+    context.internalLocals.set(key, localEntry);
+    context.function.locals.push(localEntry);
+  }
+  return context.internalLocals.get(key);
+}
+
+function allocateStackSlot(context, symbol) {
+  if (!context.usesLinearMemory || !symbol || symbol.stackOffset != null) {
+    return symbol ? symbol.stackOffset : null;
+  }
+
+  const size = getSymbolSize(symbol);
+  const alignment = size >= 8 ? 8 : 4;
+  context.frameSize = alignTo(context.frameSize, alignment);
+  symbol.stackOffset = context.frameSize;
+  context.frameSize += size;
+  return symbol.stackOffset;
+}
+
+function buildFunctionPrologue(context) {
+  if (!context.usesLinearMemory) {
+    return [];
+  }
+
+  const frameLocal = ensureInternalLocal(context, '__frame', 'i32');
+  const frameSize = alignTo(context.frameSize, 8);
+  const instructions = [
+    'global.get $__stack_ptr',
+    `local.set $${frameLocal.name}`
+  ];
+
+  if (frameSize > 0) {
+    instructions.push(
+      'global.get $__stack_ptr',
+      `i32.const ${frameSize}`,
+      'i32.add',
+      'global.set $__stack_ptr'
+    );
+  }
+
+  for (const param of context.params.values()) {
+    if (param.stackOffset == null) continue;
+    instructions.push(
+      ...emitStoreToAddress(
+        emitAddressOfSymbol(param.sourceName, context),
+        [`local.get $${param.name}`],
+        param.watType,
+        context,
+        false
+      )
+    );
+  }
+
+  return instructions;
+}
+
+function buildFunctionEpilogue(context) {
+  if (!context.usesLinearMemory) {
+    return [];
+  }
+
+  const frameLocal = ensureInternalLocal(context, '__frame', 'i32');
+  return [
+    `local.get $${frameLocal.name}`,
+    'global.set $__stack_ptr'
+  ];
+}
+
+function createLabel(context, prefix) {
+  const id = context.nextLabelId++;
+  return sanitizeIdentifier(`${context.function.name}_${prefix}_${id}`);
+}
+
+function compileStatement(statementNode, context) {
+  const directChild = isNonterminal(statementNode, 'statement')
+    ? (nonterminalChildren(statementNode)[0] || null)
+    : statementNode;
+  if (!directChild) return [];
+
+  const statementType = getNodeName(directChild);
+
+  if (statementType === 'jumpStatement') {
+    return compileJumpStatement(directChild, context);
+  }
+
+  if (statementType === 'expressionStatement') {
+    const expressionNode = firstNonterminal(directChild, 'expression');
+    if (!expressionNode) return [];
+
+    const instructions = compileExpression(expressionNode, context, { keepValue: true });
+    if (expressionProducesValue(expressionNode, context)) {
+      instructions.push('drop');
+    }
+    return instructions;
+  }
+
+  if (statementType === 'compoundStatement') {
+    return compileCompoundStatement(directChild, context);
+  }
+
+  if (statementType === 'selectionStatement') {
+    return compileSelectionStatement(directChild, context);
+  }
+
+  if (statementType === 'labeledStatement') {
+    return compileLabeledStatement(directChild, context);
+  }
+
+  if (statementType === 'iterationStatement') {
+    return compileIterationStatement(directChild, context);
+  }
+
+  throw new CompilationError(`Unsupported statement type: ${statementType}`, statementType);
+}
+
+function compileJumpStatement(jumpNode, context) {
+  const jumpKeyword = childNodes(jumpNode).find(
+    (child) => child.kind === 'terminal' && ['TOKEN_return', 'TOKEN_break', 'TOKEN_continue', 'TOKEN_goto'].includes(child.token)
+  );
+
+  if (!jumpKeyword) {
+    throw new CompilationError('Unsupported jump statement', getNodeName(jumpNode));
+  }
+
+  if (jumpKeyword.token === 'TOKEN_return') {
+    const expressionNode = firstNonterminal(jumpNode, 'expression');
+    if (!expressionNode) {
+      return [
+        ...buildFunctionEpilogue(context),
+        'return'
+      ];
+    }
+    return [
+      ...compileExpression(expressionNode, context, { keepValue: true }),
+      ...buildFunctionEpilogue(context),
+      'return'
+    ];
+  }
+
+  if (jumpKeyword.token === 'TOKEN_break') {
+    const activeBreak = context.breakStack[context.breakStack.length - 1];
+    if (!activeBreak) {
+      throw new CompilationError(`'${jumpKeyword.value}' used outside a loop or switch`, getNodeName(jumpNode));
+    }
+    return [`br $${activeBreak.breakLabel}`];
+  }
+
+  if (jumpKeyword.token === 'TOKEN_continue') {
+    const activeLoop = context.loopStack[context.loopStack.length - 1];
+    if (!activeLoop) {
+      throw new CompilationError(`'${jumpKeyword.value}' used outside a loop`, getNodeName(jumpNode));
+    }
+    return [`br $${activeLoop.continueLabel}`];
+  }
+
+  if (jumpKeyword.token === 'TOKEN_goto') {
+    return [];
+  }
+
+  throw new CompilationError(`Unsupported jump keyword '${jumpKeyword.value}'`, getNodeName(jumpNode));
+}
+
+function unwrapStatementNode(statementNode) {
+  if (!statementNode) {
+    return null;
+  }
+
+  if (isNonterminal(statementNode, 'statement')) {
+    return nonterminalChildren(statementNode)[0] || null;
+  }
+
+  return statementNode;
+}
+
+function collectSwitchSections(statementNode, context) {
+  const directNode = unwrapStatementNode(statementNode);
+  const sections = [];
+  let currentSection = null;
+
+  const ensureCurrentSection = () => {
+    if (!currentSection) {
+      currentSection = { labels: [], items: [] };
+      sections.push(currentSection);
+    }
+    return currentSection;
+  };
+
+  const appendStatementItem = (statement) => {
+    const targetStatement = unwrapStatementNode(statement);
+    if (!targetStatement) {
+      return;
+    }
+    ensureCurrentSection().items.push({ kind: 'statement', node: targetStatement });
+  };
+
+  if (!isNonterminal(directNode, 'compoundStatement')) {
+    appendStatementItem(directNode);
+    return sections;
+  }
+
+  for (const blockItem of nonterminalChildren(directNode, 'blockItem')) {
+    const declaration = firstNonterminal(blockItem, 'declaration');
+    if (declaration) {
+      ensureCurrentSection().items.push({ kind: 'declaration', node: declaration });
+      continue;
+    }
+
+    let statement = firstNonterminal(blockItem, 'statement');
+    if (!statement) {
+      continue;
+    }
+
+    const labels = [];
+    let currentNode = unwrapStatementNode(statement);
+
+    while (isNonterminal(currentNode, 'labeledStatement')) {
+      if (firstTerminal(currentNode, 'TOKEN_case')) {
+        const constantExpression = firstNonterminal(currentNode, 'constantExpression');
+        const explicitInteger = constantExpression ? findFirstTerminal(constantExpression, 'IntegerConstant') : null;
+        const explicitCharacter = constantExpression ? findFirstTerminal(constantExpression, 'CharacterConstant') : null;
+
+        labels.push({
+          kind: 'case',
+          value: explicitInteger
+            ? parseCIntegerLiteral(explicitInteger.value)
+            : (explicitCharacter
+              ? parseCCharacterLiteral(explicitCharacter.value)
+              : evaluateConstantExpression(
+                constantExpression,
+                (context.module && context.module.enumValues) || new Map()
+              ))
+        });
+        currentNode = unwrapStatementNode(firstNonterminal(currentNode, 'statement'));
+        continue;
+      }
+
+      if (firstTerminal(currentNode, 'TOKEN_default')) {
+        labels.push({ kind: 'default' });
+        currentNode = unwrapStatementNode(firstNonterminal(currentNode, 'statement'));
+        continue;
+      }
+
+      break;
+    }
+
+    if (labels.length > 0) {
+      currentSection = { labels, items: [] };
+      sections.push(currentSection);
+    }
+
+    appendStatementItem(currentNode);
+  }
+
+  return sections;
+}
+
+function buildSwitchMatchInstructions(section, switchValueLocal) {
+  const caseLabels = (section.labels || []).filter((label) => label.kind === 'case');
+  const hasDefault = (section.labels || []).some((label) => label.kind === 'default');
+
+  if (hasDefault) {
+    return ['i32.const 1'];
+  }
+
+  if (caseLabels.length === 0) {
+    return ['i32.const 1'];
+  }
+
+  const instructions = [];
+  caseLabels.forEach((label, index) => {
+    instructions.push(
+      `local.get $${switchValueLocal.name}`,
+      `i32.const ${Number(label.value) || 0}`,
+      'i32.eq'
+    );
+    if (index > 0) {
+      instructions.push('i32.or');
+    }
+  });
+
+  return instructions;
+}
+
+function compileSwitchSection(section, context) {
+  const instructions = [];
+
+  for (const item of section.items || []) {
+    if (item.kind === 'declaration') {
+      instructions.push(...compileLocalDeclaration(item.node, context));
+    } else if (item.kind === 'statement') {
+      instructions.push(...compileStatement(item.node, context));
+    }
+  }
+
+  return instructions;
+}
+
+function compileSwitchStatement(selectionNode, context) {
+  const conditionNode = firstNonterminal(selectionNode, 'expression');
+  const statementNode = nonterminalChildren(selectionNode, 'statement')[0];
+
+  if (!conditionNode || !statementNode) {
+    throw new CompilationError('Malformed switch statement', getNodeName(selectionNode));
+  }
+
+  const breakLabel = createLabel(context, 'switch_exit');
+  const switchValueLocal = ensureInternalLocal(context, createLabel(context, '__switch_value'), 'i32');
+  const switchMatchedLocal = ensureInternalLocal(context, createLabel(context, '__switch_matched'), 'i32');
+  const sections = collectSwitchSections(statementNode, context);
+
+  const instructions = [
+    ...compileExpression(conditionNode, context, { keepValue: true }),
+    `local.set $${switchValueLocal.name}`,
+    'i32.const 0',
+    `local.set $${switchMatchedLocal.name}`,
+    `block $${breakLabel}`
+  ];
+
+  context.breakStack.push({ breakLabel, kind: 'switch' });
+  try {
+    for (const section of sections) {
+      const sectionInstructions = compileSwitchSection(section, context);
+
+      if (!section.labels || section.labels.length === 0) {
+        instructions.push(...sectionInstructions);
+        continue;
+      }
+
+      instructions.push(
+        `local.get $${switchMatchedLocal.name}`,
+        'if',
+        ...sectionInstructions,
+        'else',
+        ...buildSwitchMatchInstructions(section, switchValueLocal),
+        'if',
+        'i32.const 1',
+        `local.set $${switchMatchedLocal.name}`,
+        ...sectionInstructions,
+        'end',
+        'end'
+      );
+    }
+  } finally {
+    context.breakStack.pop();
+  }
+
+  instructions.push('end');
+  return instructions;
+}
+
+function compileLabeledStatement(labeledNode, context) {
+  const innerStatement = firstNonterminal(labeledNode, 'statement');
+  if (!innerStatement) {
+    return [];
+  }
+  return compileStatement(innerStatement, context);
+}
+
+function compileSelectionStatement(selectionNode, context) {
+  if (firstTerminal(selectionNode, 'TOKEN_switch')) {
+    return compileSwitchStatement(selectionNode, context);
+  }
+
+  const conditionNode = firstNonterminal(selectionNode, 'expression');
+  const statementNodes = nonterminalChildren(selectionNode, 'statement');
+  const hasElseBranch = !!firstTerminal(selectionNode, 'TOKEN_else');
+
+  if (!conditionNode || statementNodes.length === 0) {
+    throw new CompilationError('Malformed if statement', getNodeName(selectionNode));
+  }
+
+  const instructions = [
+    ...compileExpression(conditionNode, context, { keepValue: true }),
+    'if'
+  ];
+
+  instructions.push(...compileStatement(statementNodes[0], context));
+
+  if (hasElseBranch) {
+    instructions.push('else');
+    if (statementNodes[1]) {
+      instructions.push(...compileStatement(statementNodes[1], context));
+    }
+  }
+
+  instructions.push('end');
+  return instructions;
+}
+
+function compileSideEffectExpression(expressionNode, context) {
+  if (!expressionNode) return [];
+
+  const instructions = compileExpression(expressionNode, context, { keepValue: true });
+  if (expressionProducesValue(expressionNode, context)) {
+    instructions.push('drop');
+  }
+  return instructions;
+}
+
+function extractForLoopParts(iterationNode) {
+  const parts = {
+    init: null,
+    initDeclaration: null,
+    condition: null,
+    update: null,
+    body: null
+  };
+
+  let semicolonCount = 0;
+  for (const child of childNodes(iterationNode)) {
+    if (isTerminal(child, 'TOKEN__3B_')) {
+      semicolonCount += 1;
+      continue;
+    }
+
+    if (isNonterminal(child, 'statement')) {
+      parts.body = child;
+      continue;
+    }
+
+    if (semicolonCount === 0) {
+      if (isNonterminal(child, 'expression') && !parts.init) {
+        parts.init = child;
+      } else if (isNonterminal(child, 'declaration') && !parts.initDeclaration) {
+        parts.initDeclaration = child;
+      }
+      continue;
+    }
+
+    if (semicolonCount === 1 && isNonterminal(child, 'expression') && !parts.condition) {
+      parts.condition = child;
+      continue;
+    }
+
+    if (semicolonCount >= 2 && isNonterminal(child, 'expression')) {
+      parts.update = child;
+    }
+  }
+
+  return parts;
+}
+
+function compileIterationStatement(iterationNode, context) {
+  if (firstTerminal(iterationNode, 'TOKEN_for')) {
+    const parts = extractForLoopParts(iterationNode);
+    if (!parts.body) {
+      throw new CompilationError('Malformed for loop', getNodeName(iterationNode));
+    }
+
+    const breakLabel = createLabel(context, 'for_exit');
+    const continueLabel = createLabel(context, 'for_continue');
+    const loopLabel = createLabel(context, 'for_loop');
+    const instructions = [];
+
+    pushScope(context);
+    try {
+      if (parts.initDeclaration) {
+        instructions.push(...compileLocalDeclaration(parts.initDeclaration, context));
+      } else {
+        instructions.push(...compileSideEffectExpression(parts.init, context));
+      }
+
+      instructions.push(
+        `block $${breakLabel}`,
+        `loop $${loopLabel}`
+      );
+
+      if (parts.condition) {
+        instructions.push(
+          ...compileExpression(parts.condition, context, { keepValue: true }),
+          'i32.eqz',
+          `br_if $${breakLabel}`
+        );
+      }
+
+      instructions.push(`block $${continueLabel}`);
+
+      const loopState = { breakLabel, continueLabel };
+      context.loopStack.push(loopState);
+      context.breakStack.push({ breakLabel, kind: 'loop' });
+      try {
+        instructions.push(...compileStatement(parts.body, context));
+      } finally {
+        context.breakStack.pop();
+        context.loopStack.pop();
+      }
+
+      instructions.push(
+        'end',
+        ...compileSideEffectExpression(parts.update, context),
+        `br $${loopLabel}`,
+        'end',
+        'end'
+      );
+    } finally {
+      popScope(context);
+    }
+
+    return instructions;
+  }
+
+  if (firstTerminal(iterationNode, 'TOKEN_do')) {
+    const bodyStatement = nonterminalChildren(iterationNode, 'statement')[0];
+    const conditionNode = firstNonterminal(iterationNode, 'expression');
+
+    if (!bodyStatement || !conditionNode) {
+      throw new CompilationError('Malformed do-while loop', getNodeName(iterationNode));
+    }
+
+    const breakLabel = createLabel(context, 'do_exit');
+    const continueLabel = createLabel(context, 'do_continue');
+    const loopLabel = createLabel(context, 'do_loop');
+    const instructions = [
+      `block $${breakLabel}`,
+      `loop $${loopLabel}`,
+      `block $${continueLabel}`
+    ];
+
+    const loopState = { breakLabel, continueLabel };
+    context.loopStack.push(loopState);
+    context.breakStack.push({ breakLabel, kind: 'loop' });
+    try {
+      instructions.push(...compileStatement(bodyStatement, context));
+    } finally {
+      context.breakStack.pop();
+      context.loopStack.pop();
+    }
+
+    instructions.push(
+      'end',
+      ...compileExpression(conditionNode, context, { keepValue: true }),
+      `br_if $${loopLabel}`,
+      'end',
+      'end'
+    );
+
+    return instructions;
+  }
+
+  if (firstTerminal(iterationNode, 'TOKEN_while')) {
+    const conditionNode = firstNonterminal(iterationNode, 'expression');
+    const bodyStatement = nonterminalChildren(iterationNode, 'statement')[0];
+
+    if (!conditionNode || !bodyStatement) {
+      throw new CompilationError('Malformed while loop', getNodeName(iterationNode));
+    }
+
+    const breakLabel = createLabel(context, 'while_exit');
+    const continueLabel = createLabel(context, 'while_loop');
+    const instructions = [
+      `block $${breakLabel}`,
+      `loop $${continueLabel}`,
+      ...compileExpression(conditionNode, context, { keepValue: true }),
+      'i32.eqz',
+      `br_if $${breakLabel}`
+    ];
+
+    const loopState = { breakLabel, continueLabel };
+    context.loopStack.push(loopState);
+    context.breakStack.push({ breakLabel, kind: 'loop' });
+    try {
+      instructions.push(...compileStatement(bodyStatement, context));
+    } finally {
+      context.breakStack.pop();
+      context.loopStack.pop();
+    }
+
+    instructions.push(
+      `br $${continueLabel}`,
+      'end',
+      'end'
+    );
+
+    return instructions;
+  }
+
+  throw new CompilationError('Unsupported iteration statement', getNodeName(iterationNode));
+}
+
+function expressionProducesValue(node, context) {
+  if (!node) return false;
+
+  const inferredType = inferExpressionType(node, context);
+  if (inferredType !== null) {
+    return true;
+  }
+
+  if (node.kind === 'terminal') {
+    return ['IntegerConstant', 'CharacterConstant', 'FloatingConstant', 'Identifier'].includes(node.token);
+  }
+
+  const nodeName = getNodeName(node);
+  if (nodeName && /expression$/i.test(nodeName)) {
+    const postfixExpression = findFirstNonterminal(node, 'postfixExpression');
+    const postfixSuffix = postfixExpression ? firstNonterminal(postfixExpression, 'postfixSuffix') : null;
+
+    if (postfixSuffix) {
+      const primaryExpression = firstNonterminal(postfixExpression, 'primaryExpression');
+      const calleeName = extractIdentifierFromNode(primaryExpression);
+      const fn = calleeName ? context.module.functionsByName.get(calleeName) : null;
+      return !fn || fn.resultType !== null;
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
+function inferExpressionType(node, context) {
+  if (!node) return null;
+
+  if (node.kind === 'terminal') {
+    if (node.token === 'IntegerConstant' || node.token === 'CharacterConstant') return 'i32';
+    if (node.token === 'FloatingConstant') return 'i32';
+    if (node.token === 'Identifier') {
+      const memberAccess = String(node.value || '').includes('.') ? resolveMemberAccess(node.value, context) : null;
+      if (memberAccess) {
+        return memberAccess.isStruct ? 'i32' : memberAccess.watType;
+      }
+
+      const symbol = context.locals.get(node.value)
+        || context.params.get(node.value)
+        || context.module.globalsByName.get(node.value)
+        || context.module.functionsByName.get(node.value);
+      return symbol ? (symbol.watType || symbol.resultType || 'i32') : 'i32';
+    }
+    return null;
+  }
+
+  const nodeName = getNodeName(node);
+
+  if (nodeName === 'primaryExpression') {
+    const directTerminal = firstTerminal(node);
+    if (directTerminal) {
+      return inferExpressionType(directTerminal, context);
+    }
+
+    const nestedPrimaryChildren = nonterminalChildren(node);
+    return nestedPrimaryChildren.length > 0
+      ? inferExpressionType(nestedPrimaryChildren[0], context)
+      : null;
+  }
+
+  if (nodeName === 'constant') {
+    const directTerminal = firstTerminal(node);
+    return directTerminal ? inferExpressionType(directTerminal, context) : null;
+  }
+
+  if (nodeName === 'postfixExpression') {
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const indexExpressions = getIndexExpressionsFromPostfix(node);
+
+    if (indexExpressions.length > 0) {
+      const baseName = getSimpleIdentifierName(primaryExpression);
+      if (baseName) {
+        const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+        return accessInfo.resultIsAddress ? 'i32' : accessInfo.watType;
+      }
+      return 'i32';
+    }
+
+    const postfixSuffix = firstNonterminal(node, 'postfixSuffix');
+    if (postfixSuffix) {
+      const calleeName = extractIdentifierFromNode(primaryExpression);
+      const fn = context.module.functionsByName.get(calleeName);
+      return fn ? fn.resultType : 'i32';
+    }
+  }
+
+  if (nodeName === 'unaryExpression') {
+    if (firstTerminal(node, 'TOKEN_sizeof')) {
+      return 'i32';
+    }
+
+    const directOperator = childNodes(node).find(
+      (child) => child.kind === 'terminal' && ['TOKEN__2B__2B_', 'TOKEN__2D__2D_'].includes(child.token)
+    );
+    if (directOperator) {
+      const operandNode = nonterminalChildren(node)[0];
+      return inferExpressionType(operandNode, context) || 'i32';
+    }
+
+    const unaryOperatorNode = firstNonterminal(node, 'unaryOperator');
+    if (unaryOperatorNode) {
+      const operatorTerminal = firstTerminal(unaryOperatorNode);
+      const operandNode = nonterminalChildren(node).find((child) => child !== unaryOperatorNode);
+
+      if (operatorTerminal) {
+        switch (operatorTerminal.token) {
+          case 'TOKEN__26_':
+            return 'i32';
+          case 'TOKEN__2A_':
+            return inferPointerPointeeType(operandNode, context);
+          case 'TOKEN__21_':
+            return 'i32';
+          default:
+            return inferExpressionType(operandNode, context) || 'i32';
+        }
+      }
+    }
+  }
+
+  if (nodeName === 'postfixExpression') {
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const indexExpressions = getIndexExpressionsFromPostfix(node);
+    if (indexExpressions.length > 0) {
+      const baseName = getSimpleIdentifierName(primaryExpression);
+      if (baseName) {
+        const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+        return accessInfo.resultIsAddress ? 'i32' : accessInfo.watType;
+      }
+      return 'i32';
+    }
+  }
+
+  if (['equalityExpression', 'relationalExpression', 'logicalOrExpression', 'logicalAndExpression'].includes(nodeName)) {
+    const terminals = terminalChildren(node);
+    if (terminals.length > 0) return 'i32';
+  }
+
+  if (nodeName === 'conditionalExpression' && firstTerminal(node, 'TOKEN__3F_')) {
+    const trueNode = firstNonterminal(node, 'expression');
+    const conditionalChildren = nonterminalChildren(node, 'conditionalExpression');
+    const falseNode = conditionalChildren[conditionalChildren.length - 1] || null;
+    return selectCommonWatType(
+      inferExpressionType(trueNode, context) || 'i32',
+      inferExpressionType(falseNode, context) || 'i32'
+    );
+  }
+
+  if (nodeName === 'castExpression') {
+    const typeNameNode = firstNonterminal(node, 'typeName');
+    if (typeNameNode) {
+      return extractTypeInfoFromTypeName(typeNameNode).watType || 'i32';
+    }
+  }
+
+  if (nodeName === 'assignmentExpression') {
+    const nestedChildren = nonterminalChildren(node);
+    if (nestedChildren.length >= 3 && firstNonterminal(node, 'assignmentOperator')) {
+      return inferExpressionType(nestedChildren[nestedChildren.length - 1], context);
+    }
+  }
+
+  const nestedChildren = nonterminalChildren(node);
+  if (nestedChildren.length > 0) {
+    return inferExpressionType(nestedChildren[0], context);
+  }
+
+  return null;
+}
+
+function normalizeTruthiness(instructions, valueType = 'i32') {
+  const normalized = [...instructions];
+
+  switch (valueType) {
+    case 'i64':
+      normalized.push('i64.eqz', 'i32.eqz');
+      break;
+    case 'f32':
+      normalized.push('f32.const 0', 'f32.ne');
+      break;
+    case 'f64':
+      normalized.push('f64.const 0', 'f64.ne');
+      break;
+    default:
+      normalized.push('i32.eqz', 'i32.eqz');
+      break;
+  }
+
+  return normalized;
+}
+
+function compileBooleanValue(node, context) {
+  const nodeName = getNodeName(node);
+  const directTokens = terminalChildren(node);
+
+  if (nodeName === 'logicalOrExpression' && directTokens.some((token) => token.token === 'TOKEN__7C__7C_')) {
+    return compileLogicalExpression(node, context, '||');
+  }
+  if (nodeName === 'logicalAndExpression' && directTokens.some((token) => token.token === 'TOKEN__26__26_')) {
+    return compileLogicalExpression(node, context, '&&');
+  }
+
+  const valueType = inferExpressionType(node, context) || 'i32';
+  const instructions = compileExpression(node, context, { keepValue: true });
+  return normalizeTruthiness(instructions, valueType);
+}
+
+function compileLogicalExpression(node, context, operatorKind) {
+  const pieces = childNodes(node).filter((child) => child.kind === 'nonterminal' || child.kind === 'terminal');
+  const nestedChildren = nonterminalChildren(node);
+
+  if (pieces.length === 0) {
+    return [];
+  }
+
+  if (pieces.filter((piece) => piece.kind === 'terminal').length === 0 && nestedChildren.length > 0) {
+    return compileExpression(nestedChildren[0], context, { keepValue: true });
+  }
+
+  let instructions = compileBooleanValue(pieces[0], context);
+
+  for (let index = 1; index < pieces.length; index += 2) {
+    const rightNode = pieces[index + 1];
+    if (!rightNode) continue;
+
+    if (operatorKind === '&&') {
+      instructions = instructions.concat(
+        'if (result i32)',
+        ...compileBooleanValue(rightNode, context),
+        'else',
+        'i32.const 0',
+        'end'
+      );
+    } else {
+      instructions = instructions.concat(
+        'if (result i32)',
+        'i32.const 1',
+        'else',
+        ...compileBooleanValue(rightNode, context),
+        'end'
+      );
+    }
+  }
+
+  return instructions;
+}
+
+function compileConditionalExpression(node, context, keepValue) {
+  const questionMark = firstTerminal(node, 'TOKEN__3F_');
+  if (!questionMark) {
+    return compileFirstChild(node, context, keepValue);
+  }
+
+  const conditionNode = firstNonterminal(node, 'logicalOrExpression');
+  const trueNode = firstNonterminal(node, 'expression');
+  const conditionalChildren = nonterminalChildren(node, 'conditionalExpression');
+  const falseNode = conditionalChildren[conditionalChildren.length - 1] || null;
+
+  if (!conditionNode || !trueNode || !falseNode) {
+    throw new CompilationError('Malformed ternary expression', getNodeName(node));
+  }
+
+  const trueType = inferExpressionType(trueNode, context) || 'i32';
+  const falseType = inferExpressionType(falseNode, context) || 'i32';
+  const resultType = selectCommonWatType(trueType, falseType);
+
+  return [
+    ...compileBooleanValue(conditionNode, context),
+    `if (result ${resultType})`,
+    ...coerceInstructionsToType(compileExpression(trueNode, context, { keepValue: true }), trueType, resultType),
+    'else',
+    ...coerceInstructionsToType(compileExpression(falseNode, context, { keepValue: true }), falseType, resultType),
+    'end'
+  ];
+}
+
+function compileExpression(node, context, options = {}) {
+  const keepValue = options.keepValue !== false;
+
+  if (!node) return [];
+
+  if (node.kind === 'terminal') {
+    return compileTerminalExpression(node, context, { keepValue });
+  }
+
+  const nodeName = getNodeName(node);
+
+  switch (nodeName) {
+    case 'initializer':
+    case 'expression': {
+      const expressions = nonterminalChildren(node);
+      if (expressions.length === 0) return [];
+      return compileExpression(expressions[expressions.length - 1], context, { keepValue });
+    }
+
+    case 'assignmentExpression':
+      return compileAssignmentExpression(node, context, { keepValue });
+
+    case 'conditionalExpression':
+      return compileConditionalExpression(node, context, keepValue);
+
+    case 'logicalOrExpression':
+      return compileLogicalExpression(node, context, '||');
+
+    case 'logicalAndExpression':
+      return compileLogicalExpression(node, context, '&&');
+
+    case 'inclusiveOrExpression':
+      return compileBinaryExpression(node, context, {
+        '|': 'i32.or'
+      });
+
+    case 'exclusiveOrExpression':
+      return compileBinaryExpression(node, context, {
+        '^': 'i32.xor'
+      });
+
+    case 'andExpression':
+      return compileBinaryExpression(node, context, {
+        '&': 'i32.and'
+      });
+
+    case 'equalityExpression':
+      return compileBinaryExpression(node, context, {
+        '==': 'i32.eq',
+        '!=': 'i32.ne'
+      });
+
+    case 'relationalExpression':
+      return compileBinaryExpression(node, context, {
+        '<': 'i32.lt_s',
+        '<=': 'i32.le_s',
+        '>': 'i32.gt_s',
+        '>=': 'i32.ge_s'
+      });
+
+    case 'shiftExpression':
+      return compileBinaryExpression(node, context, {
+        '<<': 'i32.shl',
+        '>>': 'i32.shr_s'
+      });
+
+    case 'additiveExpression':
+      return compileAdditiveExpression(node, context);
+
+    case 'multiplicativeExpression':
+      return compileBinaryExpression(node, context, {
+        '*': 'i32.mul',
+        '/': 'i32.div_s',
+        '%': 'i32.rem_s'
+      });
+
+    case 'castExpression':
+      return compileCastExpression(node, context, keepValue);
+
+    case 'constant':
+    case 'primaryExpression':
+      return compileFirstChild(node, context, keepValue);
+
+    case 'unaryExpression':
+      return compileUnaryExpression(node, context, keepValue);
+
+    case 'postfixExpression':
+      return compilePostfixExpression(node, context, keepValue);
+
+    default: {
+      const nestedChildren = nonterminalChildren(node);
+      if (nestedChildren.length === 1 && terminalChildren(node).length === 0) {
+        return compileExpression(nestedChildren[0], context, { keepValue });
+      }
+      throw new CompilationError(`Unsupported expression node: ${nodeName}`, nodeName);
+    }
+  }
+}
+
+function compileFirstChild(node, context, keepValue) {
+  const nestedChildren = nonterminalChildren(node);
+  if (nestedChildren.length === 0) {
+    const terminal = firstTerminal(node);
+    return terminal ? compileTerminalExpression(terminal, context, { keepValue }) : [];
+  }
+  return compileExpression(nestedChildren[0], context, { keepValue });
+}
+
+function compileCastExpression(node, context, keepValue) {
+  const typeNameNode = firstNonterminal(node, 'typeName');
+  if (!typeNameNode) {
+    return compileFirstChild(node, context, keepValue);
+  }
+
+  const operandNode = nonterminalChildren(node).find((child) => child !== typeNameNode);
+  const targetTypeInfo = extractTypeInfoFromTypeName(typeNameNode);
+  const operandType = inferExpressionType(operandNode, context) || targetTypeInfo.watType || 'i32';
+  const operandInstructions = operandNode
+    ? compileExpression(operandNode, context, { keepValue: true })
+    : ['i32.const 0'];
+
+  return coerceInstructionsToType(operandInstructions, operandType, targetTypeInfo.watType || 'i32');
+}
+
+function compileUnaryExpression(node, context, keepValue) {
+  const sizeofToken = firstTerminal(node, 'TOKEN_sizeof');
+  if (sizeofToken) {
+    const typeNameNode = firstNonterminal(node, 'typeName');
+    if (typeNameNode) {
+      return [`i32.const ${getSizeOfTypeNameNode(typeNameNode, context)}`];
+    }
+
+    const operandNode = nonterminalChildren(node).find((child) => !isNonterminal(child, 'unaryOperator'));
+    return [`i32.const ${getSizeOfExpressionNode(operandNode, context)}`];
+  }
+
+  const directOperator = childNodes(node).find(
+    (child) => child.kind === 'terminal' && ['TOKEN__2B__2B_', 'TOKEN__2D__2D_'].includes(child.token)
+  );
+
+  if (directOperator) {
+    const operandNode = nonterminalChildren(node)[0];
+    const targetName = extractIdentifierFromNode(operandNode);
+    if (!targetName) {
+      throw new CompilationError('Prefix increment/decrement requires a simple variable', getNodeName(node));
+    }
+    const delta = directOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
+    return emitUpdateInstructions(targetName, delta, context, { prefix: true, keepValue });
+  }
+
+  const unaryOperatorNode = firstNonterminal(node, 'unaryOperator');
+  if (unaryOperatorNode) {
+    const operatorTerminal = firstTerminal(unaryOperatorNode);
+    const operandNode = nonterminalChildren(node).find((child) => child !== unaryOperatorNode);
+    const operandType = inferExpressionType(operandNode, context) || 'i32';
+
+    if (!operatorTerminal) {
+      throw new CompilationError('Malformed unary operator', getNodeName(node));
+    }
+
+    switch (operatorTerminal.token) {
+      case 'TOKEN__2B_':
+        return operandNode ? compileExpression(operandNode, context, { keepValue }) : [];
+      case 'TOKEN__2D_':
+        if (operandType === 'f64') {
+          return [...compileExpression(operandNode, context, { keepValue: true }), 'f64.neg'];
+        }
+        if (operandType === 'f32') {
+          return [...compileExpression(operandNode, context, { keepValue: true }), 'f32.neg'];
+        }
+        if (operandType === 'i64') {
+          return ['i64.const 0', ...compileExpression(operandNode, context, { keepValue: true }), 'i64.sub'];
+        }
+        return ['i32.const 0', ...compileExpression(operandNode, context, { keepValue: true }), 'i32.sub'];
+      case 'TOKEN__21_':
+        return operandNode ? [...compileBooleanValue(operandNode, context), 'i32.eqz'] : ['i32.const 1'];
+      case 'TOKEN__7E_':
+        return operandNode
+          ? [...compileExpression(operandNode, context, { keepValue: true }), 'i32.const -1', 'i32.xor']
+          : [];
+      case 'TOKEN__26_': {
+        const lvalue = resolveLValue(operandNode, context);
+        return lvalue.kind === 'symbol'
+          ? emitAddressOfSymbol(lvalue.name, context)
+          : lvalue.addressInstructions;
+      }
+      case 'TOKEN__2A_':
+        return operandNode
+          ? [
+              ...compileExpression(operandNode, context, { keepValue: true }),
+              getLoadOpcodeForType(inferPointerPointeeType(operandNode, context))
+            ]
+          : [];
+      default:
+        throw new CompilationError(`Unsupported unary operator '${operatorTerminal.value}'`, getNodeName(node));
+    }
+  }
+
+  return compileFirstChild(node, context, keepValue);
+}
+
+function getSimpleIdentifierName(node) {
+  if (!node) return null;
+
+  if (node.kind === 'terminal') {
+    if (node.token === 'Identifier' && !String(node.value).endsWith('++') && !String(node.value).endsWith('--')) {
+      return node.value;
+    }
+    return null;
+  }
+
+  const nodeName = getNodeName(node);
+  if (nodeName === 'primaryExpression') {
+    const identifier = firstTerminal(node, 'Identifier');
+    return identifier ? identifier.value : null;
+  }
+
+  if (nodeName === 'postfixExpression') {
+    if (firstNonterminal(node, 'postfixSuffix')) {
+      return null;
+    }
+    return getSimpleIdentifierName(firstNonterminal(node, 'primaryExpression'));
+  }
+
+  if (nodeName === 'unaryExpression') {
+    const directOperator = childNodes(node).find(
+      (child) => child.kind === 'terminal' && ['TOKEN__2B__2B_', 'TOKEN__2D__2D_'].includes(child.token)
+    );
+    if (directOperator || firstNonterminal(node, 'unaryOperator')) {
+      return null;
+    }
+  }
+
+  const nestedChildren = nonterminalChildren(node);
+  if (nestedChildren.length === 1 && terminalChildren(node).length === 0) {
+    return getSimpleIdentifierName(nestedChildren[0]);
+  }
+
+  return null;
+}
+
+function getIndexExpressionsFromPostfix(node) {
+  if (!isNonterminal(node, 'postfixExpression')) {
+    return [];
+  }
+
+  return nonterminalChildren(node, 'postfixSuffix')
+    .filter((suffix) => !!firstTerminal(suffix, 'TOKEN__5B_'))
+    .map((suffix) => firstNonterminal(suffix, 'expression'))
+    .filter(Boolean);
+}
+
+function getDecayDimensionsForSymbol(symbol) {
+  const dimensions = getSymbolArrayDimensions(symbol);
+  if (symbol && (symbol.isArray || symbol.declaredAsArray)) {
+    return dimensions.slice(1);
+  }
+  return [];
+}
+
+function getStrideForAccess(baseWatType, pointeeDimensions = []) {
+  return getTypeSize(baseWatType || 'i32') * getDimensionProduct(pointeeDimensions);
+}
+
+function getIndexedAccessInfo(name, indexExpressions, context) {
+  const symbol = resolveSymbol(name, context);
+  if (!symbol) {
+    throw new CompilationError(`Unknown indexed symbol '${name}'`, context.function.sourceName);
+  }
+
+  const indices = Array.isArray(indexExpressions) ? indexExpressions.filter(Boolean) : [indexExpressions].filter(Boolean);
+  const watType = symbol.baseWatType || symbol.watType || 'i32';
+  let addressInstructions = symbol.isArray
+    ? emitAddressOfSymbol(name, context)
+    : compileExpression({ kind: 'terminal', token: 'Identifier', value: name }, context, { keepValue: true });
+  let pointerPointeeDimensions = getDecayDimensionsForSymbol(symbol);
+  let resultObjectDimensions = [];
+
+  for (const indexExpression of indices) {
+    const stride = getStrideForAccess(watType, pointerPointeeDimensions);
+    addressInstructions = addressInstructions.concat(
+      compileExpression(indexExpression, context, { keepValue: true }),
+      `i32.const ${stride}`,
+      'i32.mul',
+      'i32.add'
+    );
+    resultObjectDimensions = [...pointerPointeeDimensions];
+    pointerPointeeDimensions = pointerPointeeDimensions.length > 0
+      ? pointerPointeeDimensions.slice(1)
+      : [];
+  }
+
+  return {
+    symbol,
+    watType,
+    addressInstructions,
+    resultObjectDimensions,
+    resultIsAddress: resultObjectDimensions.length > 0
+  };
+}
+
+function inferPointerPointeeType(node, context) {
+  if (isNonterminal(node, 'postfixExpression')) {
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const indexExpressions = getIndexExpressionsFromPostfix(node);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+
+    if (baseName && indexExpressions.length > 0) {
+      const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+      return accessInfo.watType || 'i32';
+    }
+  }
+
+  const identifierName = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
+  const symbol = identifierName ? resolveSymbol(identifierName, context) : null;
+
+  if (!symbol) {
+    return 'i32';
+  }
+
+  if ((symbol.pointerDepth || 0) > 1) {
+    return 'i32';
+  }
+
+  return symbol.baseWatType || symbol.watType || 'i32';
+}
+
+function resolveLValue(node, context) {
+  if (isNonterminal(node, 'postfixExpression')) {
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const indexExpressions = getIndexExpressionsFromPostfix(node);
+    if (indexExpressions.length > 0) {
+      const baseName = getSimpleIdentifierName(primaryExpression);
+      if (!baseName) {
+        throw new CompilationError('Only simple array/pointer indexing is supported right now', getNodeName(node));
+      }
+      const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+      if (accessInfo.resultIsAddress) {
+        throw new CompilationError('Assignment to a subarray is not supported right now', getNodeName(node));
+      }
+      return {
+        kind: 'indirect',
+        addressInstructions: accessInfo.addressInstructions,
+        watType: accessInfo.watType
+      };
+    }
+  }
+
+  const simpleIdentifier = getSimpleIdentifierName(node);
+  if (simpleIdentifier) {
+    if (String(simpleIdentifier).includes('.')) {
+      const memberAccess = resolveMemberAccess(simpleIdentifier, context);
+      if (!memberAccess) {
+        throw new CompilationError(`Unknown assignment target '${simpleIdentifier}'`, context.function.sourceName);
+      }
+      if (memberAccess.isStruct) {
+        throw new CompilationError('Assignment to a whole struct field object is not supported right now', context.function.sourceName);
+      }
+      return {
+        kind: 'indirect',
+        addressInstructions: memberAccess.addressInstructions,
+        watType: memberAccess.watType
+      };
+    }
+
+    const symbol = resolveSymbol(simpleIdentifier, context);
+    if (!symbol) {
+      throw new CompilationError(`Unknown assignment target '${simpleIdentifier}'`, context.function.sourceName);
+    }
+    return {
+      kind: 'symbol',
+      name: simpleIdentifier,
+      watType: symbol.watType || 'i32'
+    };
+  }
+
+  if (isNonterminal(node, 'unaryExpression')) {
+    const unaryOperatorNode = firstNonterminal(node, 'unaryOperator');
+    const operatorTerminal = unaryOperatorNode ? firstTerminal(unaryOperatorNode) : null;
+    const operandNode = nonterminalChildren(node).find((child) => child !== unaryOperatorNode);
+
+    if (operatorTerminal && operatorTerminal.token === 'TOKEN__2A_') {
+      return {
+        kind: 'indirect',
+        addressInstructions: compileExpression(operandNode, context, { keepValue: true }),
+        watType: inferPointerPointeeType(operandNode, context)
+      };
+    }
+  }
+
+  const nestedChildren = nonterminalChildren(node);
+  if (nestedChildren.length === 1 && terminalChildren(node).length === 0) {
+    return resolveLValue(nestedChildren[0], context);
+  }
+
+  throw new CompilationError('Unsupported assignment target', getNodeName(node));
+}
+
+function getCompoundAssignmentOpcode(operatorValue, watType = 'i32') {
+  const prefix = watType === 'i64' ? 'i64' : 'i32';
+
+  switch (operatorValue) {
+    case '+=': return `${prefix}.add`;
+    case '-=': return `${prefix}.sub`;
+    case '*=': return `${prefix}.mul`;
+    case '/=': return `${prefix}.div_s`;
+    case '%=': return `${prefix}.rem_s`;
+    case '<<=': return `${prefix}.shl`;
+    case '>>=': return `${prefix}.shr_s`;
+    case '&=': return `${prefix}.and`;
+    case '^=': return `${prefix}.xor`;
+    case '|=': return `${prefix}.or`;
+    default: return null;
+  }
+}
+
+function normalizeInstructionArray(instructions) {
+  if (Array.isArray(instructions)) {
+    return instructions;
+  }
+  return instructions ? [instructions] : [];
+}
+
+function compileAssignmentExpression(node, context, options = {}) {
+  const keepValue = options.keepValue !== false;
+  const nestedChildren = nonterminalChildren(node);
+  const assignmentOperator = firstNonterminal(node, 'assignmentOperator');
+
+  if (!assignmentOperator || nestedChildren.length < 3) {
+    return nestedChildren.length > 0
+      ? compileExpression(nestedChildren[0], context, { keepValue })
+      : [];
+  }
+
+  const leftNode = nestedChildren[0];
+  const rightNode = nestedChildren[nestedChildren.length - 1];
+  const lvalue = resolveLValue(leftNode, context);
+  const lvalueType = lvalue.watType || 'i32';
+  const rhsType = inferExpressionType(rightNode, context) || lvalueType;
+  const operatorTerminal = firstTerminal(assignmentOperator);
+  const operatorValue = operatorTerminal ? operatorTerminal.value : '=';
+
+  let rhsInstructions = coerceInstructionsToType(
+    compileExpression(rightNode, context, { keepValue: true }),
+    rhsType,
+    lvalueType
+  );
+
+  if (operatorValue !== '=') {
+    const currentValueInstructions = lvalue.kind === 'symbol'
+      ? normalizeInstructionArray(emitLoadInstruction(lvalue.name, context))
+      : [...lvalue.addressInstructions, getLoadOpcodeForType(lvalueType)];
+    const compoundOpcode = getCompoundAssignmentOpcode(operatorValue, lvalueType);
+
+    if (!compoundOpcode) {
+      throw new CompilationError(`Unsupported assignment operator '${operatorValue}'`, getNodeName(node));
+    }
+
+    rhsInstructions = currentValueInstructions.concat(rhsInstructions, compoundOpcode);
+  }
+
+  if (lvalue.kind === 'symbol') {
+    return emitStoreInstructions(lvalue.name, rhsInstructions, context, keepValue);
+  }
+
+  return emitStoreToAddress(lvalue.addressInstructions, rhsInstructions, lvalueType, context, keepValue);
+}
+
+function isPointerLikeNode(node, context) {
+  const type = inferExpressionType(node, context);
+  if (type !== 'i32') {
+    return false;
+  }
+
+  const simpleIdentifier = getSimpleIdentifierName(node);
+  if (simpleIdentifier) {
+    const symbol = resolveSymbol(simpleIdentifier, context);
+    return !!symbol && ((symbol.pointerDepth || 0) > 0 || symbol.isArray || symbol.declaredAsArray);
+  }
+
+  if (isNonterminal(node, 'postfixExpression')) {
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const indexExpressions = getIndexExpressionsFromPostfix(node);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName && indexExpressions.length > 0) {
+      return getIndexedAccessInfo(baseName, indexExpressions, context).resultIsAddress;
+    }
+  }
+
+  if (isNonterminal(node, 'unaryExpression')) {
+    const unaryOperatorNode = firstNonterminal(node, 'unaryOperator');
+    const operatorTerminal = unaryOperatorNode ? firstTerminal(unaryOperatorNode) : null;
+    return !!operatorTerminal && operatorTerminal.token === 'TOKEN__26_';
+  }
+
+  return false;
+}
+
+function getPointerElementSize(node, context) {
+  const simpleIdentifier = getSimpleIdentifierName(node);
+  if (simpleIdentifier) {
+    const symbol = resolveSymbol(simpleIdentifier, context);
+    if (symbol) {
+      return getStrideForAccess(symbol.baseWatType || symbol.watType || 'i32', getDecayDimensionsForSymbol(symbol));
+    }
+  }
+
+  if (isNonterminal(node, 'postfixExpression')) {
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const indexExpressions = getIndexExpressionsFromPostfix(node);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName && indexExpressions.length > 0) {
+      const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+      return getStrideForAccess(accessInfo.watType, accessInfo.resultObjectDimensions.slice(1));
+    }
+  }
+
+  return getTypeSize(inferPointerPointeeType(node, context) || 'i32');
+}
+
+function compileAdditiveExpression(node, context) {
+  const pieces = childNodes(node).filter((child) => child.kind === 'nonterminal' || child.kind === 'terminal');
+  const terminals = pieces.filter((piece) => piece.kind === 'terminal');
+
+  if (terminals.length === 0) {
+    const nestedChildren = nonterminalChildren(node);
+    return nestedChildren.length > 0 ? compileExpression(nestedChildren[0], context, { keepValue: true }) : [];
+  }
+
+  let instructions = compileExpression(pieces[0], context, { keepValue: true });
+  let currentIsPointer = isPointerLikeNode(pieces[0], context);
+  let currentElementSize = currentIsPointer
+    ? getPointerElementSize(pieces[0], context)
+    : getTypeSize(inferExpressionType(pieces[0], context) || 'i32');
+
+  for (let index = 1; index < pieces.length; index += 2) {
+    const operatorNode = pieces[index];
+    const rightNode = pieces[index + 1];
+
+    if (!operatorNode || operatorNode.kind !== 'terminal' || !rightNode) {
+      continue;
+    }
+
+    const operator = operatorNode.value;
+    const rightInstructions = compileExpression(rightNode, context, { keepValue: true });
+    const rightIsPointer = isPointerLikeNode(rightNode, context);
+
+    if (currentIsPointer || rightIsPointer) {
+      if (currentIsPointer && rightIsPointer) {
+        throw new CompilationError('Pointer-to-pointer arithmetic is not supported yet', getNodeName(node));
+      }
+
+      if (currentIsPointer) {
+        instructions = instructions.concat(
+          rightInstructions,
+          `i32.const ${currentElementSize}`,
+          'i32.mul',
+          operator === '-' ? 'i32.sub' : 'i32.add'
+        );
+      } else {
+        if (operator === '-') {
+          throw new CompilationError('Integer minus pointer is not supported yet', getNodeName(node));
+        }
+
+        currentElementSize = getPointerElementSize(rightNode, context);
+        instructions = [
+          ...rightInstructions,
+          ...instructions,
+          `i32.const ${currentElementSize}`,
+          'i32.mul',
+          'i32.add'
+        ];
+      }
+
+      currentIsPointer = true;
+      continue;
+    }
+
+    const opcode = operator === '+' ? 'i32.add' : 'i32.sub';
+    instructions = instructions.concat(rightInstructions, opcode);
+    currentElementSize = getTypeSize(inferExpressionType(rightNode, context) || 'i32');
+  }
+
+  return instructions;
+}
+
+function compileBinaryExpression(node, context, operatorMap) {
+  const pieces = childNodes(node).filter((child) => child.kind === 'nonterminal' || child.kind === 'terminal');
+  const terminals = pieces.filter((piece) => piece.kind === 'terminal');
+
+  if (terminals.length === 0) {
+    const nestedChildren = nonterminalChildren(node);
+    return nestedChildren.length > 0 ? compileExpression(nestedChildren[0], context, { keepValue: true }) : [];
+  }
+
+  let instructions = compileExpression(pieces[0], context, { keepValue: true });
+
+  for (let index = 1; index < pieces.length; index += 2) {
+    const operatorNode = pieces[index];
+    const rightNode = pieces[index + 1];
+
+    if (!operatorNode || operatorNode.kind !== 'terminal' || !rightNode) {
+      continue;
+    }
+
+    const opcode = operatorMap[operatorNode.value];
+    if (!opcode) {
+      throw new CompilationError(`Unsupported operator '${operatorNode.value}'`, getNodeName(node));
+    }
+
+    instructions = instructions.concat(
+      compileExpression(rightNode, context, { keepValue: true }),
+      opcode
+    );
+  }
+
+  return instructions;
+}
+
+function compileTerminalExpression(node, context, options = {}) {
+  const keepValue = options.keepValue !== false;
+
+  if (node.token === 'IntegerConstant') {
+    return [`i32.const ${parseCIntegerLiteral(node.value)}`];
+  }
+
+  if (node.token === 'CharacterConstant') {
+    return [`i32.const ${parseCCharacterLiteral(node.value)}`];
+  }
+
+  if (node.token === 'StringLiteral') {
+    return emitStringLiteralAddress(node.value, context);
+  }
+
+  if (node.token === 'FloatingConstant') {
+    return [`i32.const ${Math.trunc(parseCFloatingLiteral(node.value))}`];
+  }
+
+  if (node.token === 'Identifier') {
+    if (typeof node.value === 'string' && (node.value.endsWith('++') || node.value.endsWith('--'))) {
+      const delta = node.value.endsWith('++') ? 1 : -1;
+      const baseName = node.value.slice(0, -2);
+      return emitUpdateInstructions(baseName, delta, context, { prefix: false, keepValue });
+    }
+    const loadInstructions = emitLoadInstruction(node.value, context);
+    return Array.isArray(loadInstructions) ? loadInstructions : [loadInstructions];
+  }
+
+  return [];
+}
+
+function compilePostfixExpression(node, context, keepValue) {
+  const primaryExpression = firstNonterminal(node, 'primaryExpression');
+  const postfixSuffixes = nonterminalChildren(node, 'postfixSuffix');
+
+  if (postfixSuffixes.length === 0) {
+    return primaryExpression ? compileExpression(primaryExpression, context, { keepValue }) : [];
+  }
+
+  const indexExpressions = getIndexExpressionsFromPostfix(node);
+  if (indexExpressions.length > 0) {
+    const baseName = getSimpleIdentifierName(primaryExpression);
+    if (!baseName) {
+      throw new CompilationError('Only simple array/pointer indexing is supported right now', getNodeName(node));
+    }
+
+    const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+    if (accessInfo.resultIsAddress) {
+      return accessInfo.addressInstructions;
+    }
+
+    return [
+      ...accessInfo.addressInstructions,
+      getLoadOpcodeForType(accessInfo.watType)
+    ];
+  }
+
+  const postfixOperator = postfixSuffixes
+    .flatMap((suffix) => childNodes(suffix))
+    .find((child) => child.kind === 'terminal' && ['TOKEN__2B__2B_', 'TOKEN__2D__2D_'].includes(child.token));
+
+  if (postfixOperator) {
+    const targetName = extractIdentifierFromNode(primaryExpression);
+    if (!targetName) {
+      throw new CompilationError('Postfix increment/decrement requires a simple variable', getNodeName(node));
+    }
+    const delta = postfixOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
+    return emitUpdateInstructions(targetName, delta, context, { prefix: false, keepValue });
+  }
+
+  const calleeName = extractIdentifierFromNode(primaryExpression);
+  if (!calleeName) {
+    throw new CompilationError('Only named function calls are supported right now', getNodeName(node));
+  }
+
+  const callSuffix = postfixSuffixes.find((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
+  const argumentList = callSuffix ? findFirstNonterminal(callSuffix, 'argumentExpressionList') : null;
+  const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
+  const instructions = [];
+
+  for (const argumentNode of argumentsToCompile) {
+    instructions.push(...compileExpression(argumentNode, context, { keepValue: true }));
+  }
+
+  const fn = context.module.functionsByName.get(calleeName) || null;
+  if (!fn) {
+    for (let index = 0; index < argumentsToCompile.length; index += 1) {
+      instructions.push('drop');
+    }
+    if (keepValue) {
+      instructions.push('i32.const 0');
+    }
+    return instructions;
+  }
+
+  instructions.push(`call $${sanitizeIdentifier(calleeName)}`);
+
+  if (!keepValue && fn.resultType !== null) {
+    instructions.push('drop');
+  }
+
+  return instructions;
+}
+
+function extractIdentifierFromNode(node) {
+  const identifier = findFirstTerminal(node, 'Identifier');
+  return identifier ? identifier.value : null;
+}
+
+function resolveSymbol(name, context) {
+  return context.locals.get(name)
+    || context.params.get(name)
+    || context.module.globalsByName.get(name)
+    || null;
+}
+
+function getLoadOpcodeForType(watType = 'i32') {
+  switch (watType) {
+    case 'i64': return 'i64.load';
+    case 'f32': return 'f32.load';
+    case 'f64': return 'f64.load';
+    default: return 'i32.load';
+  }
+}
+
+function getStoreOpcodeForType(watType = 'i32') {
+  switch (watType) {
+    case 'i64': return 'i64.store';
+    case 'f32': return 'f32.store';
+    case 'f64': return 'f64.store';
+    default: return 'i32.store';
+  }
+}
+
+function emitAddressOfSymbol(name, context) {
+  const symbol = resolveSymbol(name, context);
+  if (!symbol) {
+    if (context.module && context.module.functionsByName && context.module.functionsByName.has(name)) {
+      return ['i32.const 0'];
+    }
+    throw new CompilationError(`Unknown symbol '${name}'`, context.function.sourceName);
+  }
+
+  if (symbol.stackOffset != null) {
+    return [
+      'local.get $__frame',
+      `i32.const ${symbol.stackOffset}`,
+      'i32.add'
+    ];
+  }
+
+  throw new CompilationError(`Address-of is currently supported only for frame-backed locals and parameters ('${name}')`, context.function.sourceName);
+}
+
+function emitIndexedAddress(name, indexExpression, context) {
+  const accessInfo = getIndexedAccessInfo(name, indexExpression, context);
+  return accessInfo.addressInstructions;
+}
+
+function emitLoadInstruction(name, context) {
+  if (name === 'NULL') {
+    return ['i32.const 0'];
+  }
+
+  if (String(name || '').includes('.')) {
+    const memberAccess = resolveMemberAccess(name, context);
+    if (!memberAccess) {
+      throw new CompilationError(`Unknown symbol '${name}'`, context.function.sourceName);
+    }
+    return memberAccess.isStruct
+      ? memberAccess.addressInstructions
+      : [...memberAccess.addressInstructions, getLoadOpcodeForType(memberAccess.watType || 'i32')];
+  }
+
+  const symbol = resolveSymbol(name, context);
+  if (!symbol) {
+    if (context.module && context.module.functionsByName && context.module.functionsByName.has(name)) {
+      return ['i32.const 0'];
+    }
+    throw new CompilationError(`Unknown symbol '${name}'`, context.function.sourceName);
+  }
+
+  if (symbol.isArray || symbol.isStruct) {
+    return emitAddressOfSymbol(name, context);
+  }
+
+  if (symbol.stackOffset != null) {
+    return [
+      ...emitAddressOfSymbol(name, context),
+      getLoadOpcodeForType(symbol.watType || 'i32')
+    ];
+  }
+
+  if (context.locals.has(name) || context.params.has(name)) {
+    return `local.get $${symbol.name}`;
+  }
+
+  return `global.get $${symbol.name}`;
+}
+
+function emitStoreToAddress(addressInstructions, rhsInstructions, watType, context, keepValue) {
+  const instructions = [
+    ...addressInstructions,
+    ...rhsInstructions
+  ];
+
+  if (keepValue) {
+    const tempLocal = ensureInternalLocal(context, `__tmp_${watType}`, watType || 'i32');
+    instructions.push(`local.tee $${tempLocal.name}`);
+    instructions.push(getStoreOpcodeForType(watType || 'i32'));
+    instructions.push(`local.get $${tempLocal.name}`);
+    return instructions;
+  }
+
+  instructions.push(getStoreOpcodeForType(watType || 'i32'));
+  return instructions;
+}
+
+function emitUpdateInstructions(name, delta, context, options = {}) {
+  const prefix = options.prefix !== false;
+  const keepValue = options.keepValue !== false;
+  const memberAccess = String(name || '').includes('.') ? resolveMemberAccess(name, context) : null;
+  const symbol = memberAccess ? null : resolveSymbol(name, context);
+
+  if (!symbol && !memberAccess) {
+    throw new CompilationError(`Unknown update target '${name}'`, context.function.sourceName);
+  }
+
+  const watType = memberAccess ? (memberAccess.watType || 'i32') : (symbol.watType || 'i32');
+  const magnitude = Math.abs(delta);
+  const addressInstructions = memberAccess
+    ? memberAccess.addressInstructions
+    : (symbol.stackOffset != null ? emitAddressOfSymbol(name, context) : null);
+
+  let constInstruction = `i32.const ${magnitude}`;
+  let arithmeticInstruction = delta >= 0 ? 'i32.add' : 'i32.sub';
+
+  if (watType === 'i64') {
+    constInstruction = `i64.const ${magnitude}`;
+    arithmeticInstruction = delta >= 0 ? 'i64.add' : 'i64.sub';
+  }
+
+  if (addressInstructions) {
+    const addrTemp = ensureInternalLocal(context, '__tmp_addr', 'i32');
+    const valueTemp = ensureInternalLocal(context, `__tmp_${watType}`, watType);
+    const instructions = [
+      ...addressInstructions,
+      `local.tee $${addrTemp.name}`,
+      getLoadOpcodeForType(watType),
+      constInstruction,
+      arithmeticInstruction,
+      `local.tee $${valueTemp.name}`,
+      `local.get $${addrTemp.name}`,
+      `local.get $${valueTemp.name}`,
+      getStoreOpcodeForType(watType)
+    ];
+
+    if (keepValue) {
+      if (prefix) {
+        instructions.push(`local.get $${valueTemp.name}`);
+      } else {
+        const oldValueTemp = ensureInternalLocal(context, `__tmp_old_${watType}`, watType);
+        return [
+          ...addressInstructions,
+          `local.tee $${addrTemp.name}`,
+          getLoadOpcodeForType(watType),
+          `local.tee $${oldValueTemp.name}`,
+          constInstruction,
+          arithmeticInstruction,
+          `local.tee $${valueTemp.name}`,
+          `local.get $${addrTemp.name}`,
+          `local.get $${valueTemp.name}`,
+          getStoreOpcodeForType(watType),
+          `local.get $${oldValueTemp.name}`
+        ];
+      }
+    }
+
+    return instructions;
+  }
+
+  const isLocal = context.locals.has(name) || context.params.has(name);
+  const loadInstruction = isLocal ? `local.get $${symbol.name}` : `global.get $${symbol.name}`;
+  const setInstruction = isLocal ? `local.set $${symbol.name}` : `global.set $${symbol.name}`;
+  const teeInstruction = isLocal ? `local.tee $${symbol.name}` : null;
+
+  if (prefix) {
+    const instructions = [
+      loadInstruction,
+      constInstruction,
+      arithmeticInstruction
+    ];
+
+    if (teeInstruction && keepValue) {
+      instructions.push(teeInstruction);
+    } else {
+      instructions.push(setInstruction);
+      if (keepValue) {
+        instructions.push(loadInstruction);
+      }
+    }
+
+    return instructions;
+  }
+
+  if (keepValue) {
+    return [
+      loadInstruction,
+      loadInstruction,
+      constInstruction,
+      arithmeticInstruction,
+      setInstruction
+    ];
+  }
+
+  return [
+    loadInstruction,
+    constInstruction,
+    arithmeticInstruction,
+    setInstruction
+  ];
+}
+
+function emitStoreInstructions(name, rhsInstructions, context, keepValue) {
+  const symbol = resolveSymbol(name, context);
+  if (!symbol) {
+    throw new CompilationError(`Unknown assignment target '${name}'`, context.function.sourceName);
+  }
+
+  if (symbol.stackOffset != null) {
+    return emitStoreToAddress(
+      emitAddressOfSymbol(name, context),
+      rhsInstructions,
+      symbol.watType || 'i32',
+      context,
+      keepValue
+    );
+  }
+
+  if (context.locals.has(name) || context.params.has(name)) {
+    return rhsInstructions.concat(keepValue ? `local.tee $${symbol.name}` : `local.set $${symbol.name}`);
+  }
+
+  const instructions = rhsInstructions.concat(`global.set $${symbol.name}`);
+  if (keepValue) {
+    instructions.push(`global.get $${symbol.name}`);
+  }
+  return instructions;
+}
+
+function registerStringLiteral(text, moduleModel) {
+  if (moduleModel.stringLiterals.has(text)) {
+    return moduleModel.stringLiterals.get(text);
+  }
+
+  const values = [...parseCStringLiteral(text), 0];
+  const bytes = encodeI32WordsAsBytes(values);
+  const offset = alignTo(moduleModel.nextDataOffset || 0, 4);
+  const dataSegment = {
+    offset,
+    bytes
+  };
+
+  moduleModel.dataSegments.push(dataSegment);
+  moduleModel.stringLiterals.set(text, dataSegment);
+  moduleModel.nextDataOffset = offset + bytes.length;
+  moduleModel.usesLinearMemory = true;
+  return dataSegment;
+}
+
+function emitStringLiteralAddress(text, context) {
+  const dataSegment = registerStringLiteral(text, context.module);
+  return [`i32.const ${dataSegment.offset}`];
+}
+
+function emitWatFromModule(moduleModel) {
+  return renderModule(moduleModel);
+}
+
+function stripWatComments(source) {
+  return String(source)
+    .replace(/^\s*;;.*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function validateWat(wat) {
+  if (!WatAssembler) {
+    return null;
+  }
+
+  const assembler = new WatAssembler();
+  const wasm = assembler.assemble(stripWatComments(wat));
+
+  if (typeof WebAssembly !== 'undefined' && typeof WebAssembly.Module === 'function') {
+    new WebAssembly.Module(wasm);
+  }
+
+  return wasm;
+}
+
+function compileSource(source, options = {}) {
+  const backend = options.backend || 'wat';
+  const emitter = SUPPORTED_BACKENDS[backend];
+
+  if (!emitter) {
+    throw new Error(`Unsupported backend '${backend}'. Supported backends: ${Object.keys(SUPPORTED_BACKENDS).join(', ')}`);
+  }
+
+  const parsed = parseCSource(source);
+  const moduleModel = buildModuleModel(parsed.ast, {
+    aggregateTags: collectNamedAggregateTags(parsed.normalizedSource || source)
+  });
+  const wat = emitter(moduleModel, options);
+
+  let wasm = null;
+  let validationError = null;
+
+  if (options.validate !== false) {
+    try {
+      wasm = validateWat(wat);
+    } catch (error) {
+      validationError = error;
+      if (options.wasmOut) {
+        throw error;
+      }
+    }
+  }
+
+  return {
+    ...parsed,
+    module: moduleModel,
+    wat,
+    wasm,
+    validationError
+  };
+}
+
+function parseArguments(argv) {
+  const options = {
+    backend: 'wat',
+    showAst: false,
+    printJson: false,
+    printXml: false,
+    printWat: true,
+    validate: true,
+    sourceText: '',
+    sourcePath: null,
+    jsonOut: null,
+    xmlOut: null,
+    watOut: null,
+    wasmOut: null
+  };
+
+  const positional = [];
+
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index];
+
+    switch (arg) {
+      case '--help':
+      case '-h':
+        options.help = true;
+        break;
+      case '--ast':
+        options.showAst = true;
+        break;
+      case '--print-json':
+        options.printJson = true;
+        break;
+      case '--print-xml':
+        options.printXml = true;
+        break;
+      case '--no-wat':
+        options.printWat = false;
+        break;
+      case '--no-validate':
+        options.validate = false;
+        break;
+      case '--backend':
+        options.backend = argv[++index];
+        break;
+      case '--code':
+        options.sourceText = argv[++index] || '';
+        break;
+      case '--file':
+        options.sourcePath = argv[++index] || null;
+        break;
+      case '--json-out':
+        options.jsonOut = argv[++index] || null;
+        break;
+      case '--xml-out':
+        options.xmlOut = argv[++index] || null;
+        break;
+      case '--wat-out':
+        options.watOut = argv[++index] || null;
+        break;
+      case '--wasm-out':
+        options.wasmOut = argv[++index] || null;
+        break;
+      default:
+        positional.push(arg);
+        break;
+    }
+  }
+
+  if (!options.sourceText && !options.sourcePath && positional.length > 0) {
+    const candidatePath = positional[0];
+    if (positional.length === 1 && fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+      options.sourcePath = candidatePath;
+    } else {
+      options.sourceText = positional.join(' ');
+    }
+  }
+
+  return options;
+}
+
+function getSourceFromOptions(options) {
+  if (options.sourcePath) {
+    return fs.readFileSync(path.resolve(options.sourcePath), 'utf8');
+  }
+
+  return String(options.sourceText || '').trim();
+}
+
+function writeOutputFile(filePath, content) {
+  const absolutePath = path.resolve(filePath);
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, content);
+}
+
+function printUsage() {
+  console.log('Usage:');
+  console.log('  node c-compiler.js "int main() { return 0; }"');
+  console.log('  node c-compiler.js --file ./examples/test.c --ast --json-out out/test.json --xml-out out/test.xml --wat-out out/test.wat');
+  console.log('');
+  console.log('Options:');
+  console.log('  --code <c-code>      Parse inline C source code');
+  console.log('  --file <path>        Read C source from a file');
+  console.log('  --backend <name>     Output backend (default: wat)');
+  console.log('  --ast                Print the AST / parse tree');
+  console.log('  --print-json         Print the JSON parse tree');
+  console.log('  --print-xml          Print the XML parse tree');
+  console.log('  --json-out <path>    Save the JSON parse tree');
+  console.log('  --xml-out <path>     Save the XML parse tree');
+  console.log('  --wat-out <path>     Save the generated WAT');
+  console.log('  --wasm-out <path>    Assemble the generated WAT to WASM');
+  console.log('  --no-wat             Do not print WAT to stdout');
+  console.log('  --no-validate        Skip WAT validation with maiawasm');
+  console.log('  --help               Show this help message');
+}
+
+function main() {
+  const options = parseArguments(process.argv.slice(2));
+
+  if (options.help) {
+    printUsage();
+    return;
+  }
+
+  const source = getSourceFromOptions(options);
+  if (!source) {
+    printUsage();
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    const result = compileSource(source, options);
+
+    if (options.showAst) {
+      console.log('--- AST ---');
+      printTree(result.ast);
+      console.log('');
+    }
+
+    if (options.printXml) {
+      console.log('--- XML ---');
+      console.log(result.xml);
+      console.log('');
+    }
+
+    if (options.printJson) {
+      console.log('--- JSON ---');
+      console.log(result.json);
+      console.log('');
+    }
+
+    if (options.printWat) {
+      if (options.showAst || options.printXml || options.printJson) {
+        console.log('--- WAT ---');
+      }
+      console.log(result.wat);
+    }
+
+    if (options.jsonOut) {
+      writeOutputFile(options.jsonOut, result.json);
+    }
+
+    if (options.xmlOut) {
+      writeOutputFile(options.xmlOut, result.xml);
+    }
+
+    if (options.watOut) {
+      writeOutputFile(options.watOut, result.wat);
+    }
+
+    if (options.wasmOut) {
+      if (!result.wasm) {
+        throw result.validationError || new Error('WASM output was requested, but WAT validation / assembly is not available.');
+      }
+      writeOutputFile(options.wasmOut, result.wasm);
+    }
+  } catch (error) {
+    console.error(`Compilation failed: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  CompilationError,
+  parseCSource,
+  preprocessCSource,
+  buildModuleModel,
+  compileSource,
+  emitWatFromModule,
+  parseArguments,
+  main
+};
