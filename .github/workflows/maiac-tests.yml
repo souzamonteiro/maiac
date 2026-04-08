@@ -1,0 +1,38 @@
+name: MaiaC Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      generate_report:
+        description: "Generate and upload JSON test report artifact"
+        required: false
+        default: "false"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run MaiaC Full Test Bundle (fast path)
+        if: ${{ github.event.inputs.generate_report != 'true' }}
+        run: node compiler/tests/test-all.js
+
+      - name: Run MaiaC Full Test Bundle (with JSON report)
+        if: ${{ github.event.inputs.generate_report == 'true' }}
+        run: node compiler/tests/test-all.js --json-out compiler/tests/outputs/test-report.json
+
+      - name: Upload Test Report
+        if: ${{ always() && github.event.inputs.generate_report == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: maiac-test-report
+          path: compiler/tests/outputs/test-report.json
+          if-no-files-found: warn

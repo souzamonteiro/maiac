@@ -111,6 +111,8 @@ function getTypeSize(watType = 'i32') {
     case 'i64':
     case 'f64':
       return 8;
+    case 'i8':
+      return 1;
     default:
       return 4;
   }
@@ -143,7 +145,12 @@ function getSymbolSize(symbol) {
     return symbol.structLayout.size || 4;
   }
   if (symbol.isArray) {
-    return getTypeSize(symbol.baseWatType || symbol.watType || 'i32') * getDimensionProduct(getSymbolArrayDimensions(symbol));
+    // An array of pointers (char *arr[], int *arr[]) stores i32 addresses per element,
+    // not elements of the base type (char/int). Use pointer size (4) in that case.
+    const elementType = (symbol.pointerDepth || 0) > 0
+      ? 'i32'
+      : (symbol.baseWatType || symbol.watType || 'i32');
+    return getTypeSize(elementType) * getDimensionProduct(getSymbolArrayDimensions(symbol));
   }
   if ((symbol.pointerDepth || 0) > 0) return 4;
   return getTypeSize(symbol.baseWatType || symbol.watType || 'i32');
@@ -229,7 +236,7 @@ function extractStructFieldDefinitions(structDeclarationList, moduleModel = null
       const isArray = arrayDimensions.length > 0;
       const pointerDepth = declaratorInfo.pointerDepth || 0;
       const isStruct = fieldTypeInfo.typeKind === 'struct' && pointerDepth === 0;
-      const watType = (isStruct || pointerDepth > 0 || isArray) ? 'i32' : fieldTypeInfo.baseWatType;
+      const watType = toWatType((isStruct || pointerDepth > 0 || isArray) ? 'i32' : fieldTypeInfo.baseWatType);
 
       fields.push({
         sourceName: declaratorInfo.sourceName,
@@ -659,14 +666,23 @@ function extractBuiltinType(specifierNode) {
   return keywords.join(' ').trim() || 'int';
 }
 
+// Maps a C type name to an internal pseudo WAT type.
+// 'i8' is used internally for char: size=1, load8_u/store8. It must be
+// converted to 'i32' before appearing in any WAT text (see toWatType).
 function mapCTypeToWat(cType) {
   const normalized = String(cType || 'int').replace(/\s+/g, ' ').trim();
 
   if (normalized.includes('void')) return null;
-  if (normalized.includes('double')) return 'i32';
-  if (normalized.includes('float')) return 'i32';
+  if (normalized.includes('double')) return 'f64';
+  if (normalized.includes('float')) return 'f32';
   if (normalized.includes('long')) return 'i64';
+  if (normalized === 'char' || normalized === 'unsigned char' || normalized === 'signed char') return 'i8';
   return 'i32';
+}
+
+// Converts pseudo-types to real WAT value types (WAT has no i8 locals/params).
+function toWatType(t) {
+  return t === 'i8' ? 'i32' : (t || 'i32');
 }
 
 function selectCommonWatType(leftType = 'i32', rightType = 'i32') {
@@ -677,8 +693,59 @@ function selectCommonWatType(leftType = 'i32', rightType = 'i32') {
   return 'i32';
 }
 
-function coerceInstructionsToType(instructions, sourceType = 'i32', targetType = 'i32') {
-  const from = sourceType || targetType || 'i32';
+function inferResultTypeFromInstructions(instructions, context = null) {
+  if (!Array.isArray(instructions) || instructions.length === 0) {
+    return null;
+  }
+
+  const lastInstruction = String(instructions[instructions.length - 1] || '');
+  if (/^f32\./.test(lastInstruction)) return 'f32';
+  if (/^f64\./.test(lastInstruction)) return 'f64';
+  if (/^i64\./.test(lastInstruction)) return 'i64';
+  if (/^i32\./.test(lastInstruction)) return 'i32';
+
+  const directCallMatch = lastInstruction.match(/^call \$([^\s]+)$/);
+  if (directCallMatch && context && context.module && Array.isArray(context.module.functions)) {
+    const calleeName = directCallMatch[1];
+    const functionModel = context.module.functions.find(
+      (candidate) => candidate && (candidate.name === calleeName || sanitizeIdentifier(candidate.sourceName) === calleeName)
+    );
+    if (functionModel && functionModel.resultType) {
+      return functionModel.resultType;
+    }
+  }
+
+  const localGetMatch = lastInstruction.match(/^local\.get \$([^\s]+)$/);
+  if (localGetMatch && context) {
+    const localName = localGetMatch[1];
+    const symbols = [
+      ...Array.from((context.locals || new Map()).values()),
+      ...Array.from((context.params || new Map()).values())
+    ];
+    const symbol = symbols.find(
+      (candidate) => candidate && (candidate.name === localName || sanitizeIdentifier(candidate.sourceName) === localName)
+    );
+    if (symbol && symbol.watType) {
+      return toWatType(symbol.watType);
+    }
+  }
+
+  const globalGetMatch = lastInstruction.match(/^global\.get \$([^\s]+)$/);
+  if (globalGetMatch && context && context.module && context.module.globalsByName) {
+    const globalName = globalGetMatch[1];
+    const symbol = Array.from(context.module.globalsByName.values()).find(
+      (candidate) => candidate && (candidate.name === globalName || sanitizeIdentifier(candidate.sourceName) === globalName)
+    );
+    if (symbol && symbol.watType) {
+      return toWatType(symbol.watType);
+    }
+  }
+
+  return null;
+}
+
+function coerceInstructionsToType(instructions, sourceType = 'i32', targetType = 'i32', context = null) {
+  const from = inferResultTypeFromInstructions(instructions, context) || sourceType || targetType || 'i32';
   const to = targetType || from || 'i32';
 
   if (!instructions || from === to || !to) {
@@ -724,7 +791,7 @@ function extractTypeInfoFromTypeName(typeNameNode) {
   const pointerDepth = countPointerDepthInDeclarator(typeNameNode);
   const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
   const baseWatType = typeInfo.baseWatType || 'i32';
-  const watType = (pointerDepth > 0 || isStruct) ? 'i32' : baseWatType;
+  const watType = toWatType((pointerDepth > 0 || isStruct) ? 'i32' : baseWatType);
 
   return {
     ...typeInfo,
@@ -947,7 +1014,7 @@ function extractParameters(parameterListNode) {
       const pointerDepth = declaredAsArray ? Math.max(1, rawPointerDepth) : rawPointerDepth;
       const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
       const baseWatType = typeInfo.baseWatType || 'i32';
-      const watType = (pointerDepth > 0 || isStruct) ? 'i32' : baseWatType;
+      const watType = toWatType((pointerDepth > 0 || isStruct) ? 'i32' : baseWatType);
       const nameTerminal = declaratorNode ? findFirstTerminal(declaratorNode, 'Identifier') : null;
       const originalName = nameTerminal ? nameTerminal.value : `arg${index}`;
 
@@ -1082,7 +1149,7 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
 
     const isArray = normalizedArrayDimensions.length > 0;
     const isStruct = typeInfo.typeKind === 'struct' && declaratorInfo.pointerDepth === 0;
-    const watType = (declaratorInfo.pointerDepth > 0 || isArray || isStruct) ? 'i32' : baseWatType;
+    const watType = toWatType((declaratorInfo.pointerDepth > 0 || isArray || isStruct) ? 'i32' : baseWatType);
 
     return {
       sourceName: declaratorInfo.sourceName || `value${index}`,
@@ -1109,12 +1176,14 @@ function collectTypedefAliases(source) {
   return collectTypedefAliasesFromPreprocessor(source);
 }
 
-function normalizeSourceForCurrentParser(source) {
-  return preprocessCSource(source);
+function normalizeSourceForCurrentParser(source, options = {}) {
+  return preprocessCSource(source, options);
 }
 
-function parseCSource(source) {
-  const normalizedSource = normalizeSourceForCurrentParser(source);
+function parseCSource(source, options = {}) {
+  const normalizedSource = normalizeSourceForCurrentParser(source, {
+    sourcePath: options.sourcePath || null
+  });
   const collector = new ParseTreeCollector();
   const parser = new Parser(normalizedSource, collector);
 
@@ -1205,8 +1274,12 @@ function buildGlobalInitializerExpression(initializerNode, globalDef) {
 function buildModuleModel(ast, options = {}) {
   const translationItems = nonterminalChildren(ast, 'translationUnitItem');
   const moduleModel = {
+    types: [],
+    imports: [],
     globals: [],
     functions: [],
+    tables: [],
+    elements: [],
     exports: [],
     memories: [],
     dataSegments: [],
@@ -1221,6 +1294,8 @@ function buildModuleModel(ast, options = {}) {
     nextDataOffset: 0
   };
 
+  moduleModel.functionTypes = new Map();
+
   const functionBodies = [];
 
   for (const item of translationItems) {
@@ -1232,13 +1307,19 @@ function buildModuleModel(ast, options = {}) {
       const declarationSpecifiers = firstNonterminal(functionDefinition, 'declarationSpecifiers');
       const declaratorNode = firstNonterminal(functionDefinition, 'declarator');
       const declaratorInfo = extractDeclaratorInfo(declaratorNode);
-      const resultType = mapCTypeToWat(extractBuiltinType(declarationSpecifiers));
+      const returnTypeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
+      const returnPointerDepth = declaratorInfo.pointerDepth || 0;
+      const returnIsStruct = returnTypeInfo.typeKind === 'struct' && returnPointerDepth === 0;
+      const baseResultType = returnTypeInfo.baseWatType || 'i32';
+      const resultType = baseResultType === null
+        ? null
+        : toWatType((returnPointerDepth > 0 || returnIsStruct) ? 'i32' : baseResultType);
 
       const functionModel = {
         sourceName: declaratorInfo.sourceName,
         name: declaratorInfo.name,
         exportName: declaratorInfo.sourceName,
-        cType: extractBuiltinType(declarationSpecifiers),
+        cType: returnTypeInfo.cType,
         resultType,
         params: declaratorInfo.params,
         locals: [],
@@ -1288,8 +1369,17 @@ function buildModuleModel(ast, options = {}) {
     }
   }
 
+  // Keep a deterministic function table so C function pointers can lower to call_indirect.
+  moduleModel.functionTable = moduleModel.functions.map((fn, index) => ({ ...fn, tableIndex: index }));
+  moduleModel.functionTableByName = new Map(moduleModel.functionTable.map((fn) => [fn.sourceName, fn]));
+
   for (const body of functionBodies) {
     compileFunctionBody(body.node, body.model, moduleModel);
+  }
+
+  if (moduleModel.functionTable.length > 0) {
+    moduleModel.tables = [{ name: 'fn_table', min: moduleModel.functionTable.length }];
+    moduleModel.elements = [{ tableName: 'fn_table', offset: 0, functionNames: moduleModel.functionTable.map((fn) => fn.name) }];
   }
 
   if (moduleModel.usesLinearMemory) {
@@ -1305,7 +1395,10 @@ function buildModuleModel(ast, options = {}) {
         pointerDepth: 0,
         mutable: true,
         exported: false,
-        initExpression: '(i32.const 1024)'
+        // Place the stack above all string-literal data. With 1-byte-per-char
+        // storage the data region can easily exceed the old hard-coded 1024 byte
+        // limit, causing the stack to overwrite string constants.
+        initExpression: `(i32.const ${alignTo(Math.max(1024, moduleModel.nextDataOffset), 16)})`
       };
       moduleModel.globals.unshift(stackPointerGlobal);
       moduleModel.globalsByName.set(stackPointerGlobal.sourceName, stackPointerGlobal);
@@ -1335,6 +1428,61 @@ function buildModuleModel(ast, options = {}) {
   return moduleModel;
 }
 
+function ensureImportedFunction(moduleModel, options = {}) {
+  if (!moduleModel) {
+    return null;
+  }
+
+  if (!moduleModel.importsBySourceName) {
+    moduleModel.importsBySourceName = new Map();
+  }
+
+  const sourceName = options.sourceName;
+  if (!sourceName) {
+    return null;
+  }
+
+  if (moduleModel.importsBySourceName.has(sourceName)) {
+    return moduleModel.importsBySourceName.get(sourceName);
+  }
+
+  const importDef = {
+    sourceName,
+    internalName: options.internalName || `imp_${sanitizeIdentifier(sourceName)}`,
+    module: options.module || 'env',
+    field: options.field || sourceName,
+    paramTypes: Array.isArray(options.paramTypes) ? [...options.paramTypes] : [],
+    resultType: options.resultType || null
+  };
+
+  moduleModel.imports.push(importDef);
+  moduleModel.importsBySourceName.set(sourceName, importDef);
+  return importDef;
+}
+
+function ensureFunctionType(moduleModel, paramTypes = [], resultType = null) {
+  if (!moduleModel) {
+    return 0;
+  }
+
+  if (!moduleModel.functionTypes) {
+    moduleModel.functionTypes = new Map();
+  }
+  if (!Array.isArray(moduleModel.types)) {
+    moduleModel.types = [];
+  }
+
+  const key = `${paramTypes.join(',')}->${resultType || 'void'}`;
+  if (moduleModel.functionTypes.has(key)) {
+    return moduleModel.functionTypes.get(key);
+  }
+
+  const typeIndex = moduleModel.types.length;
+  moduleModel.types.push({ paramTypes: [...paramTypes], resultType: resultType || null });
+  moduleModel.functionTypes.set(key, typeIndex);
+  return typeIndex;
+}
+
 function compileFunctionBody(functionNode, functionModel, moduleModel) {
   const context = {
     module: moduleModel,
@@ -1346,6 +1494,7 @@ function compileFunctionBody(functionNode, functionModel, moduleModel) {
     usedLocalNames: new Set((functionModel.params || []).map((param) => param.name)),
     loopStack: [],
     breakStack: [],
+    gotoLabelStack: [],
     nextLabelId: 0,
     usesLinearMemory: functionRequiresLinearMemory(functionNode),
     frameSize: 0
@@ -1446,20 +1595,74 @@ function registerScopedLocal(context, localEntry, nodeName = null) {
 
 function compileCompoundStatement(compoundNode, context) {
   const instructions = [];
+  const blockItems = nonterminalChildren(compoundNode, 'blockItem');
+
+  const getUserLabelFromBlockItem = (blockItem) => {
+    const statementNode = firstNonterminal(blockItem, 'statement');
+    const directStatement = unwrapStatementNode(statementNode);
+    if (!isNonterminal(directStatement, 'labeledStatement')) {
+      return null;
+    }
+
+    if (firstTerminal(directStatement, 'TOKEN_case') || firstTerminal(directStatement, 'TOKEN_default')) {
+      return null;
+    }
+
+    const labelIdentifier = firstTerminal(directStatement, 'Identifier');
+    return labelIdentifier ? labelIdentifier.value : null;
+  };
+
+  const compileBlockItem = (blockItem) => {
+    const declaration = firstNonterminal(blockItem, 'declaration');
+    if (declaration) {
+      return compileLocalDeclaration(declaration, context);
+    }
+
+    const statement = firstNonterminal(blockItem, 'statement');
+    if (statement) {
+      return compileStatement(statement, context);
+    }
+
+    return [];
+  };
+
   pushScope(context);
 
   try {
-    for (const blockItem of nonterminalChildren(compoundNode, 'blockItem')) {
-      const declaration = firstNonterminal(blockItem, 'declaration');
-      if (declaration) {
-        instructions.push(...compileLocalDeclaration(declaration, context));
+    let index = 0;
+    while (index < blockItems.length) {
+      let nextLabelIndex = -1;
+      let nextLabelName = null;
+
+      for (let scan = index; scan < blockItems.length; scan += 1) {
+        const candidateLabel = getUserLabelFromBlockItem(blockItems[scan]);
+        if (candidateLabel) {
+          nextLabelIndex = scan;
+          nextLabelName = candidateLabel;
+          break;
+        }
+      }
+
+      if (nextLabelIndex < 0 || nextLabelIndex === index) {
+        instructions.push(...compileBlockItem(blockItems[index]));
+        index += 1;
         continue;
       }
 
-      const statement = firstNonterminal(blockItem, 'statement');
-      if (statement) {
-        instructions.push(...compileStatement(statement, context));
+      const gotoLabel = sanitizeIdentifier(nextLabelName);
+      instructions.push(`block $${gotoLabel}`);
+      context.gotoLabelStack.push(gotoLabel);
+      try {
+        for (let cursor = index; cursor < nextLabelIndex; cursor += 1) {
+          instructions.push(...compileBlockItem(blockItems[cursor]));
+        }
+      } finally {
+        context.gotoLabelStack.pop();
       }
+      instructions.push('end');
+
+      instructions.push(...compileBlockItem(blockItems[nextLabelIndex]));
+      index = nextLabelIndex + 1;
     }
   } finally {
     popScope(context);
@@ -1562,7 +1765,7 @@ function compileInitializerValue(initializerNode, context, expectedType = null) 
     return instructions;
   }
 
-  return coerceInstructionsToType(instructions, inferInitializerValueType(initializerNode, context), expectedType);
+  return coerceInstructionsToType(instructions, inferInitializerValueType(initializerNode, context), expectedType, context);
 }
 
 function getStringLiteralInitializerValues(initializerNode) {
@@ -1992,8 +2195,16 @@ function compileJumpStatement(jumpNode, context) {
         'return'
       ];
     }
+
+    const returnType = context.function.resultType || 'i32';
+    const expressionType = inferExpressionType(expressionNode, context) || returnType;
     return [
-      ...compileExpression(expressionNode, context, { keepValue: true }),
+      ...coerceInstructionsToType(
+        compileExpression(expressionNode, context, { keepValue: true }),
+        expressionType,
+        returnType,
+        context
+      ),
       ...buildFunctionEpilogue(context),
       'return'
     ];
@@ -2016,7 +2227,20 @@ function compileJumpStatement(jumpNode, context) {
   }
 
   if (jumpKeyword.token === 'TOKEN_goto') {
-    return [];
+    const labelToken = childNodes(jumpNode).find((child) => child.kind === 'terminal' && child.token === 'Identifier');
+    if (!labelToken || !labelToken.value) {
+      throw new CompilationError('Malformed goto statement', getNodeName(jumpNode));
+    }
+
+    const targetLabel = sanitizeIdentifier(labelToken.value);
+    if (!context.gotoLabelStack.includes(targetLabel)) {
+      throw new CompilationError(
+        `Unsupported goto target '${labelToken.value}'. Only forward goto inside the same compound block is currently supported`,
+        getNodeName(jumpNode)
+      );
+    }
+
+    return [`br $${targetLabel}`];
   }
 
   throw new CompilationError(`Unsupported jump keyword '${jumpKeyword.value}'`, getNodeName(jumpNode));
@@ -2232,7 +2456,7 @@ function compileSelectionStatement(selectionNode, context) {
   }
 
   const instructions = [
-    ...compileExpression(conditionNode, context, { keepValue: true }),
+    ...compileBooleanValue(conditionNode, context),
     'if'
   ];
 
@@ -2285,6 +2509,9 @@ function extractForLoopParts(iterationNode) {
         parts.init = child;
       } else if (isNonterminal(child, 'declaration') && !parts.initDeclaration) {
         parts.initDeclaration = child;
+        // A declaration already includes its semicolon as a child node, so
+        // the next expression encountered is the condition (not the update).
+        semicolonCount = 1;
       }
       continue;
     }
@@ -2329,7 +2556,7 @@ function compileIterationStatement(iterationNode, context) {
 
       if (parts.condition) {
         instructions.push(
-          ...compileExpression(parts.condition, context, { keepValue: true }),
+          ...compileBooleanValue(parts.condition, context),
           'i32.eqz',
           `br_if $${breakLabel}`
         );
@@ -2390,7 +2617,7 @@ function compileIterationStatement(iterationNode, context) {
 
     instructions.push(
       'end',
-      ...compileExpression(conditionNode, context, { keepValue: true }),
+      ...compileBooleanValue(conditionNode, context),
       `br_if $${loopLabel}`,
       'end',
       'end'
@@ -2412,7 +2639,7 @@ function compileIterationStatement(iterationNode, context) {
     const instructions = [
       `block $${breakLabel}`,
       `loop $${continueLabel}`,
-      ...compileExpression(conditionNode, context, { keepValue: true }),
+      ...compileBooleanValue(conditionNode, context),
       'i32.eqz',
       `br_if $${breakLabel}`
     ];
@@ -2474,18 +2701,21 @@ function inferExpressionType(node, context) {
 
   if (node.kind === 'terminal') {
     if (node.token === 'IntegerConstant' || node.token === 'CharacterConstant') return 'i32';
-    if (node.token === 'FloatingConstant') return 'i32';
+    if (node.token === 'FloatingConstant') {
+      const raw = String(node.value || '').trim();
+      return /[fF]$/.test(raw) ? 'f32' : 'f64';
+    }
     if (node.token === 'Identifier') {
       const memberAccess = String(node.value || '').includes('.') ? resolveMemberAccess(node.value, context) : null;
       if (memberAccess) {
-        return memberAccess.isStruct ? 'i32' : memberAccess.watType;
+        return memberAccess.isStruct ? 'i32' : toWatType(memberAccess.watType);
       }
 
       const symbol = context.locals.get(node.value)
         || context.params.get(node.value)
         || context.module.globalsByName.get(node.value)
         || context.module.functionsByName.get(node.value);
-      return symbol ? (symbol.watType || symbol.resultType || 'i32') : 'i32';
+      return symbol ? toWatType(symbol.watType || symbol.resultType || 'i32') : 'i32';
     }
     return null;
   }
@@ -2605,6 +2835,38 @@ function inferExpressionType(node, context) {
     }
   }
 
+  if (nodeName === 'expression') {
+    const assignmentExpressions = nonterminalChildren(node, 'assignmentExpression');
+    if (assignmentExpressions.length > 0) {
+      return inferExpressionType(assignmentExpressions[assignmentExpressions.length - 1], context);
+    }
+  }
+
+  if (['additiveExpression', 'multiplicativeExpression'].includes(nodeName)) {
+    const operands = childNodes(node).filter((child) => child.kind === 'nonterminal');
+    if (operands.length > 0) {
+      let combinedType = inferExpressionType(operands[0], context) || 'i32';
+      for (let index = 1; index < operands.length; index += 1) {
+        combinedType = selectCommonWatType(combinedType, inferExpressionType(operands[index], context) || combinedType);
+      }
+      return combinedType;
+    }
+  }
+
+  if (['shiftExpression', 'andExpression', 'exclusiveOrExpression', 'inclusiveOrExpression'].includes(nodeName)) {
+    const operands = childNodes(node).filter((child) => child.kind === 'nonterminal');
+    if (operands.length > 0) {
+      return operands.some((operand) => inferExpressionType(operand, context) === 'i64') ? 'i64' : 'i32';
+    }
+  }
+
+  if (['relationalExpression', 'equalityExpression', 'logicalAndExpression', 'logicalOrExpression'].includes(nodeName)) {
+    const terminals = terminalChildren(node);
+    if (terminals.length > 0) {
+      return 'i32';
+    }
+  }
+
   const nestedChildren = nonterminalChildren(node);
   if (nestedChildren.length > 0) {
     return inferExpressionType(nestedChildren[0], context);
@@ -2712,9 +2974,9 @@ function compileConditionalExpression(node, context, keepValue) {
   return [
     ...compileBooleanValue(conditionNode, context),
     `if (result ${resultType})`,
-    ...coerceInstructionsToType(compileExpression(trueNode, context, { keepValue: true }), trueType, resultType),
+    ...coerceInstructionsToType(compileExpression(trueNode, context, { keepValue: true }), trueType, resultType, context),
     'else',
-    ...coerceInstructionsToType(compileExpression(falseNode, context, { keepValue: true }), falseType, resultType),
+    ...coerceInstructionsToType(compileExpression(falseNode, context, { keepValue: true }), falseType, resultType, context),
     'end'
   ];
 }
@@ -2766,17 +3028,17 @@ function compileExpression(node, context, options = {}) {
       });
 
     case 'equalityExpression':
-      return compileBinaryExpression(node, context, {
-        '==': 'i32.eq',
-        '!=': 'i32.ne'
+      return compileTypedComparisonExpression(node, context, {
+        '==': 'eq',
+        '!=': 'ne'
       });
 
     case 'relationalExpression':
-      return compileBinaryExpression(node, context, {
-        '<': 'i32.lt_s',
-        '<=': 'i32.le_s',
-        '>': 'i32.gt_s',
-        '>=': 'i32.ge_s'
+      return compileTypedComparisonExpression(node, context, {
+        '<': 'lt',
+        '<=': 'le',
+        '>': 'gt',
+        '>=': 'ge'
       });
 
     case 'shiftExpression':
@@ -2789,10 +3051,10 @@ function compileExpression(node, context, options = {}) {
       return compileAdditiveExpression(node, context);
 
     case 'multiplicativeExpression':
-      return compileBinaryExpression(node, context, {
-        '*': 'i32.mul',
-        '/': 'i32.div_s',
-        '%': 'i32.rem_s'
+      return compileTypedArithmeticExpression(node, context, {
+        '*': 'mul',
+        '/': 'div',
+        '%': 'rem'
       });
 
     case 'castExpression':
@@ -2833,14 +3095,23 @@ function compileCastExpression(node, context, keepValue) {
     return compileFirstChild(node, context, keepValue);
   }
 
-  const operandNode = nonterminalChildren(node).find((child) => child !== typeNameNode);
+  const operandCandidates = nonterminalChildren(node).filter((child) => child !== typeNameNode);
+  const operandNode = operandCandidates.length > 0 ? operandCandidates[operandCandidates.length - 1] : null;
   const targetTypeInfo = extractTypeInfoFromTypeName(typeNameNode);
-  const operandType = inferExpressionType(operandNode, context) || targetTypeInfo.watType || 'i32';
   const operandInstructions = operandNode
     ? compileExpression(operandNode, context, { keepValue: true })
     : ['i32.const 0'];
+  const inferredOperandType = inferExpressionType(operandNode, context);
+  const lastInstruction = operandInstructions.length > 0 ? String(operandInstructions[operandInstructions.length - 1] || '') : '';
+  const operandType = inferredOperandType
+    || (/^f32\./.test(lastInstruction) ? 'f32' : null)
+    || (/^f64\./.test(lastInstruction) ? 'f64' : null)
+    || (/^i64\./.test(lastInstruction) ? 'i64' : null)
+    || (/^i32\./.test(lastInstruction) ? 'i32' : null)
+    || targetTypeInfo.watType
+    || 'i32';
 
-  return coerceInstructionsToType(operandInstructions, operandType, targetTypeInfo.watType || 'i32');
+  return coerceInstructionsToType(operandInstructions, operandType, targetTypeInfo.watType || 'i32', context);
 }
 
 function compileUnaryExpression(node, context, keepValue) {
@@ -2990,7 +3261,12 @@ function getIndexedAccessInfo(name, indexExpressions, context) {
   }
 
   const indices = Array.isArray(indexExpressions) ? indexExpressions.filter(Boolean) : [indexExpressions].filter(Boolean);
-  const watType = symbol.baseWatType || symbol.watType || 'i32';
+  // For an array of pointers (e.g. char *items[]) the elements are i32 addresses,
+  // not the base char type. For a direct char array (e.g. char str[]) the elements
+  // are 1-byte chars (i8). For a char* param used with ptr[n], isArray is false and
+  // baseWatType='i8' correctly drives stride-1 / load8_u indexing.
+  const rawBaseType = symbol.baseWatType || symbol.watType || 'i32';
+  const watType = (symbol.isArray && (symbol.pointerDepth || 0) > 0) ? 'i32' : rawBaseType;
   let addressInstructions = symbol.isArray
     ? emitAddressOfSymbol(name, context)
     : compileExpression({ kind: 'terminal', token: 'Identifier', value: name }, context, { keepValue: true });
@@ -3118,19 +3394,19 @@ function resolveLValue(node, context) {
 }
 
 function getCompoundAssignmentOpcode(operatorValue, watType = 'i32') {
-  const prefix = watType === 'i64' ? 'i64' : 'i32';
+  const effectiveType = toWatType(watType || 'i32');
 
   switch (operatorValue) {
-    case '+=': return `${prefix}.add`;
-    case '-=': return `${prefix}.sub`;
-    case '*=': return `${prefix}.mul`;
-    case '/=': return `${prefix}.div_s`;
-    case '%=': return `${prefix}.rem_s`;
-    case '<<=': return `${prefix}.shl`;
-    case '>>=': return `${prefix}.shr_s`;
-    case '&=': return `${prefix}.and`;
-    case '^=': return `${prefix}.xor`;
-    case '|=': return `${prefix}.or`;
+    case '+=': return getTypedArithmeticOpcode('add', effectiveType);
+    case '-=': return getTypedArithmeticOpcode('sub', effectiveType);
+    case '*=': return getTypedArithmeticOpcode('mul', effectiveType);
+    case '/=': return getTypedArithmeticOpcode('div', effectiveType);
+    case '%=': return getTypedArithmeticOpcode('rem', effectiveType);
+    case '<<=': return effectiveType === 'i64' ? 'i64.shl' : 'i32.shl';
+    case '>>=': return effectiveType === 'i64' ? 'i64.shr_s' : 'i32.shr_s';
+    case '&=': return effectiveType === 'i64' ? 'i64.and' : 'i32.and';
+    case '^=': return effectiveType === 'i64' ? 'i64.xor' : 'i32.xor';
+    case '|=': return effectiveType === 'i64' ? 'i64.or' : 'i32.or';
     default: return null;
   }
 }
@@ -3164,7 +3440,8 @@ function compileAssignmentExpression(node, context, options = {}) {
   let rhsInstructions = coerceInstructionsToType(
     compileExpression(rightNode, context, { keepValue: true }),
     rhsType,
-    lvalueType
+    lvalueType,
+    context
   );
 
   if (operatorValue !== '=') {
@@ -3248,7 +3525,13 @@ function compileAdditiveExpression(node, context) {
     return nestedChildren.length > 0 ? compileExpression(nestedChildren[0], context, { keepValue: true }) : [];
   }
 
-  let instructions = compileExpression(pieces[0], context, { keepValue: true });
+  let currentType = toWatType(inferExpressionType(pieces[0], context) || 'i32');
+  let instructions = coerceInstructionsToType(
+    compileExpression(pieces[0], context, { keepValue: true }),
+    currentType,
+    currentType,
+    context
+  );
   let currentIsPointer = isPointerLikeNode(pieces[0], context);
   let currentElementSize = currentIsPointer
     ? getPointerElementSize(pieces[0], context)
@@ -3263,7 +3546,13 @@ function compileAdditiveExpression(node, context) {
     }
 
     const operator = operatorNode.value;
-    const rightInstructions = compileExpression(rightNode, context, { keepValue: true });
+    const rightType = toWatType(inferExpressionType(rightNode, context) || 'i32');
+    const rightInstructions = coerceInstructionsToType(
+      compileExpression(rightNode, context, { keepValue: true }),
+      rightType,
+      rightType,
+      context
+    );
     const rightIsPointer = isPointerLikeNode(rightNode, context);
 
     if (currentIsPointer || rightIsPointer) {
@@ -3272,8 +3561,9 @@ function compileAdditiveExpression(node, context) {
       }
 
       if (currentIsPointer) {
+        const coercedRight = coerceInstructionsToType(rightInstructions, rightType, 'i32');
         instructions = instructions.concat(
-          rightInstructions,
+          coercedRight,
           `i32.const ${currentElementSize}`,
           'i32.mul',
           operator === '-' ? 'i32.sub' : 'i32.add'
@@ -3283,10 +3573,11 @@ function compileAdditiveExpression(node, context) {
           throw new CompilationError('Integer minus pointer is not supported yet', getNodeName(node));
         }
 
+        const coercedLeft = coerceInstructionsToType(instructions, currentType, 'i32');
         currentElementSize = getPointerElementSize(rightNode, context);
         instructions = [
           ...rightInstructions,
-          ...instructions,
+          ...coercedLeft,
           `i32.const ${currentElementSize}`,
           'i32.mul',
           'i32.add'
@@ -3294,12 +3585,132 @@ function compileAdditiveExpression(node, context) {
       }
 
       currentIsPointer = true;
+      currentType = 'i32';
       continue;
     }
 
-    const opcode = operator === '+' ? 'i32.add' : 'i32.sub';
-    instructions = instructions.concat(rightInstructions, opcode);
-    currentElementSize = getTypeSize(inferExpressionType(rightNode, context) || 'i32');
+    const commonType = selectCommonWatType(currentType, rightType);
+    const typePrefix = commonType === 'i64' ? 'i64' : commonType;
+    const opcode = operator === '+' ? `${typePrefix}.add` : `${typePrefix}.sub`;
+    instructions = coerceInstructionsToType(instructions, currentType, commonType, context)
+      .concat(coerceInstructionsToType(rightInstructions, rightType, commonType, context), opcode);
+    currentType = commonType;
+    currentElementSize = getTypeSize(rightType);
+  }
+
+  return instructions;
+}
+
+function getTypedComparisonOpcode(baseOperator, watType = 'i32') {
+  const effectiveType = toWatType(watType || 'i32');
+  if (effectiveType === 'i64') {
+    return `i64.${baseOperator}_s`;
+  }
+  if (effectiveType === 'f32' || effectiveType === 'f64') {
+    return `${effectiveType}.${baseOperator}`;
+  }
+  if (baseOperator === 'eq' || baseOperator === 'ne') {
+    return `i32.${baseOperator}`;
+  }
+  return `i32.${baseOperator}_s`;
+}
+
+function getTypedArithmeticOpcode(baseOperator, watType = 'i32') {
+  const effectiveType = toWatType(watType || 'i32');
+  if (baseOperator === 'rem') {
+    if (effectiveType === 'i64') return 'i64.rem_s';
+    if (effectiveType === 'i32') return 'i32.rem_s';
+    throw new CompilationError('Modulo is only supported for integer operands');
+  }
+
+  if (baseOperator === 'div') {
+    if (effectiveType === 'i64') return 'i64.div_s';
+    if (effectiveType === 'i32') return 'i32.div_s';
+    return `${effectiveType}.div`;
+  }
+
+  if (baseOperator === 'mul' || baseOperator === 'add' || baseOperator === 'sub') {
+    return `${effectiveType}.${baseOperator}`;
+  }
+
+  throw new CompilationError(`Unsupported arithmetic operator '${baseOperator}'`);
+}
+
+function compileTypedComparisonExpression(node, context, operatorMap) {
+  const pieces = childNodes(node).filter((child) => child.kind === 'nonterminal' || child.kind === 'terminal');
+  const terminals = pieces.filter((piece) => piece.kind === 'terminal');
+
+  if (terminals.length === 0) {
+    const nestedChildren = nonterminalChildren(node);
+    return nestedChildren.length > 0 ? compileExpression(nestedChildren[0], context, { keepValue: true }) : [];
+  }
+
+  let currentType = toWatType(inferExpressionType(pieces[0], context) || 'i32');
+  let instructions = compileExpression(pieces[0], context, { keepValue: true });
+
+  for (let index = 1; index < pieces.length; index += 2) {
+    const operatorNode = pieces[index];
+    const rightNode = pieces[index + 1];
+
+    if (!operatorNode || operatorNode.kind !== 'terminal' || !rightNode) {
+      continue;
+    }
+
+    const baseOperator = operatorMap[operatorNode.value];
+    if (!baseOperator) {
+      throw new CompilationError(`Unsupported operator '${operatorNode.value}'`, getNodeName(node));
+    }
+
+    const rightType = toWatType(inferExpressionType(rightNode, context) || 'i32');
+    const commonType = selectCommonWatType(currentType, rightType);
+    const rightInstructions = compileExpression(rightNode, context, { keepValue: true });
+
+    instructions = coerceInstructionsToType(instructions, currentType, commonType, context).concat(
+      coerceInstructionsToType(rightInstructions, rightType, commonType, context),
+      getTypedComparisonOpcode(baseOperator, commonType)
+    );
+
+    currentType = 'i32';
+  }
+
+  return instructions;
+}
+
+function compileTypedArithmeticExpression(node, context, operatorMap) {
+  const pieces = childNodes(node).filter((child) => child.kind === 'nonterminal' || child.kind === 'terminal');
+  const terminals = pieces.filter((piece) => piece.kind === 'terminal');
+
+  if (terminals.length === 0) {
+    const nestedChildren = nonterminalChildren(node);
+    return nestedChildren.length > 0 ? compileExpression(nestedChildren[0], context, { keepValue: true }) : [];
+  }
+
+  let currentType = toWatType(inferExpressionType(pieces[0], context) || 'i32');
+  let instructions = compileExpression(pieces[0], context, { keepValue: true });
+
+  for (let index = 1; index < pieces.length; index += 2) {
+    const operatorNode = pieces[index];
+    const rightNode = pieces[index + 1];
+
+    if (!operatorNode || operatorNode.kind !== 'terminal' || !rightNode) {
+      continue;
+    }
+
+    const baseOperator = operatorMap[operatorNode.value];
+    if (!baseOperator) {
+      throw new CompilationError(`Unsupported operator '${operatorNode.value}'`, getNodeName(node));
+    }
+
+    const rightType = toWatType(inferExpressionType(rightNode, context) || 'i32');
+    const commonType = selectCommonWatType(currentType, rightType);
+    const rightInstructions = compileExpression(rightNode, context, { keepValue: true });
+
+    instructions = coerceInstructionsToType(instructions, currentType, commonType, context).concat(
+      coerceInstructionsToType(rightInstructions, rightType, commonType, context),
+      getTypedArithmeticOpcode(baseOperator, commonType)
+    );
+
+    currentType = commonType;
   }
 
   return instructions;
@@ -3354,7 +3765,9 @@ function compileTerminalExpression(node, context, options = {}) {
   }
 
   if (node.token === 'FloatingConstant') {
-    return [`i32.const ${Math.trunc(parseCFloatingLiteral(node.value))}`];
+    const numericValue = parseCFloatingLiteral(node.value);
+    const isF32 = /[fF]$/.test(String(node.value || '').trim());
+    return [isF32 ? `f32.const ${numericValue}` : `f64.const ${numericValue}`];
   }
 
   if (node.token === 'Identifier') {
@@ -3419,18 +3832,70 @@ function compilePostfixExpression(node, context, keepValue) {
   const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
   const instructions = [];
 
+  // Special-case printf: host import that takes exactly 8 f64 params.
+  // Handled BEFORE the generic args loop so that:
+  //  1. float/double values preserve fractional precision when crossing into JS.
+  //  2. integral/pointer arguments still map correctly (coerced to f64).
+  //  3. The stack has exactly 8 values when call $imp_printf executes.
+  if (calleeName === 'printf') {
+    const hostArity = 8;
+    ensureImportedFunction(context.module, {
+      sourceName: 'printf',
+      internalName: 'imp_printf',
+      module: 'env',
+      field: 'printf',
+      paramTypes: new Array(hostArity).fill('f64'),
+      resultType: 'i32'
+    });
+    for (let i = 0; i < hostArity; i += 1) {
+      if (i < argumentsToCompile.length) {
+        const argNode = argumentsToCompile[i];
+        const argType = inferExpressionType(argNode, context) || 'i32';
+        const argInstr = compileExpression(argNode, context, { keepValue: true });
+        instructions.push(...coerceInstructionsToType(argInstr, argType, 'f64', context));
+      } else {
+        instructions.push('f64.const 0');
+      }
+    }
+    instructions.push('call $imp_printf');
+    if (!keepValue) {
+      instructions.push('drop');
+    }
+    return instructions;
+  }
+
   for (const argumentNode of argumentsToCompile) {
     instructions.push(...compileExpression(argumentNode, context, { keepValue: true }));
   }
 
   const fn = context.module.functionsByName.get(calleeName) || null;
   if (!fn) {
-    for (let index = 0; index < argumentsToCompile.length; index += 1) {
-      instructions.push('drop');
+    const calleeSymbol = resolveSymbol(calleeName, context);
+    if (!calleeSymbol || (calleeSymbol.pointerDepth || 0) <= 0) {
+      for (let index = 0; index < argumentsToCompile.length; index += 1) {
+        instructions.push('drop');
+      }
+      if (keepValue) {
+        instructions.push('i32.const 0');
+      }
+      return instructions;
     }
+
+    const indirectResultType = 'i32';
+    const typeIndex = ensureFunctionType(
+      context.module,
+      argumentsToCompile.map(() => 'i32'),
+      indirectResultType
+    );
+
+    instructions.push(...compileExpression(primaryExpression, context, { keepValue: true }));
+    instructions.push(`call_indirect (type ${typeIndex})`);
+
     if (keepValue) {
-      instructions.push('i32.const 0');
+      return instructions;
     }
+
+    instructions.push('drop');
     return instructions;
   }
 
@@ -3460,7 +3925,8 @@ function getLoadOpcodeForType(watType = 'i32') {
     case 'i64': return 'i64.load';
     case 'f32': return 'f32.load';
     case 'f64': return 'f64.load';
-    default: return 'i32.load';
+    case 'i8':  return 'i32.load8_u';
+    default:    return 'i32.load';
   }
 }
 
@@ -3469,15 +3935,17 @@ function getStoreOpcodeForType(watType = 'i32') {
     case 'i64': return 'i64.store';
     case 'f32': return 'f32.store';
     case 'f64': return 'f64.store';
-    default: return 'i32.store';
+    case 'i8':  return 'i32.store8';
+    default:    return 'i32.store';
   }
 }
 
 function emitAddressOfSymbol(name, context) {
   const symbol = resolveSymbol(name, context);
   if (!symbol) {
-    if (context.module && context.module.functionsByName && context.module.functionsByName.has(name)) {
-      return ['i32.const 0'];
+    if (context.module && context.module.functionTableByName && context.module.functionTableByName.has(name)) {
+      const fnInfo = context.module.functionTableByName.get(name);
+      return [`i32.const ${fnInfo.tableIndex}`];
     }
     throw new CompilationError(`Unknown symbol '${name}'`, context.function.sourceName);
   }
@@ -3515,8 +3983,9 @@ function emitLoadInstruction(name, context) {
 
   const symbol = resolveSymbol(name, context);
   if (!symbol) {
-    if (context.module && context.module.functionsByName && context.module.functionsByName.has(name)) {
-      return ['i32.const 0'];
+    if (context.module && context.module.functionTableByName && context.module.functionTableByName.has(name)) {
+      const fnInfo = context.module.functionTableByName.get(name);
+      return [`i32.const ${fnInfo.tableIndex}`];
     }
     throw new CompilationError(`Unknown symbol '${name}'`, context.function.sourceName);
   }
@@ -3547,7 +4016,8 @@ function emitStoreToAddress(addressInstructions, rhsInstructions, watType, conte
 
   if (keepValue) {
     const tempLocal = ensureInternalLocal(context, `__tmp_${watType}`, watType || 'i32');
-    instructions.push(`local.tee $${tempLocal.name}`);
+    instructions.push(`local.set $${tempLocal.name}`);
+    instructions.push(`local.get $${tempLocal.name}`);
     instructions.push(getStoreOpcodeForType(watType || 'i32'));
     instructions.push(`local.get $${tempLocal.name}`);
     return instructions;
@@ -3590,7 +4060,7 @@ function emitUpdateInstructions(name, delta, context, options = {}) {
       getLoadOpcodeForType(watType),
       constInstruction,
       arithmeticInstruction,
-      `local.tee $${valueTemp.name}`,
+      `local.set $${valueTemp.name}`,
       `local.get $${addrTemp.name}`,
       `local.get $${valueTemp.name}`,
       getStoreOpcodeForType(watType)
@@ -3608,7 +4078,7 @@ function emitUpdateInstructions(name, delta, context, options = {}) {
           `local.tee $${oldValueTemp.name}`,
           constInstruction,
           arithmeticInstruction,
-          `local.tee $${valueTemp.name}`,
+          `local.set $${valueTemp.name}`,
           `local.get $${addrTemp.name}`,
           `local.get $${valueTemp.name}`,
           getStoreOpcodeForType(watType),
@@ -3695,7 +4165,8 @@ function registerStringLiteral(text, moduleModel) {
   }
 
   const values = [...parseCStringLiteral(text), 0];
-  const bytes = encodeI32WordsAsBytes(values);
+  // Store as raw bytes (1 byte per char), not 4-byte words.
+  const bytes = values.map((v) => Number(v) & 0xFF);
   const offset = alignTo(moduleModel.nextDataOffset || 0, 4);
   const dataSegment = {
     offset,
@@ -3748,7 +4219,9 @@ function compileSource(source, options = {}) {
     throw new Error(`Unsupported backend '${backend}'. Supported backends: ${Object.keys(SUPPORTED_BACKENDS).join(', ')}`);
   }
 
-  const parsed = parseCSource(source);
+  const parsed = parseCSource(source, {
+    sourcePath: options.sourcePath || null
+  });
   const moduleModel = buildModuleModel(parsed.ast, {
     aggregateTags: collectNamedAggregateTags(parsed.normalizedSource || source)
   });

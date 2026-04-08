@@ -8,19 +8,16 @@ const { preprocessCSource } = require('../c-preprocessor.js');
 
 const suiteDir = path.join(__dirname, '..', 'examples', 'c89-mini-suite');
 const outDir = path.join(__dirname, 'outputs', 'c89-mini-suite');
+const writeArtifacts = process.env.MAIAC_WRITE_TEST_OUTPUTS === '1';
 
 const cases = [
   { file: '01_arithmetic_ops.c', expectedReturn: 222 },
-  { file: '02_control_flow.c', skipRuntime: 'goto lowering is still a placeholder' },
+  { file: '02_control_flow.c', expectedReturn: 83 },
   { file: '03_functions_recursion.c', expectedReturn: 145 },
   { file: '04_arrays_matrix.c', expectedReturn: 88 },
-  { file: '05_pointers_and_funcptr.c', skipRuntime: 'indirect function calls are not lowered yet' },
+  { file: '05_pointers_and_funcptr.c', expectedReturn: 47 },
   { file: '06_struct_union_enum.c', expectedReturn: 150 },
-  {
-    file: '07_globals_static_memory.c',
-    expectedReturn: 50,
-    knownFailure: 'global/static memory lowering still invalidates this case during WASM assembly'
-  },
+  { file: '07_globals_static_memory.c', expectedReturn: 50 },
   { file: '08_bitwise_casts.c', expectedReturn: 1283 },
   { file: '09_preprocessor_strings.c', expectedReturn: 32 }
 ];
@@ -31,18 +28,24 @@ async function runCase(testCase) {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const preprocessed = preprocessCSource(source);
 
-  fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(path.join(outDir, `${baseName}.pre.c`), preprocessed, 'utf8');
+  if (writeArtifacts) {
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, `${baseName}.pre.c`), preprocessed, 'utf8');
+  }
 
   const result = compileSource(source, { validate: true, printWat: false });
-  fs.writeFileSync(path.join(outDir, `${baseName}.wat`), result.wat, 'utf8');
+  if (writeArtifacts) {
+    fs.writeFileSync(path.join(outDir, `${baseName}.wat`), result.wat, 'utf8');
+  }
 
   if (!result.wasm) {
     throw result.validationError || new Error('WASM validation did not return a binary module');
   }
 
   const wasmBytes = Buffer.from(result.wasm);
-  fs.writeFileSync(path.join(outDir, `${baseName}.wasm`), wasmBytes);
+  if (writeArtifacts) {
+    fs.writeFileSync(path.join(outDir, `${baseName}.wasm`), wasmBytes);
+  }
 
   if (!WebAssembly.validate(new Uint8Array(wasmBytes))) {
     throw new Error('Generated WASM is invalid');
@@ -74,6 +77,7 @@ async function runCase(testCase) {
   let failed = 0;
   let knownLimitations = 0;
   console.log('Running maiac compiler C89 mini-suite validation...\n');
+  console.log(`  Artifacts: ${writeArtifacts ? `enabled (${outDir})` : 'disabled (set MAIAC_WRITE_TEST_OUTPUTS=1 to enable)'}`);
 
   for (const testCase of cases) {
     process.stdout.write(`  ${testCase.file} ... `);

@@ -1,0 +1,5 @@
+# macOS
+.DS_Store
+
+# MaiaC test artifacts (generated on demand)
+compiler/tests/outputs/

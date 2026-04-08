@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -194,6 +197,213 @@ function collectPreprocessorMacros(source) {
   return {
     macros,
     text: cleanedLines.join('\n')
+  };
+}
+
+function parseDefineDirective(rest, macros) {
+  const functionMatch = String(rest || '').match(/^([A-Za-z_]\w*)\(([^)]*)\)\s*(.*)$/);
+
+  if (functionMatch) {
+    const [, name, paramsText, bodyText] = functionMatch;
+    const params = paramsText.trim()
+      ? paramsText.split(',').map((param) => param.trim()).filter(Boolean)
+      : [];
+    macros.set(name, {
+      kind: 'function',
+      params,
+      body: String(bodyText || '').trim()
+    });
+    return;
+  }
+
+  const objectMatch = String(rest || '').match(/^([A-Za-z_]\w*)(?:\s+(.*))?$/);
+  if (objectMatch) {
+    macros.set(objectMatch[1], {
+      kind: 'object',
+      params: [],
+      body: String(objectMatch[2] || '1').trim()
+    });
+  }
+}
+
+function evaluateConditionalExpression(expression, macros) {
+  let expr = String(expression || '').trim();
+  if (!expr) return false;
+
+  expr = expr
+    .replace(/defined\s*\(\s*([A-Za-z_]\w*)\s*\)/g, (_match, name) => (macros.has(name) ? '1' : '0'))
+    .replace(/defined\s+([A-Za-z_]\w*)/g, (_match, name) => (macros.has(name) ? '1' : '0'))
+    .replace(/L?'([^'\\]|\\.)*'/g, (literal) => String(parseCCharacterLiteral(literal)))
+    .replace(/\b(0[xX][0-9a-fA-F]+|0[bB][01]+|0[0-7]+|[0-9]+)\s*[uUlL]+\b/g, '$1')
+    .replace(/\b([A-Za-z_]\w*)\b/g, (name) => {
+      if (name === 'true') return '1';
+      if (name === 'false') return '0';
+      const macro = macros.get(name);
+      if (!macro || macro.kind !== 'object') return '0';
+      const body = String(macro.body || '').trim();
+      if (!body) return '0';
+      if (/^[-+]?\d+$/.test(body) || /^0[xX][0-9a-fA-F]+$/.test(body) || /^0[bB][01]+$/.test(body) || /^0[0-7]+$/.test(body)) {
+        return String(parseCIntegerLiteral(body));
+      }
+      return '0';
+    });
+
+  try {
+    return !!Function(`"use strict"; return Number((${expr})) ? 1 : 0;`)();
+  } catch (_error) {
+    return false;
+  }
+}
+
+function createIncludeContext(options = {}) {
+  const includeStack = new Set();
+  const sourcePath = options.sourcePath || null;
+  const sourceDir = sourcePath ? path.dirname(path.resolve(sourcePath)) : process.cwd();
+
+  const resolveInclude = options.resolveInclude || ((includePath, includeKind, fromDir) => {
+    if (includeKind === 'system') {
+      return null;
+    }
+    const candidate = path.resolve(fromDir || sourceDir, includePath);
+    return fs.existsSync(candidate) ? candidate : null;
+  });
+
+  return {
+    includeStack,
+    sourceDir,
+    resolveInclude
+  };
+}
+
+function processPreprocessorDirectives(source, options = {}) {
+  const context = createIncludeContext(options);
+  const macros = new Map();
+
+  const processText = (text, currentDir) => {
+    const outputLines = [];
+    const conditionStack = [{ parentActive: true, isActive: true, branchTaken: false }];
+    const lines = normalizeNewlines(text).split('\n');
+
+    const isActive = () => conditionStack[conditionStack.length - 1].isActive;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const directiveMatch = trimmed.match(/^#\s*([A-Za-z_][A-Za-z0-9_]*)\b(.*)$/);
+
+      if (!directiveMatch) {
+        outputLines.push(isActive() ? line : '');
+        continue;
+      }
+
+      const directive = directiveMatch[1];
+      const rest = String(directiveMatch[2] || '').trim();
+
+      if (directive === 'if' || directive === 'ifdef' || directive === 'ifndef') {
+        const parentActive = isActive();
+        let cond = false;
+
+        if (directive === 'if') {
+          cond = evaluateConditionalExpression(rest, macros);
+        } else if (directive === 'ifdef') {
+          cond = macros.has(rest);
+        } else {
+          cond = !macros.has(rest);
+        }
+
+        const active = parentActive && cond;
+        conditionStack.push({ parentActive, isActive: active, branchTaken: active });
+        outputLines.push('');
+        continue;
+      }
+
+      if (directive === 'elif') {
+        if (conditionStack.length > 1) {
+          const current = conditionStack[conditionStack.length - 1];
+          const cond = current.parentActive && !current.branchTaken && evaluateConditionalExpression(rest, macros);
+          current.isActive = cond;
+          current.branchTaken = current.branchTaken || cond;
+        }
+        outputLines.push('');
+        continue;
+      }
+
+      if (directive === 'else') {
+        if (conditionStack.length > 1) {
+          const current = conditionStack[conditionStack.length - 1];
+          const cond = current.parentActive && !current.branchTaken;
+          current.isActive = cond;
+          current.branchTaken = true;
+        }
+        outputLines.push('');
+        continue;
+      }
+
+      if (directive === 'endif') {
+        if (conditionStack.length > 1) {
+          conditionStack.pop();
+        }
+        outputLines.push('');
+        continue;
+      }
+
+      if (!isActive()) {
+        outputLines.push('');
+        continue;
+      }
+
+      if (directive === 'define') {
+        parseDefineDirective(rest, macros);
+        outputLines.push('');
+        continue;
+      }
+
+      if (directive === 'undef') {
+        const name = rest.split(/\s+/)[0] || '';
+        if (name) {
+          macros.delete(name);
+        }
+        outputLines.push('');
+        continue;
+      }
+
+      if (directive === 'include') {
+        const includeMatch = rest.match(/^"([^"]+)"|^<([^>]+)>/);
+        if (!includeMatch) {
+          outputLines.push('');
+          continue;
+        }
+
+        const includePath = includeMatch[1] || includeMatch[2] || '';
+        const includeKind = includeMatch[1] ? 'local' : 'system';
+        const resolvedPath = context.resolveInclude(includePath, includeKind, currentDir || context.sourceDir);
+
+        if (!resolvedPath || context.includeStack.has(resolvedPath)) {
+          outputLines.push('');
+          continue;
+        }
+
+        try {
+          context.includeStack.add(resolvedPath);
+          const includedSource = fs.readFileSync(resolvedPath, 'utf8');
+          outputLines.push(processText(normalizeNewlines(includedSource), path.dirname(resolvedPath)));
+        } catch (_error) {
+          outputLines.push('');
+        } finally {
+          context.includeStack.delete(resolvedPath);
+        }
+
+        continue;
+      }
+
+      outputLines.push('');
+    }
+
+    return outputLines.join('\n');
+  };
+
+  return {
+    macros,
+    text: processText(source, context.sourceDir)
   };
 }
 
@@ -452,9 +662,9 @@ function expandMacros(source, macros) {
   return text;
 }
 
-function preprocessCSource(source) {
+function preprocessCSource(source, options = {}) {
   let text = injectAnonymousTypedefTags(joinLineContinuations(source));
-  const { macros, text: withoutDirectives } = collectPreprocessorMacros(text);
+  const { macros, text: withoutDirectives } = processPreprocessorDirectives(text, options);
   text = expandMacros(withoutDirectives, macros);
 
   const typedefAliases = collectTypedefAliases(text);

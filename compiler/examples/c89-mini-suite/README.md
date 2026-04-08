@@ -32,3 +32,71 @@ This script does all stages:
 Outputs are written to:
 
 - `tests/outputs/emscripten-c89-roundtrip/`
+
+## MaiaC Runtime Harness
+
+To run MaiaC's own runtime validation for this suite:
+
+```bash
+node compiler/tests/test-c89-mini-suite.js
+```
+
+By default, this script validates and executes cases without writing generated `.pre.c`, `.wat`, and `.wasm` files.
+
+To persist generated artifacts for debugging, run with:
+
+```bash
+MAIAC_WRITE_TEST_OUTPUTS=1 node compiler/tests/test-c89-mini-suite.js
+```
+
+Debug artifacts are written to:
+
+- `compiler/tests/outputs/c89-mini-suite/`
+
+## Robust Test Bundle
+
+To run all current MaiaC validations in sequence:
+
+```bash
+node compiler/tests/test-all.js
+```
+
+To also emit a JSON report:
+
+```bash
+node compiler/tests/test-all.js --json-out compiler/tests/outputs/test-report.json
+```
+
+Or via environment variable:
+
+```bash
+MAIAC_TEST_REPORT_JSON=compiler/tests/outputs/test-report.json node compiler/tests/test-all.js
+```
+
+Current bundle includes:
+
+- `compiler/tests/test-preprocessor.js` (unit/integration checks for macros, includes, conditionals, `#undef`, and recursive-include handling)
+- `compiler/tests/test-c89-mini-suite.js`
+- `compiler/tests/test-large-example-e2e.js`
+
+### CI Integration
+
+This repository includes a GitHub Actions workflow at:
+
+- `.github/workflows/maiac-tests.yml`
+
+It runs:
+
+```bash
+node compiler/tests/test-all.js
+```
+
+It is triggered manually only (`workflow_dispatch`).
+
+When triggering, set input `generate_report=true` to run:
+
+```bash
+node compiler/tests/test-all.js --json-out compiler/tests/outputs/test-report.json
+```
+
+In that mode, it also publishes `compiler/tests/outputs/test-report.json` as artifact (`maiac-test-report`).
