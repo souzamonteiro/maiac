@@ -57,7 +57,7 @@ bash bin/run-wasm-browser.sh
 
 Then open:
 
-- `http://127.0.0.1:8080/run-wasm.html`
+- `http://127.0.0.1:8080/tools/browser/run-wasm.html`
 
 ## Compiler CLI
 
@@ -108,6 +108,45 @@ For mini-suite artifacts (disabled by default):
 ```bash
 MAIAC_WRITE_TEST_OUTPUTS=1 node compiler/tests/test-c89-mini-suite.js
 ```
+
+## Examples (Large + Small)
+
+### Large Example (`test.c`) in Node
+
+```bash
+node tools/examples/run-test-node-example.js
+```
+
+### Large Example (`test.c`) in Browser
+
+1. Build wasm:
+
+```bash
+node tools/examples/build-test-wasm.js
+```
+
+2. Serve the repository root:
+
+```bash
+bash bin/run-wasm-browser.sh
+```
+
+3. Open:
+
+- `http://127.0.0.1:8080/tools/browser/test-large.html`
+
+### Small Example (`simple_add.c`) in Node
+
+```bash
+node tools/examples/build-simple-add-wasm.js
+node tools/examples/run-simple-add-node.js
+```
+
+### Small Example (`simple_add.c`) in Browser
+
+After starting the same browser server (`bin/run-wasm-browser.sh`), open:
+
+- `http://127.0.0.1:8080/tools/browser/simple-add.html`
 
 ## Architecture Documentation
 

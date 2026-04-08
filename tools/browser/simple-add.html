@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MaiaC Simple Add Example</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 24px; }
+    .row { display: flex; gap: 8px; margin: 12px 0; }
+    input { padding: 8px; width: 180px; }
+    button { padding: 8px 14px; cursor: pointer; }
+    pre { border: 1px solid #ddd; padding: 12px; min-height: 120px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>MaiaC Simple Add (Browser)</h1>
+  <p>Loads <code>/compiler/examples/simple_add.wasm</code> and calls <code>add_one</code>.</p>
+
+  <div class="row">
+    <label for="input">Input:</label>
+    <input id="input" type="number" value="41" />
+    <button id="run">Run add_one</button>
+  </div>
+
+  <pre id="output"></pre>
+  <script src="./simple-add.js"></script>
+</body>
+</html>

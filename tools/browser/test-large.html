@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MaiaC WASM Runner</title>
+  <title>MaiaC Large Example (test.c)</title>
   <style>
     body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 24px; }
+    .links { margin-bottom: 12px; }
+    .links a { margin-right: 12px; }
     .row { display: flex; gap: 8px; margin-bottom: 12px; }
     input { flex: 1; padding: 8px; }
     button { padding: 8px 14px; cursor: pointer; }
@@ -14,12 +16,11 @@
   </style>
 </head>
 <body>
-  <h1>MaiaC WASM Runner</h1>
-  <p>
-    Quick examples:
-    <a href="./test-large.html">test.c (large)</a> |
-    <a href="./simple-add.html">simple_add.c (small)</a>
-  </p>
+  <h1>MaiaC Large Browser Example (test.c)</h1>
+  <div class="links">
+    <a href="./simple-add.html">Open simple_add example</a>
+    <a href="./run-wasm.html">Open generic runner</a>
+  </div>
   <div class="row">
     <input id="wasm-url" value="/compiler/examples/test.wasm" />
     <button id="run">Run</button>
