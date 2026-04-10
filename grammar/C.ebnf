@@ -96,7 +96,14 @@ initializer ::= assignmentExpression
               | '{' initializerList '}'
               | '{' initializerList ',' '}'
               
-initializerList ::= initializer ( ',' initializer )*
+initializerList ::= designation? initializer ( ',' designation? initializer )*
+
+designation ::= designatorList '='
+
+designatorList ::= designator+
+
+designator ::= '[' constantExpression ']'
+             | '.' Identifier
                   
 typeName ::= specifierQualifierList abstractDeclarator?
             
@@ -241,8 +248,6 @@ IdentifierStart ::= [A-Z]
 
 IdentifierPart ::= IdentifierStart
                  | [0-9]
-                 | '-'
-                 | '.'
                  | #xB7
                  | [#x0300-#x036F]
                  | [#x203F-#x2040]

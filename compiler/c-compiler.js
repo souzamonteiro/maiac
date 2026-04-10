@@ -141,16 +141,18 @@ function getSymbolArrayDimensions(symbol) {
 
 function getSymbolSize(symbol) {
   if (!symbol) return 4;
-  if (symbol.structLayout && (symbol.isStruct || symbol.typeKind === 'struct')) {
-    return symbol.structLayout.size || 4;
-  }
   if (symbol.isArray) {
     // An array of pointers (char *arr[], int *arr[]) stores i32 addresses per element,
     // not elements of the base type (char/int). Use pointer size (4) in that case.
-    const elementType = (symbol.pointerDepth || 0) > 0
-      ? 'i32'
-      : (symbol.baseWatType || symbol.watType || 'i32');
-    return getTypeSize(elementType) * getDimensionProduct(getSymbolArrayDimensions(symbol));
+    const elementSize = (symbol.pointerDepth || 0) > 0
+      ? 4
+      : (symbol.structLayout && (symbol.isStruct || symbol.typeKind === 'struct')
+        ? (symbol.structLayout.size || 4)
+        : getTypeSize(symbol.baseWatType || symbol.watType || 'i32'));
+    return elementSize * getDimensionProduct(getSymbolArrayDimensions(symbol));
+  }
+  if (symbol.structLayout && (symbol.isStruct || symbol.typeKind === 'struct')) {
+    return symbol.structLayout.size || 4;
   }
   if ((symbol.pointerDepth || 0) > 0) return 4;
   return getTypeSize(symbol.baseWatType || symbol.watType || 'i32');
@@ -233,6 +235,7 @@ function extractStructFieldDefinitions(structDeclarationList, moduleModel = null
 
       const declaratorInfo = extractDeclaratorInfo(declaratorNode);
       const arrayDimensions = extractArrayDimensionsFromDeclarator(declaratorNode);
+      const pointeeArrayDimensions = extractPointerPointeeArrayDimensionsFromDeclarator(declaratorNode);
       const isArray = arrayDimensions.length > 0;
       const pointerDepth = declaratorInfo.pointerDepth || 0;
       const isStruct = fieldTypeInfo.typeKind === 'struct' && pointerDepth === 0;
@@ -247,6 +250,7 @@ function extractStructFieldDefinitions(structDeclarationList, moduleModel = null
         structLayout: fieldTypeInfo.structLayout || null,
         isStruct,
         pointerDepth,
+        pointeeArrayDimensions,
         baseWatType: fieldTypeInfo.baseWatType,
         watType,
         isArray,
@@ -1011,6 +1015,7 @@ function extractParameters(parameterListNode) {
       const rawPointerDepth = declaratorNode ? countPointerDepthInDeclarator(declaratorNode) : 0;
       const declaredAsArray = declaratorNode ? hasArrayDeclaratorSuffix(declaratorNode) : false;
       const arrayDimensions = declaratorNode ? extractArrayDimensionsFromDeclarator(declaratorNode) : [];
+      const pointeeArrayDimensions = declaratorNode ? extractPointerPointeeArrayDimensionsFromDeclarator(declaratorNode) : [];
       const pointerDepth = declaredAsArray ? Math.max(1, rawPointerDepth) : rawPointerDepth;
       const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
       const baseWatType = typeInfo.baseWatType || 'i32';
@@ -1031,6 +1036,7 @@ function extractParameters(parameterListNode) {
         structLayout: typeInfo.structLayout || null,
         isStruct,
         pointerDepth,
+        pointeeArrayDimensions,
         declaredAsArray,
         arrayLength: declaredAsArray ? (arrayDimensions[0] ?? null) : null,
         arrayDimensions: declaredAsArray ? arrayDimensions : [],
@@ -1064,22 +1070,48 @@ function extractDeclaratorInfo(declaratorNode) {
   };
 }
 
+function getIdentifierScopedDirectDeclarator(declaratorNode) {
+  const identifier = findFirstTerminal(declaratorNode, 'Identifier');
+  if (!identifier) {
+    return null;
+  }
+
+  const directDeclarators = findAll(declaratorNode, (candidate) => isNonterminal(candidate, 'directDeclarator'));
+  const matches = directDeclarators.filter((directDeclarator) => {
+    const base = firstNonterminal(directDeclarator, 'directDeclaratorBase');
+    const directIdentifier = base ? terminalChildren(base, 'Identifier')[0] : null;
+    return !!directIdentifier && directIdentifier.value === identifier.value;
+  });
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  // Prefer the deepest identifier-scoped directDeclarator (typically the final match).
+  return matches[matches.length - 1];
+}
+
+function getIdentifierScopedDeclaratorSuffixes(declaratorNode) {
+  const scopedDirectDeclarator = getIdentifierScopedDirectDeclarator(declaratorNode);
+  if (!scopedDirectDeclarator) {
+    return [];
+  }
+
+  return nonterminalChildren(scopedDirectDeclarator, 'directDeclaratorSuffix');
+}
+
 function hasArrayDeclaratorSuffix(declaratorNode) {
-  return !!findFirst(
-    declaratorNode,
-    (candidate) => isNonterminal(candidate, 'directDeclaratorSuffix') && !!firstTerminal(candidate, 'TOKEN__5B_')
-  );
+  return getIdentifierScopedDeclaratorSuffixes(declaratorNode)
+    .some((suffix) => !!firstTerminal(suffix, 'TOKEN__5B_'));
 }
 
 function hasFunctionDeclaratorSuffix(declaratorNode) {
-  return !!findFirst(
-    declaratorNode,
-    (candidate) => isNonterminal(candidate, 'directDeclaratorSuffix') && !!firstTerminal(candidate, 'TOKEN__28_')
-  );
+  return getIdentifierScopedDeclaratorSuffixes(declaratorNode)
+    .some((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
 }
 
 function extractArrayDimensionsFromDeclarator(declaratorNode) {
-  const suffixes = findAll(declaratorNode, (candidate) => isNonterminal(candidate, 'directDeclaratorSuffix'));
+  const suffixes = getIdentifierScopedDeclaratorSuffixes(declaratorNode);
   const dimensions = [];
 
   for (const suffix of suffixes) {
@@ -1092,6 +1124,25 @@ function extractArrayDimensionsFromDeclarator(declaratorNode) {
   }
 
   return dimensions;
+}
+
+function extractPointerPointeeArrayDimensionsFromDeclarator(declaratorNode) {
+  if (!declaratorNode) {
+    return [];
+  }
+
+  const allArraySuffixes = findAll(
+    declaratorNode,
+    (candidate) => isNonterminal(candidate, 'directDeclaratorSuffix') && !!firstTerminal(candidate, 'TOKEN__5B_')
+  );
+  const allDimensions = allArraySuffixes.map((suffix) => {
+    const lengthNode = findFirstTerminal(suffix, 'IntegerConstant');
+    return lengthNode ? parseCIntegerLiteral(lengthNode.value) : null;
+  });
+
+  const identifierScopedDimensions = extractArrayDimensionsFromDeclarator(declaratorNode);
+  const pointeeCount = Math.max(0, allDimensions.length - identifierScopedDimensions.length);
+  return allDimensions.slice(0, pointeeCount);
 }
 
 function extractArrayLengthFromDeclarator(declaratorNode) {
@@ -1135,6 +1186,7 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
     const initializerNode = firstNonterminal(initDeclaratorNode, 'initializer');
     const isFunctionDeclaration = hasFunctionDeclaratorSuffix(declaratorNode);
     const arrayDimensions = extractArrayDimensionsFromDeclarator(declaratorNode);
+    const pointeeArrayDimensions = extractPointerPointeeArrayDimensionsFromDeclarator(declaratorNode);
     const normalizedArrayDimensions = [...arrayDimensions];
 
     if (
@@ -1160,6 +1212,7 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
       structLayout: typeInfo.structLayout || null,
       isStruct,
       pointerDepth: declaratorInfo.pointerDepth || 0,
+      pointeeArrayDimensions,
       baseWatType,
       watType,
       isArray,
@@ -1170,10 +1223,6 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
       initializer: initializerNode
     };
   });
-}
-
-function collectTypedefAliases(source) {
-  return collectTypedefAliasesFromPreprocessor(source);
 }
 
 function normalizeSourceForCurrentParser(source, options = {}) {
@@ -1483,6 +1532,60 @@ function ensureFunctionType(moduleModel, paramTypes = [], resultType = null) {
   return typeIndex;
 }
 
+/**
+ * Recursively collect all goto labels from a statement node.
+ * This enables pre-registering all labels so goto can reference forward or backward.
+ */
+function collectGotoLabelsFromStatement(statementNode, labels = new Set()) {
+  if (!statementNode) return labels;
+
+  const directStatement = unwrapStatementNode(statementNode);
+  if (!directStatement) return labels;
+
+  // Check if this is a labeled statement
+  if (isNonterminal(directStatement, 'labeledStatement')) {
+    // Skip case/default labels (these are switch-specific)
+    if (!firstTerminal(directStatement, 'TOKEN_case') && !firstTerminal(directStatement, 'TOKEN_default')) {
+      const labelId = firstTerminal(directStatement, 'Identifier');
+      if (labelId) {
+        labels.add(sanitizeIdentifier(labelId.value));
+      }
+    }
+    // Continue scanning the statement within the label
+    const innerStatement = firstNonterminal(directStatement, 'statement');
+    if (innerStatement) {
+      collectGotoLabelsFromStatement(innerStatement, labels);
+    }
+  }
+
+  // Recursively scan nested statements
+  if (isNonterminal(directStatement, 'compoundStatement')) {
+    const blockItems = nonterminalChildren(directStatement, 'blockItem');
+    for (const blockItem of blockItems) {
+      const stmt = firstNonterminal(blockItem, 'statement');
+      if (stmt) {
+        collectGotoLabelsFromStatement(stmt, labels);
+      }
+    }
+  }
+
+  if (isNonterminal(directStatement, 'selectionStatement')) {
+    const statements = nonterminalChildren(directStatement, 'statement');
+    for (const stmt of statements) {
+      collectGotoLabelsFromStatement(stmt, labels);
+    }
+  }
+
+  if (isNonterminal(directStatement, 'iterationStatement')) {
+    const stmt = firstNonterminal(directStatement, 'statement');
+    if (stmt) {
+      collectGotoLabelsFromStatement(stmt, labels);
+    }
+  }
+
+  return labels;
+}
+
 function compileFunctionBody(functionNode, functionModel, moduleModel) {
   const context = {
     module: moduleModel,
@@ -1515,6 +1618,10 @@ function compileFunctionBody(functionNode, functionModel, moduleModel) {
   if (!compoundStatement) {
     throw new CompilationError('Expected a compound statement inside the function body', functionModel.sourceName);
   }
+
+  // Pre-collect all labels in the function to allow unrestricted goto (forward or backward)
+  const allLabels = collectGotoLabelsFromStatement(compoundStatement);
+  context.gotoLabelStack = Array.from(allLabels);
 
   const bodyInstructions = compileCompoundStatement(compoundStatement, context);
   functionModel.instructions = [
@@ -1689,6 +1796,7 @@ function compileLocalDeclaration(declarationNode, context) {
       watType: localDef.watType,
       baseWatType: localDef.baseWatType,
       pointerDepth: localDef.pointerDepth || 0,
+      pointeeArrayDimensions: Array.isArray(localDef.pointeeArrayDimensions) ? [...localDef.pointeeArrayDimensions] : [],
       declaredAsArray: !!localDef.declaredAsArray,
       isStruct: !!localDef.isStruct,
       isArray: !!localDef.isArray,
@@ -1883,6 +1991,245 @@ function flattenInitializerSequence(initializerNode, output = []) {
   return output;
 }
 
+function getInitializerListEntries(initializerNode) {
+  if (!initializerNode) {
+    return [];
+  }
+
+  const initializerList = firstNonterminal(initializerNode, 'initializerList');
+  if (!initializerList) {
+    return [{ designation: null, initializer: initializerNode }];
+  }
+
+  const entries = [];
+  let pendingDesignation = null;
+  for (const child of childNodes(initializerList)) {
+    if (isNonterminal(child, 'designation')) {
+      pendingDesignation = child;
+      continue;
+    }
+    if (isNonterminal(child, 'initializer')) {
+      entries.push({
+        designation: pendingDesignation,
+        initializer: child
+      });
+      pendingDesignation = null;
+    }
+  }
+
+  return entries;
+}
+
+function extractDesignationPath(designationNode, context) {
+  if (!designationNode) {
+    return [];
+  }
+
+  const designatorList = firstNonterminal(designationNode, 'designatorList');
+  if (!designatorList) {
+    return [];
+  }
+
+  const enumValues = (context && context.module && context.module.enumValues) || new Map();
+  const path = [];
+  for (const designator of nonterminalChildren(designatorList, 'designator')) {
+    if (findFirstTerminal(designator, 'TOKEN__2E_')) {
+      const fieldIdentifier = findFirstTerminal(designator, 'Identifier');
+      if (!fieldIdentifier || !fieldIdentifier.value) {
+        throw new CompilationError('Invalid field designator in initializer', getNodeName(designator));
+      }
+      const fieldParts = String(fieldIdentifier.value)
+        .split('.')
+        .map((part) => part.trim())
+        .filter(Boolean);
+      for (const fieldName of fieldParts) {
+        path.push({ kind: 'field', fieldName });
+      }
+      continue;
+    }
+
+    if (findFirstTerminal(designator, 'TOKEN__5B_')) {
+      const indexExpression = findFirstNonterminal(designator, 'constantExpression');
+      const integerTerminal = findFirstTerminal(designator, 'IntegerConstant');
+      const characterTerminal = findFirstTerminal(designator, 'CharacterConstant');
+      const index = integerTerminal
+        ? parseCIntegerLiteral(integerTerminal.value)
+        : (characterTerminal
+          ? parseCCharacterLiteral(characterTerminal.value)
+          : (indexExpression ? evaluateConstantExpression(indexExpression, enumValues) : 0));
+      if (!Number.isInteger(index) || index < 0) {
+        throw new CompilationError(`Array designator index must be a non-negative integer (got '${index}')`, getNodeName(designator));
+      }
+      path.push({ kind: 'index', index });
+    }
+  }
+
+  return path;
+}
+
+function resolveAggregateTargetPath(targetInfo, addressInstructions, path, context) {
+  let currentTarget = targetInfo;
+  let currentAddress = [...addressInstructions];
+
+  for (const segment of path) {
+    if (segment.kind === 'field') {
+      if (!currentTarget || !currentTarget.isStruct) {
+        throw new CompilationError(
+          `Field designator '.${segment.fieldName}' requires struct target`,
+          currentTarget ? currentTarget.sourceName : 'initializer'
+        );
+      }
+
+      const structLayout = resolveStructLayout(
+        currentTarget.structName || null,
+        context.module,
+        currentTarget.structLayout || null
+      );
+      if (!structLayout) {
+        throw new CompilationError(`Unknown struct type for '${currentTarget.sourceName}'`, currentTarget.sourceName);
+      }
+
+      const field = structLayout.fieldsByName.get(segment.fieldName);
+      if (!field) {
+        throw new CompilationError(
+          `Unknown field '${segment.fieldName}' in struct '${currentTarget.structName || 'anonymous'}'`,
+          currentTarget.sourceName
+        );
+      }
+
+      currentAddress = withAddressOffset(currentAddress, field.offset || 0);
+      currentTarget = field;
+      continue;
+    }
+
+    if (segment.kind === 'index') {
+      if (!currentTarget || !currentTarget.isArray) {
+        throw new CompilationError(
+          `Array designator '[${segment.index}]' requires array target`,
+          currentTarget ? currentTarget.sourceName : 'initializer'
+        );
+      }
+
+      const declaredLength = currentTarget.arrayLength || getSymbolArrayDimensions(currentTarget)[0] || 0;
+      if (declaredLength > 0 && segment.index >= declaredLength) {
+        throw new CompilationError(
+          `Array designator index ${segment.index} is out of bounds for '${currentTarget.sourceName}'`,
+          currentTarget.sourceName
+        );
+      }
+
+      const elementDescriptor = getArrayElementDescriptor(currentTarget);
+      if (!elementDescriptor) {
+        throw new CompilationError(`Array '${currentTarget.sourceName}' has no element descriptor`, currentTarget.sourceName);
+      }
+
+      const stride = getSymbolSize(elementDescriptor);
+      currentAddress = withAddressOffset(currentAddress, segment.index * stride);
+      currentTarget = elementDescriptor;
+    }
+  }
+
+  return {
+    targetInfo: currentTarget,
+    addressInstructions: currentAddress
+  };
+}
+
+function resolveAggregateEntryByIndex(targetInfo, addressInstructions, index, context) {
+  if (targetInfo.isArray) {
+    const declaredLength = targetInfo.arrayLength || getSymbolArrayDimensions(targetInfo)[0] || 0;
+    if (declaredLength > 0 && index >= declaredLength) {
+      throw new CompilationError(`Too many initializer elements for array '${targetInfo.sourceName}'`, targetInfo.sourceName);
+    }
+    const elementDescriptor = getArrayElementDescriptor(targetInfo);
+    if (!elementDescriptor) {
+      throw new CompilationError(`Array '${targetInfo.sourceName}' has no element descriptor`, targetInfo.sourceName);
+    }
+    const stride = getSymbolSize(elementDescriptor);
+    return {
+      targetInfo: elementDescriptor,
+      addressInstructions: withAddressOffset(addressInstructions, index * stride)
+    };
+  }
+
+  if (targetInfo.isStruct) {
+    const structLayout = resolveStructLayout(targetInfo.structName || null, context.module, targetInfo.structLayout || null);
+    if (!structLayout) {
+      throw new CompilationError(`Unknown struct type for '${targetInfo.sourceName}'`, targetInfo.sourceName);
+    }
+    if (index >= structLayout.fields.length) {
+      throw new CompilationError(`Too many initializer elements for struct '${targetInfo.sourceName}'`, targetInfo.sourceName);
+    }
+    const field = structLayout.fields[index];
+    return {
+      targetInfo: field,
+      addressInstructions: withAddressOffset(addressInstructions, field.offset || 0)
+    };
+  }
+
+  throw new CompilationError(`Designated initialization requires aggregate target ('${targetInfo.sourceName}')`, targetInfo.sourceName);
+}
+
+function compileInitializerNodeToAddress(targetInfo, initializerNode, addressInstructions, context) {
+  const hasInitializerList = !!firstNonterminal(initializerNode, 'initializerList');
+
+  if (targetInfo.isArray || targetInfo.isStruct) {
+    if (!hasInitializerList && targetInfo.isArray) {
+      throw new CompilationError(
+        `Array initialization currently requires brace initializers for '${targetInfo.sourceName}'`,
+        targetInfo.sourceName
+      );
+    }
+    return compileAggregateInitializerToAddress(targetInfo, initializerNode, addressInstructions, context);
+  }
+
+  const valueType = targetInfo.baseWatType || targetInfo.watType || 'i32';
+  const valueInstructions = compileInitializerValue(initializerNode, context, valueType);
+  return emitStoreToAddress(addressInstructions, valueInstructions, valueType, context, false);
+}
+
+function compileDesignatedAggregateInitializerToAddress(targetInfo, initializerNode, addressInstructions, context) {
+  const entries = getInitializerListEntries(initializerNode);
+  const instructions = compileZeroInitializerToAddress(targetInfo, addressInstructions, context);
+  let nextSequentialIndex = 0;
+
+  for (const entry of entries) {
+    const designationPath = extractDesignationPath(entry.designation, context);
+
+    let resolved = null;
+    if (designationPath.length > 0) {
+      resolved = resolveAggregateTargetPath(targetInfo, addressInstructions, designationPath, context);
+
+      const firstSegment = designationPath[0];
+      if (firstSegment.kind === 'index') {
+        nextSequentialIndex = firstSegment.index + 1;
+      } else if (firstSegment.kind === 'field' && targetInfo.isStruct) {
+        const structLayout = resolveStructLayout(targetInfo.structName || null, context.module, targetInfo.structLayout || null);
+        if (structLayout) {
+          const fieldIndex = structLayout.fields.findIndex((field) => field.sourceName === firstSegment.fieldName);
+          if (fieldIndex >= 0) {
+            nextSequentialIndex = fieldIndex + 1;
+          }
+        }
+      }
+    } else {
+      resolved = resolveAggregateEntryByIndex(targetInfo, addressInstructions, nextSequentialIndex, context);
+      nextSequentialIndex += 1;
+    }
+
+    instructions.push(
+      ...compileInitializerNodeToAddress(
+        resolved.targetInfo,
+        entry.initializer,
+        resolved.addressInstructions,
+        context
+      )
+    );
+  }
+
+  return instructions;
+}
+
 function consumeAggregateInitializerValuesToAddress(targetInfo, initializerValues, state, addressInstructions, context) {
   if (targetInfo.isArray) {
     const declaredLength = targetInfo.arrayLength || getSymbolArrayDimensions(targetInfo)[0] || 0;
@@ -1960,6 +2307,19 @@ function consumeAggregateInitializerValuesToAddress(targetInfo, initializerValue
 }
 
 function compileAggregateInitializerToAddress(targetInfo, initializerNode, addressInstructions, context) {
+  const initializerEntries = getInitializerListEntries(initializerNode);
+  const hasDesignation = initializerEntries.some((entry) => !!entry.designation);
+
+  if (hasDesignation) {
+    if (!targetInfo.isArray && !targetInfo.isStruct) {
+      throw new CompilationError(
+        `Designated initialization requires aggregate target ('${targetInfo.sourceName}')`,
+        targetInfo.sourceName
+      );
+    }
+    return compileDesignatedAggregateInitializerToAddress(targetInfo, initializerNode, addressInstructions, context);
+  }
+
   if (targetInfo.isArray) {
     const declaredLength = targetInfo.arrayLength || getSymbolArrayDimensions(targetInfo)[0] || 0;
     const stringValues = getStringLiteralInitializerValues(initializerNode);
@@ -2017,10 +2377,61 @@ function compileAggregateInitializerToAddress(targetInfo, initializerNode, addre
       );
     }
   } else if (targetInfo.isStruct && !firstNonterminal(initializerNode, 'initializerList')) {
-    throw new CompilationError(
-      `Struct copy initialization is not supported yet for '${targetInfo.sourceName}'`,
-      targetInfo.sourceName
-    );
+    // Struct copy initialization: copy bytes from source struct to destination
+    const structSize = (targetInfo.structLayout && targetInfo.structLayout.size) || getSymbolSize(targetInfo);
+    const sourceExprNode = firstNonterminal(initializerNode, 'expression') || 
+                          firstNonterminal(initializerNode, 'assignmentExpression') ||
+                          initializerNode;
+    
+    // Compile the source expression to get its address (should be an identifier or address-of expression)
+    const sourceExprInstructions = compileExpression(sourceExprNode, context, { keepValue: true });
+    
+    // Generate memory copy instructions: copy structSize bytes from source to destination
+    // Strategy: copy word-by-word (i32 = 4 bytes) for efficiency, then remainder bytes
+    const wordCount = Math.floor(structSize / 4);
+    const remainderBytes = structSize % 4;
+    
+    const instructions = [];
+    
+    // Copy word-by-word (4 bytes at a time)
+    for (let offset = 0; offset < wordCount * 4; offset += 4) {
+      // Destination address
+      const destAddr = withAddressOffset(addressInstructions, offset);
+      // Source address
+      const srcAddr = [
+        ...sourceExprInstructions,
+        `i32.const ${offset}`,
+        'i32.add'
+      ];
+      
+      instructions.push(
+        ...destAddr,           // destination address on stack
+        ...srcAddr,            // source address on stack for load
+        'i32.load',            // load from source
+        'i32.store'            // store to destination
+      );
+    }
+    
+    // Copy remainder bytes individually (1 byte at a time)
+    let byteOffset = wordCount * 4;
+    for (let i = 0; i < remainderBytes; i += 1) {
+      const destAddr = withAddressOffset(addressInstructions, byteOffset);
+      const srcAddr = [
+        ...sourceExprInstructions,
+        `i32.const ${byteOffset}`,
+        'i32.add'
+      ];
+      
+      instructions.push(
+        ...destAddr,           // destination address on stack
+        ...srcAddr,            // source address on stack for load
+        'i32.load8_u',         // load 1 byte from source (unsigned)
+        'i32.store8'           // store to destination (1 byte)
+      );
+      byteOffset += 1;
+    }
+    
+    return instructions;
   }
 
   const initializerValues = flattenInitializerSequence(initializerNode);
@@ -2740,17 +3151,17 @@ function inferExpressionType(node, context) {
   }
 
   if (nodeName === 'postfixExpression') {
-    const primaryExpression = firstNonterminal(node, 'primaryExpression');
-    const indexExpressions = getIndexExpressionsFromPostfix(node);
+    const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
+    if (accessInfo) {
+      return accessInfo.resultIsAddress ? 'i32' : accessInfo.watType;
+    }
 
+    const indexExpressions = getIndexExpressionsFromPostfix(node);
     if (indexExpressions.length > 0) {
-      const baseName = getSimpleIdentifierName(primaryExpression);
-      if (baseName) {
-        const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
-        return accessInfo.resultIsAddress ? 'i32' : accessInfo.watType;
-      }
       return 'i32';
     }
+
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
 
     const postfixSuffix = firstNonterminal(node, 'postfixSuffix');
     if (postfixSuffix) {
@@ -2794,14 +3205,13 @@ function inferExpressionType(node, context) {
   }
 
   if (nodeName === 'postfixExpression') {
-    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
+    if (accessInfo) {
+      return accessInfo.resultIsAddress ? 'i32' : accessInfo.watType;
+    }
+
     const indexExpressions = getIndexExpressionsFromPostfix(node);
     if (indexExpressions.length > 0) {
-      const baseName = getSimpleIdentifierName(primaryExpression);
-      if (baseName) {
-        const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
-        return accessInfo.resultIsAddress ? 'i32' : accessInfo.watType;
-      }
       return 'i32';
     }
   }
@@ -3242,6 +3652,354 @@ function getIndexExpressionsFromPostfix(node) {
     .filter(Boolean);
 }
 
+function unwrapSingleNonterminalChain(node) {
+  let current = node;
+  while (current && current.kind === 'nonterminal') {
+    const nested = nonterminalChildren(current);
+    const terminals = terminalChildren(current);
+    if (nested.length === 1 && terminals.length === 0) {
+      current = nested[0];
+      continue;
+    }
+    break;
+  }
+  return current;
+}
+
+function getDereferencedOperandFromPrimaryExpression(primaryExpression) {
+  if (!isNonterminal(primaryExpression, 'primaryExpression')) {
+    return null;
+  }
+
+  const parenthesizedExpr = firstNonterminal(primaryExpression, 'expression');
+  if (!parenthesizedExpr) {
+    return null;
+  }
+
+  const unwrapped = unwrapSingleNonterminalChain(parenthesizedExpr);
+  if (!isNonterminal(unwrapped, 'unaryExpression')) {
+    return null;
+  }
+
+  const unaryOperatorNode = firstNonterminal(unwrapped, 'unaryOperator');
+  const operatorTerminal = unaryOperatorNode ? firstTerminal(unaryOperatorNode) : null;
+  if (!operatorTerminal || operatorTerminal.token !== 'TOKEN__2A_') {
+    return null;
+  }
+
+  return nonterminalChildren(unwrapped).find((child) => child !== unaryOperatorNode) || null;
+}
+
+function getPointerPointeeArrayDimensionsFromNode(pointerNode, context) {
+  const identifierName = getSimpleIdentifierName(pointerNode);
+  if (identifierName) {
+    const symbol = resolveSymbol(identifierName, context);
+    return symbol && Array.isArray(symbol.pointeeArrayDimensions)
+      ? [...symbol.pointeeArrayDimensions]
+      : [];
+  }
+
+  if (isNonterminal(pointerNode, 'postfixExpression')) {
+    const primaryExpression = firstNonterminal(pointerNode, 'primaryExpression');
+    const indexExpressions = getIndexExpressionsFromPostfix(pointerNode);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+
+    if (baseName && indexExpressions.length > 0) {
+      const symbol = resolveSymbol(baseName, context);
+      return symbol && Array.isArray(symbol.pointeeArrayDimensions)
+        ? [...symbol.pointeeArrayDimensions]
+        : [];
+    }
+  }
+
+  return [];
+}
+
+function getIndexedAccessInfoFromPointerValue(pointerNode, indexExpressions, context) {
+  const indices = Array.isArray(indexExpressions) ? indexExpressions.filter(Boolean) : [indexExpressions].filter(Boolean);
+  const watType = inferPointerPointeeType(pointerNode, context) || 'i32';
+  let addressInstructions = compileExpression(pointerNode, context, { keepValue: true });
+  let pointerPointeeDimensions = getPointerPointeeArrayDimensionsFromNode(pointerNode, context).slice(1);
+  let resultObjectDimensions = [];
+
+  for (const indexExpression of indices) {
+    const stride = getStrideForAccess(watType, pointerPointeeDimensions);
+    addressInstructions = addressInstructions.concat(
+      compileExpression(indexExpression, context, { keepValue: true }),
+      `i32.const ${stride}`,
+      'i32.mul',
+      'i32.add'
+    );
+    resultObjectDimensions = [...pointerPointeeDimensions];
+    pointerPointeeDimensions = pointerPointeeDimensions.length > 0
+      ? pointerPointeeDimensions.slice(1)
+      : [];
+  }
+
+  return {
+    symbol: null,
+    watType,
+    addressInstructions,
+    resultObjectDimensions,
+    resultIsAddress: resultObjectDimensions.length > 0
+  };
+}
+
+function getIndexedAccessInfoFromPostfix(node, context) {
+  if (!isNonterminal(node, 'postfixExpression')) {
+    return null;
+  }
+
+  const primaryExpression = firstNonterminal(node, 'primaryExpression');
+  const indexExpressions = getIndexExpressionsFromPostfix(node);
+  if (indexExpressions.length === 0) {
+    return null;
+  }
+
+  const baseName = getSimpleIdentifierName(primaryExpression);
+  if (baseName) {
+    return getIndexedAccessInfo(baseName, indexExpressions, context);
+  }
+
+  const derefOperand = getDereferencedOperandFromPrimaryExpression(primaryExpression);
+  if (derefOperand) {
+    return getIndexedAccessInfoFromPointerValue(derefOperand, indexExpressions, context);
+  }
+
+  return null;
+}
+
+function getMemberAccessPathFromPostfix(node) {
+  if (!isNonterminal(node, 'postfixExpression')) {
+    return [];
+  }
+
+  const suffixes = nonterminalChildren(node, 'postfixSuffix');
+  const accessPath = [];
+
+  let lastIndexSuffixIndex = -1;
+  for (let i = suffixes.length - 1; i >= 0; i--) {
+    if (firstTerminal(suffixes[i], 'TOKEN__5B_')) {
+      lastIndexSuffixIndex = i;
+      break;
+    }
+  }
+
+  const startIndex = lastIndexSuffixIndex >= 0 ? lastIndexSuffixIndex + 1 : 0;
+
+  for (let i = startIndex; i < suffixes.length; i++) {
+    const suffix = suffixes[i];
+
+    const fieldIdentifier = firstTerminal(suffix, 'Identifier');
+    if (firstTerminal(suffix, 'TOKEN__2E_') && fieldIdentifier) {
+      accessPath.push({ isArrow: false, fieldName: fieldIdentifier.value });
+      continue;
+    }
+
+    if (firstTerminal(suffix, 'TOKEN__2D__3E_') && fieldIdentifier) {
+      accessPath.push({ isArrow: true, fieldName: fieldIdentifier.value });
+      continue;
+    }
+
+    if (accessPath.length === 0 && !firstTerminal(suffix, 'TOKEN__2E_') && !firstTerminal(suffix, 'TOKEN__2D__3E_')) {
+      break;
+    }
+  }
+
+  return accessPath;
+}
+
+function resolvePostfixMemberAccess(baseName, memberAccessPath, context) {
+  if (!baseName || !Array.isArray(memberAccessPath) || memberAccessPath.length === 0) {
+    return null;
+  }
+
+  const baseSymbol = resolveDirectSymbol(baseName, context);
+  if (!baseSymbol) {
+    throw new CompilationError(`Unknown base symbol '${baseName}'`, context.function.sourceName);
+  }
+
+  let addressInstructions = null;
+  let structLayout = null;
+  let currentField = null;
+
+  if (memberAccessPath[0].isArrow) {
+    if ((baseSymbol.pointerDepth || 0) <= 0) {
+      throw new CompilationError(`'${baseName}' is not a pointer-to-struct value`, context.function.sourceName);
+    }
+    structLayout = resolveStructLayout(baseSymbol.structName, context.module, baseSymbol.structLayout || null);
+    if (!structLayout) {
+      throw new CompilationError(`Unknown struct layout for pointer '${baseName}'`, context.function.sourceName);
+    }
+    addressInstructions = compileExpression(
+      { kind: 'terminal', token: 'Identifier', value: baseName },
+      context,
+      { keepValue: true }
+    );
+  } else {
+    if (baseSymbol.stackOffset == null) {
+      throw new CompilationError(
+        `Struct member access is currently supported only for frame-backed locals and parameters ('${baseName}')`,
+        context.function.sourceName
+      );
+    }
+    structLayout = resolveStructLayout(baseSymbol.structName, context.module, baseSymbol.structLayout || null);
+    if (!structLayout) {
+      throw new CompilationError(`Unknown struct layout for '${baseName}'`, context.function.sourceName);
+    }
+    addressInstructions = emitAddressOfSymbol(baseName, context);
+  }
+
+  for (let index = 0; index < memberAccessPath.length; index += 1) {
+    const step = memberAccessPath[index];
+
+    if (index > 0 && step.isArrow) {
+      if (!currentField || (currentField.pointerDepth || 0) <= 0) {
+        throw new CompilationError(`Field '${currentField ? currentField.sourceName : '?'}' is not a pointer and cannot use '->'`, context.function.sourceName);
+      }
+      addressInstructions = addressInstructions.concat(getLoadOpcodeForType(currentField.watType || 'i32'));
+      structLayout = resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null);
+      if (!structLayout) {
+        throw new CompilationError(`Unknown pointed struct layout for field '${currentField.sourceName}'`, context.function.sourceName);
+      }
+    }
+
+    currentField = structLayout.fieldsByName.get(step.fieldName);
+    if (!currentField) {
+      throw new CompilationError(`Unknown struct field '${step.fieldName}' on '${baseName}'`, context.function.sourceName);
+    }
+
+    addressInstructions = addressInstructions.concat(`i32.const ${currentField.offset}`, 'i32.add');
+
+    const nextStep = memberAccessPath[index + 1] || null;
+    if (nextStep && !nextStep.isArrow) {
+      if (!currentField.isStruct) {
+        throw new CompilationError(`Field '${currentField.sourceName}' is not a nested struct`, context.function.sourceName);
+      }
+      structLayout = resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null);
+      if (!structLayout) {
+        throw new CompilationError(`Unknown nested struct layout for field '${currentField.sourceName}'`, context.function.sourceName);
+      }
+    }
+  }
+
+  return {
+    baseSymbol,
+    field: currentField,
+    addressInstructions,
+    watType: currentField ? (currentField.watType || currentField.baseWatType || 'i32') : (baseSymbol.watType || 'i32'),
+    isStruct: !!(currentField && currentField.isStruct),
+    structLayout: currentField && currentField.isStruct
+      ? resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null)
+      : null
+  };
+}
+
+/**
+ * Compile member access when base address is already on stack.
+ * Used for cases like ptrs[0]->field where [0] produces an address,
+ * and then we need to apply ->field to that address.
+ * Returns instructions that result in either an address (if final field is struct)
+ * or a loaded value (if final field is not struct).
+ */
+function compileMemberAccessFromAddress(memberAccessPath, baseAccessInfo, context) {
+  if (!memberAccessPath || memberAccessPath.length === 0) {
+    return [];
+  }
+
+  let instructions = [];
+  let currentStructLayout = null;
+  let lastFieldIsStruct = false;
+  let lastFieldType = null;
+
+  // Get the struct layout from the symbol returned by getIndexedAccessInfo
+  if (baseAccessInfo && baseAccessInfo.symbol) {
+    const symbol = baseAccessInfo.symbol;
+    
+    // For array of pointers like 'struct Node *ptrs[2]'
+    // after indexing, baseAccessInfo.watType is 'i32' (the element type, which is a pointer)
+    // The symbol's structName points to the struct that the pointer targets
+    // (because pointerDepth > 0 means it's a pointer-to-struct)
+    
+    if (symbol.structName) {
+      // The symbol directly tells us about the struct type
+      currentStructLayout = resolveStructLayout(symbol.structName, context.module);
+    } else if (symbol.structLayout) {
+      currentStructLayout = symbol.structLayout;
+    }
+  }
+
+  for (let i = 0; i < memberAccessPath.length; i++) {
+    const accessStep = memberAccessPath[i];
+    
+    if (!currentStructLayout) {
+      throw new CompilationError(
+        `Cannot apply member access to non-struct type`,
+        'member-access'
+      );
+    }
+
+    const field = currentStructLayout.fieldsByName.get(accessStep.fieldName);
+    if (!field) {
+      throw new CompilationError(
+        `Unknown struct field '${accessStep.fieldName}' in struct`,
+        'member-access'
+      );
+    }
+
+    // For arrow access: the address on stack points to a pointer that we need to dereference
+    if (accessStep.isArrow) {
+      // Address on stack points to storage containing a pointer value
+      // The pointer itself is at offset 0 (we're directly on it after indexing)
+      
+      // Load the pointer value (i32) from the current address
+      instructions.push('i32.load');
+      
+      // Now add the offset of the field in the struct being pointed to
+      if (field.offset > 0) {
+        instructions.push(`i32.const ${field.offset}`);
+        instructions.push('i32.add');
+      }
+      
+      // Track if this field is a struct (for final result determination)
+      lastFieldIsStruct = field.isStruct || false;
+      lastFieldType = field.watType;
+      
+      // The pointer now points to the struct, update layout for next step
+      if (field.structName) {
+        currentStructLayout = resolveStructLayout(field.structName, context.module);
+      } else {
+        currentStructLayout = null;
+      }
+    } else {
+      // Dot access: add offset and optionally load if it's the last step
+      if (field.offset > 0) {
+        instructions.push(`i32.const ${field.offset}`);
+        instructions.push('i32.add');
+      }
+      
+      // Track if this field is a struct
+      lastFieldIsStruct = field.isStruct || false;
+      lastFieldType = field.watType;
+      
+      // Update layout for potential next steps
+      if (i < memberAccessPath.length - 1) {
+        if (field.structName) {
+          currentStructLayout = resolveStructLayout(field.structName, context.module);
+        }
+      }
+    }
+  }
+
+  // If the final field is not a struct, we need to load its value
+  // (If it is a struct, we return just the address per C semantics)
+  if (!lastFieldIsStruct && memberAccessPath.length > 0) {
+    instructions.push(getLoadOpcodeForType(lastFieldType || 'i32'));
+  }
+
+  return instructions;
+}
+
 function getDecayDimensionsForSymbol(symbol) {
   const dimensions = getSymbolArrayDimensions(symbol);
   if (symbol && (symbol.isArray || symbol.declaredAsArray)) {
@@ -3324,14 +4082,8 @@ function inferPointerPointeeType(node, context) {
 
 function resolveLValue(node, context) {
   if (isNonterminal(node, 'postfixExpression')) {
-    const primaryExpression = firstNonterminal(node, 'primaryExpression');
-    const indexExpressions = getIndexExpressionsFromPostfix(node);
-    if (indexExpressions.length > 0) {
-      const baseName = getSimpleIdentifierName(primaryExpression);
-      if (!baseName) {
-        throw new CompilationError('Only simple array/pointer indexing is supported right now', getNodeName(node));
-      }
-      const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+    const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
+    if (accessInfo) {
       if (accessInfo.resultIsAddress) {
         throw new CompilationError('Assignment to a subarray is not supported right now', getNodeName(node));
       }
@@ -3339,6 +4091,24 @@ function resolveLValue(node, context) {
         kind: 'indirect',
         addressInstructions: accessInfo.addressInstructions,
         watType: accessInfo.watType
+      };
+    }
+
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const memberAccessPath = getMemberAccessPathFromPostfix(node);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName && memberAccessPath.length > 0) {
+      const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+      if (!memberAccess) {
+        throw new CompilationError(`Unknown assignment target '${baseName}'`, context.function.sourceName);
+      }
+      if (memberAccess.isStruct) {
+        throw new CompilationError('Assignment to a whole struct field object is not supported right now', context.function.sourceName);
+      }
+      return {
+        kind: 'indirect',
+        addressInstructions: memberAccess.addressInstructions,
+        watType: memberAccess.watType
       };
     }
   }
@@ -3477,11 +4247,9 @@ function isPointerLikeNode(node, context) {
   }
 
   if (isNonterminal(node, 'postfixExpression')) {
-    const primaryExpression = firstNonterminal(node, 'primaryExpression');
-    const indexExpressions = getIndexExpressionsFromPostfix(node);
-    const baseName = getSimpleIdentifierName(primaryExpression);
-    if (baseName && indexExpressions.length > 0) {
-      return getIndexedAccessInfo(baseName, indexExpressions, context).resultIsAddress;
+    const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
+    if (accessInfo) {
+      return accessInfo.resultIsAddress;
     }
   }
 
@@ -3504,11 +4272,8 @@ function getPointerElementSize(node, context) {
   }
 
   if (isNonterminal(node, 'postfixExpression')) {
-    const primaryExpression = firstNonterminal(node, 'primaryExpression');
-    const indexExpressions = getIndexExpressionsFromPostfix(node);
-    const baseName = getSimpleIdentifierName(primaryExpression);
-    if (baseName && indexExpressions.length > 0) {
-      const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+    const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
+    if (accessInfo) {
       return getStrideForAccess(accessInfo.watType, accessInfo.resultObjectDimensions.slice(1));
     }
   }
@@ -3557,7 +4322,26 @@ function compileAdditiveExpression(node, context) {
 
     if (currentIsPointer || rightIsPointer) {
       if (currentIsPointer && rightIsPointer) {
-        throw new CompilationError('Pointer-to-pointer arithmetic is not supported yet', getNodeName(node));
+        // Pointer-to-pointer subtraction: (p1 - p2) / element_size
+        if (operator === '-') {
+          const rightElementSize = getPointerElementSize(rightNode, context);
+          // Both pointers should have the same element size for meaningful arithmetic
+          if (currentElementSize !== rightElementSize) {
+            // Still allow it, just warn conceptually - WAT will do raw address subtraction
+          }
+          const coercedRight = coerceInstructionsToType(rightInstructions, rightType, 'i32');
+          instructions = instructions.concat(
+            coercedRight,
+            'i32.sub',
+            `i32.const ${currentElementSize}`,
+            'i32.div_s'
+          );
+          currentIsPointer = false;
+          currentType = 'i32';
+          continue;
+        } else {
+          throw new CompilationError('Pointer-to-pointer addition is not supported', getNodeName(node));
+        }
       }
 
       if (currentIsPointer) {
@@ -3791,22 +4575,59 @@ function compilePostfixExpression(node, context, keepValue) {
     return primaryExpression ? compileExpression(primaryExpression, context, { keepValue }) : [];
   }
 
-  const indexExpressions = getIndexExpressionsFromPostfix(node);
-  if (indexExpressions.length > 0) {
-    const baseName = getSimpleIdentifierName(primaryExpression);
-    if (!baseName) {
-      throw new CompilationError('Only simple array/pointer indexing is supported right now', getNodeName(node));
+  // Check for member access path (.field or ->field)
+  const memberAccessPath = getMemberAccessPathFromPostfix(node);
+  
+  // Handle indexing followed by possible member access
+  const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
+  if (accessInfo) {
+    let instructions = [...accessInfo.addressInstructions];
+    
+    // If we have member access after indexing, handle it
+    if (memberAccessPath.length > 0) {
+      // After indexing, we have an address on the stack pointing to an element
+      // Now apply member access to that address
+      instructions = instructions.concat(
+        compileMemberAccessFromAddress(memberAccessPath, accessInfo, context)
+      );
+      
+      if (!keepValue) {
+        instructions.push('drop');
+      }
+      return instructions;
     }
-
-    const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+    
+    // No member access, just return indexed access result
     if (accessInfo.resultIsAddress) {
-      return accessInfo.addressInstructions;
+      return instructions;
     }
 
     return [
-      ...accessInfo.addressInstructions,
+      ...instructions,
       getLoadOpcodeForType(accessInfo.watType)
     ];
+  }
+
+  const indexExpressions = getIndexExpressionsFromPostfix(node);
+  if (indexExpressions.length > 0) {
+    throw new CompilationError('Only simple array/pointer indexing is supported right now', getNodeName(node));
+  }
+
+  // Direct member access (no indexing) on primary expression
+  if (memberAccessPath.length > 0) {
+    const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName) {
+      const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+      if (memberAccess) {
+        if (!keepValue) {
+          return memberAccess.addressInstructions.concat('drop');
+        }
+        if (memberAccess.isStruct) {
+          return memberAccess.addressInstructions;
+        }
+        return memberAccess.addressInstructions.concat(getLoadOpcodeForType(memberAccess.watType || 'i32'));
+      }
+    }
   }
 
   const postfixOperator = postfixSuffixes

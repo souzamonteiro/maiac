@@ -95,6 +95,13 @@ function collectTypedefAliases(source) {
 
   const patterns = [
     {
+      // Example: typedef int (*binop_t)(int, int);
+      // We normalize this alias as a pointer-like type for current compiler typing.
+      regex: /typedef\s+([A-Za-z_][\w\s]*?)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\([^;]*\)\s*;/g,
+      createReplacement: (match) => `${String(match[1] || '').trim()} *`.trim(),
+      aliasIndex: 2
+    },
+    {
       regex: /typedef\s+struct\s+([A-Za-z_]\w*)\s*\{[\s\S]*?\}\s*([A-Za-z_]\w*)\s*;/g,
       createReplacement: (match) => `struct ${match[1]}`,
       aliasIndex: 2
@@ -148,56 +155,6 @@ function collectTypedefAliases(source) {
   }
 
   return aliases;
-}
-
-function collectPreprocessorMacros(source) {
-  const macros = new Map();
-  const cleanedLines = [];
-
-  for (const line of normalizeNewlines(source).split('\n')) {
-    const trimmed = line.trim();
-
-    if (/^#\s*define\b/.test(trimmed)) {
-      const rest = trimmed.replace(/^#\s*define\s+/, '');
-      const functionMatch = rest.match(/^([A-Za-z_]\w*)\(([^)]*)\)\s*(.*)$/);
-
-      if (functionMatch) {
-        const [, name, paramsText, bodyText] = functionMatch;
-        const params = paramsText.trim()
-          ? paramsText.split(',').map((param) => param.trim()).filter(Boolean)
-          : [];
-        macros.set(name, {
-          kind: 'function',
-          params,
-          body: String(bodyText || '').trim()
-        });
-      } else {
-        const objectMatch = rest.match(/^([A-Za-z_]\w*)(?:\s+(.*))?$/);
-        if (objectMatch) {
-          macros.set(objectMatch[1], {
-            kind: 'object',
-            params: [],
-            body: String(objectMatch[2] || '1').trim()
-          });
-        }
-      }
-
-      cleanedLines.push('');
-      continue;
-    }
-
-    if (/^#/.test(trimmed)) {
-      cleanedLines.push('');
-      continue;
-    }
-
-    cleanedLines.push(line);
-  }
-
-  return {
-    macros,
-    text: cleanedLines.join('\n')
-  };
 }
 
 function parseDefineDirective(rest, macros) {
@@ -498,10 +455,32 @@ function readMacroInvocation(text, openParenIndex) {
 
 function expandFunctionMacro(macro, args) {
   let expanded = String(macro.body || '');
+  const rawArgsByParam = new Map();
+  const cookedArgsByParam = new Map();
 
   for (let index = 0; index < macro.params.length; index += 1) {
     const param = macro.params[index];
-    const value = `(${String(args[index] || '').trim()})`;
+    const rawValue = String(args[index] || '').trim();
+    rawArgsByParam.set(param, rawValue);
+    cookedArgsByParam.set(param, `(${rawValue})`);
+  }
+
+  // Token pasting (##): concatenate raw argument tokens before regular substitution.
+  expanded = expanded.replace(/\b([A-Za-z_]\w*)\b\s*##\s*\b([A-Za-z_]\w*)\b/g, (_match, left, right) => {
+    const leftValue = rawArgsByParam.has(left) ? rawArgsByParam.get(left) : left;
+    const rightValue = rawArgsByParam.has(right) ? rawArgsByParam.get(right) : right;
+    return `${String(leftValue || '').trim()}${String(rightValue || '').trim()}`;
+  });
+
+  // Stringification (#): preserve the raw argument spelling in a string literal.
+  for (const param of macro.params) {
+    const rawValue = String(rawArgsByParam.get(param) || '');
+    const stringified = '"' + rawValue.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    expanded = expanded.replace(new RegExp(`#\\s*\\b${escapeRegex(param)}\\b`, 'g'), stringified);
+  }
+
+  for (const param of macro.params) {
+    const value = cookedArgsByParam.get(param) || '(0)';
     expanded = expanded.replace(new RegExp(`\\b${escapeRegex(param)}\\b`, 'g'), value);
   }
 
@@ -663,6 +642,10 @@ function expandMacros(source, macros) {
 }
 
 function preprocessCSource(source, options = {}) {
+  // This layer still performs source-to-source normalization before parsing.
+  // It is intentionally more than a directive expander because the current
+  // parser/compiler pipeline relies on textual rewrites for typedef aliases,
+  // pointer/function-pointer aliases, and a few token-shape compat paths.
   let text = injectAnonymousTypedefTags(joinLineContinuations(source));
   const { macros, text: withoutDirectives } = processPreprocessorDirectives(text, options);
   text = expandMacros(withoutDirectives, macros);
@@ -851,13 +834,6 @@ function preprocessCSource(source, options = {}) {
       result += char;
       inDoubleQuote = true;
       index += 1;
-      lineHasOnlyWhitespace = false;
-      continue;
-    }
-
-    if (char === '-' && next === '>') {
-      result += '.__arrow__.';
-      index += 2;
       lineHasOnlyWhitespace = false;
       continue;
     }

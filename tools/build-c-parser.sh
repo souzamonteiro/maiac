@@ -8,7 +8,7 @@ ROOT_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 GRAMMAR_FILE="$ROOT_DIR/grammar/C.ebnf"
 TREX_SCRIPT="$ROOT_DIR/maiacc/bin/tREx.sh"
 OUT_XML="$ROOT_DIR/compiler/_c-grammar.xml"
-OUT_PARSER="$ROOT_DIR/compiler/C-parser.js"
+OUT_PARSER="$ROOT_DIR/compiler/c-parser.js"
 
 if [ ! -f "$GRAMMAR_FILE" ]; then
   echo "Error: grammar file not found: $GRAMMAR_FILE" >&2
