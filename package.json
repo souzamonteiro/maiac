@@ -1,0 +1,50 @@
+{
+  "name": "maiac",
+  "version": "1.0.0",
+  "description": "MaiaC (WebC): C89-subset to WebAssembly compiler in JavaScript.",
+  "license": "Apache-2.0",
+  "main": "compiler/c-compiler.js",
+  "bin": {
+    "webc": "compiler/c-compiler.js"
+  },
+  "files": [
+    "bin/webc.sh",
+    "bin/run-test-node.sh",
+    "compiler/c-compiler.js",
+    "compiler/c-parser.js",
+    "compiler/c-preprocessor.js",
+    "compiler/parse-tree-collector.js",
+    "compiler/wat-templates.js",
+    "grammar/C.ebnf",
+    "tools/build-c-parser.sh",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node compiler/tests/test-all.js",
+    "build:parser": "bash tools/build-c-parser.sh",
+    "compile:example": "node compiler/c-compiler.js --file ./compiler/examples/test.c --no-wat"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/souzamonteiro/maiac.git"
+  },
+  "bugs": {
+    "url": "https://github.com/souzamonteiro/maiac/issues"
+  },
+  "homepage": "https://github.com/souzamonteiro/maiac#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "c",
+    "compiler",
+    "c89",
+    "wasm",
+    "webassembly",
+    "wat"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
