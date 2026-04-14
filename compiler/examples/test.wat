@@ -3038,9 +3038,9 @@
     i32.const 12
     i32.add
     f32.load
-    i32.trunc_f32_s
     i32.const 0
-    i32.gt_s
+    f32.convert_i32_s
+    f32.gt
     i32.eqz
     i32.eqz
     if (result i32)
@@ -4571,7 +4571,7 @@
     global.get $__stack_ptr
     local.set $__frame
     global.get $__stack_ptr
-    i32.const 40
+    i32.const 56
     i32.add
     global.set $__stack_ptr
     i32.const 2460
@@ -4650,7 +4650,7 @@
     i32.const 40
     i32.store
     local.get $__frame
-    i32.const 24
+    i32.const 40
     i32.add
     local.get $__frame
     i32.const 16
@@ -4661,7 +4661,7 @@
     i32.add
     i32.store
     local.get $__frame
-    i32.const 24
+    i32.const 40
     i32.add
     i32.load
     i32.const 0
@@ -4684,14 +4684,14 @@
     call $imp_printf
     drop
     local.get $__frame
-    i32.const 32
+    i32.const 48
     i32.add
     i32.const 0
     i32.store
     block $test_structures_for_exit_0
       loop $test_structures_for_loop_2
         local.get $__frame
-        i32.const 32
+        i32.const 48
         i32.add
         i32.load
         i32.const 3
@@ -4704,7 +4704,7 @@
           i32.const 2512
           f64.convert_i32_s
           local.get $__frame
-          i32.const 32
+          i32.const 48
           i32.add
           i32.load
           f64.convert_i32_s
@@ -4712,7 +4712,7 @@
           i32.const 16
           i32.add
           local.get $__frame
-          i32.const 32
+          i32.const 48
           i32.add
           i32.load
           i32.const 4
@@ -4724,11 +4724,13 @@
           i32.const 16
           i32.add
           local.get $__frame
-          i32.const 32
+          i32.const 48
           i32.add
           i32.load
           i32.const 4
           i32.mul
+          i32.add
+          i32.const 4
           i32.add
           i32.load
           f64.convert_i32_s
@@ -4740,7 +4742,7 @@
           drop
         end
         local.get $__frame
-        i32.const 32
+        i32.const 48
         i32.add
         local.tee $__tmp_addr
         i32.load
@@ -4920,7 +4922,7 @@
     global.get $__stack_ptr
     local.set $__frame
     global.get $__stack_ptr
-    i32.const 136
+    i32.const 168
     i32.add
     global.set $__stack_ptr
     i32.const 2648
@@ -5319,6 +5321,8 @@
     i32.const 4
     i32.const 4
     i32.mul
+    i32.add
+    i32.const 4
     i32.add
     i32.load
     f64.convert_i32_s
@@ -6017,24 +6021,19 @@
     call $imp_printf
     drop
     local.get $a
-    i32.trunc_f64_s
     local.get $b
-    i32.trunc_f64_s
-    i32.gt_s
+    f64.gt
     i32.eqz
     i32.eqz
-    if (result i32)
+    if (result f64)
       local.get $a
       local.get $b
       f64.sub
-      i32.trunc_f64_s
     else
       local.get $b
       local.get $a
       f64.sub
-      i32.trunc_f64_s
     end
-    f64.convert_i32_s
     local.tee $c
     drop
     i32.const 3436

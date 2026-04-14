@@ -1231,7 +1231,8 @@ function normalizeSourceForCurrentParser(source, options = {}) {
 
 function parseCSource(source, options = {}) {
   const normalizedSource = normalizeSourceForCurrentParser(source, {
-    sourcePath: options.sourcePath || null
+    sourcePath: options.sourcePath || null,
+    includeDirs: options.includeDirs || []
   });
   const collector = new ParseTreeCollector();
   const parser = new Parser(normalizedSource, collector);
@@ -1393,6 +1394,11 @@ function buildModuleModel(ast, options = {}) {
 
       for (const itemDef of extractDeclarationItems(declaration, moduleModel)) {
         if (itemDef.isFunctionDeclaration) {
+          // Functions whose names begin with '__' are host-provided imports.
+          // Register them so call sites can emit the correct WAT call.
+          if (parseHostExternName(itemDef.sourceName)) {
+            registerHostExternImport(itemDef, moduleModel);
+          }
           continue;
         }
 
@@ -1506,6 +1512,76 @@ function ensureImportedFunction(moduleModel, options = {}) {
 
   moduleModel.imports.push(importDef);
   moduleModel.importsBySourceName.set(sourceName, importDef);
+  return importDef;
+}
+
+/**
+ * Parses a host-extern function name that follows the __object__method convention.
+ *
+ * Examples:
+ *   '__console__log'  → { envKey: '__console__log', jsExpr: 'console.log', parts: ['console', 'log'] }
+ *   '__alert'         → { envKey: '__alert',         jsExpr: 'alert',       parts: ['alert'] }
+ *   '__Math__floor'   → { envKey: '__Math__floor',   jsExpr: 'Math.floor',  parts: ['Math', 'floor'] }
+ *
+ * Returns null for names that do not start with '__'.
+ */
+function parseHostExternName(name) {
+  if (!name || !String(name).startsWith('__')) return null;
+  const body = String(name).slice(2); // strip leading __
+  const parts = body.split('__').filter(Boolean);
+  if (parts.length === 0) return null;
+  return { envKey: name, jsExpr: parts.join('.'), parts };
+}
+
+/**
+ * Registers a function whose name starts with '__' as a WAT import from the
+ * 'env' module and adds a lightweight stub into moduleModel.functionsByName so
+ * call sites can resolve it.
+ *
+ * The importDef is annotated with:
+ *   - .hostInfo   – result of parseHostExternName (object/method breakdown)
+ *   - .paramDefs  – the raw parameter descriptors (cType, pointerDepth, …)
+ *
+ * These annotations are consumed by the JS-wrapper generator to produce the
+ * correct host-side function (string dereferencing, method binding, etc.).
+ */
+function registerHostExternImport(itemDef, moduleModel) {
+  const hostInfo = parseHostExternName(itemDef.sourceName);
+  if (!hostInfo || !moduleModel) return null;
+
+  const paramDefs = Array.isArray(itemDef.params) ? itemDef.params : [];
+  const paramTypes = paramDefs.map((p) => toWatType(p.watType || 'i32'));
+
+  // void return → resultType null; otherwise use the declared WAT type.
+  const resultType = (itemDef.watType === null || itemDef.cType === 'void')
+    ? null
+    : toWatType(itemDef.watType || 'i32');
+
+  const importDef = ensureImportedFunction(moduleModel, {
+    sourceName: itemDef.sourceName,
+    internalName: `imp_${sanitizeIdentifier(itemDef.sourceName)}`,
+    module: 'env',
+    field: itemDef.sourceName,
+    paramTypes,
+    resultType
+  });
+
+  // Annotate the import with metadata for JS-wrapper generation.
+  importDef.hostInfo = hostInfo;
+  importDef.paramDefs = paramDefs;
+
+  // Register a stub in functionsByName so call sites know this is a host import.
+  if (!moduleModel.functionsByName.has(itemDef.sourceName)) {
+    moduleModel.functionsByName.set(itemDef.sourceName, {
+      sourceName: itemDef.sourceName,
+      name: sanitizeIdentifier(itemDef.sourceName),
+      isHostImport: true,
+      importDef,
+      resultType,
+      params: paramDefs
+    });
+  }
+
   return importDef;
 }
 
@@ -2564,7 +2640,8 @@ function compileStatement(statementNode, context) {
     if (!expressionNode) return [];
 
     const instructions = compileExpression(expressionNode, context, { keepValue: true });
-    if (expressionProducesValue(expressionNode, context)) {
+    const produces = expressionProducesValue(expressionNode, context);
+    if (produces) {
       instructions.push('drop');
     }
     return instructions;
@@ -3126,6 +3203,13 @@ function inferExpressionType(node, context) {
         || context.params.get(node.value)
         || context.module.globalsByName.get(node.value)
         || context.module.functionsByName.get(node.value);
+      if (!symbol) return 'i32';
+      // For function stubs the return type is authoritative – do NOT fall back
+      // to 'i32' when resultType is null (void functions produce no value).
+      if (Object.prototype.hasOwnProperty.call(symbol, 'resultType') && symbol.resultType === null
+          && !Object.prototype.hasOwnProperty.call(symbol, 'watType')) {
+        return null;
+      }
       return symbol ? toWatType(symbol.watType || symbol.resultType || 'i32') : 'i32';
     }
     return null;
@@ -3167,6 +3251,7 @@ function inferExpressionType(node, context) {
     if (postfixSuffix) {
       const calleeName = extractIdentifierFromNode(primaryExpression);
       const fn = context.module.functionsByName.get(calleeName);
+      // eslint-disable-next-line no-console
       return fn ? fn.resultType : 'i32';
     }
   }
@@ -3255,6 +3340,10 @@ function inferExpressionType(node, context) {
   if (['additiveExpression', 'multiplicativeExpression'].includes(nodeName)) {
     const operands = childNodes(node).filter((child) => child.kind === 'nonterminal');
     if (operands.length > 0) {
+      // Single operand = pass-through: preserve null (void) result type.
+      if (operands.length === 1) {
+        return inferExpressionType(operands[0], context);
+      }
       let combinedType = inferExpressionType(operands[0], context) || 'i32';
       for (let index = 1; index < operands.length; index += 1) {
         combinedType = selectCommonWatType(combinedType, inferExpressionType(operands[index], context) || combinedType);
@@ -3266,6 +3355,10 @@ function inferExpressionType(node, context) {
   if (['shiftExpression', 'andExpression', 'exclusiveOrExpression', 'inclusiveOrExpression'].includes(nodeName)) {
     const operands = childNodes(node).filter((child) => child.kind === 'nonterminal');
     if (operands.length > 0) {
+      // Single operand = pass-through: preserve null (void) result type.
+      if (operands.length === 1) {
+        return inferExpressionType(operands[0], context);
+      }
       return operands.some((operand) => inferExpressionType(operand, context) === 'i64') ? 'i64' : 'i32';
     }
   }
@@ -4653,36 +4746,60 @@ function compilePostfixExpression(node, context, keepValue) {
   const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
   const instructions = [];
 
-  // Special-case printf: host import that takes exactly 8 f64 params.
-  // Handled BEFORE the generic args loop so that:
-  //  1. float/double values preserve fractional precision when crossing into JS.
-  //  2. integral/pointer arguments still map correctly (coerced to f64).
-  //  3. The stack has exactly 8 values when call $imp_printf executes.
-  if (calleeName === 'printf') {
-    const hostArity = 8;
-    ensureImportedFunction(context.module, {
-      sourceName: 'printf',
-      internalName: 'imp_printf',
-      module: 'env',
-      field: 'printf',
-      paramTypes: new Array(hostArity).fill('f64'),
-      resultType: 'i32'
-    });
-    for (let i = 0; i < hostArity; i += 1) {
-      if (i < argumentsToCompile.length) {
-        const argNode = argumentsToCompile[i];
-        const argType = inferExpressionType(argNode, context) || 'i32';
-        const argInstr = compileExpression(argNode, context, { keepValue: true });
-        instructions.push(...coerceInstructionsToType(argInstr, argType, 'f64', context));
+  // Handle host imports:
+  //   1. Functions declared with the '__object__method' naming convention
+  //      (registered by registerHostExternImport during module building).
+  //   2. The legacy 'printf' special-case (variadic → 8×f64 fixed arity).
+  //
+  // Both are handled here, BEFORE the generic args loop, so that arguments
+  // can be coerced to the required WAT types before the call is emitted.
+  {
+    const hostFn = context.module.functionsByName.get(calleeName);
+    const isNamedHostImport = !!(hostFn && hostFn.isHostImport);
+    const isPrintf = calleeName === 'printf';
+
+    if (isNamedHostImport || isPrintf) {
+      let importDef;
+
+      if (isPrintf) {
+        // printf uses a fixed arity of 8×f64 to accommodate any argument mix
+        // across the variadic boundary without type inference.
+        const hostArity = 8;
+        importDef = ensureImportedFunction(context.module, {
+          sourceName: 'printf',
+          internalName: 'imp_printf',
+          module: 'env',
+          field: 'printf',
+          paramTypes: new Array(hostArity).fill('f64'),
+          resultType: 'i32'
+        });
       } else {
-        instructions.push('f64.const 0');
+        importDef = hostFn.importDef;
       }
+
+      const paramTypes = importDef.paramTypes || [];
+      const arity = isPrintf ? 8 : paramTypes.length;
+
+      for (let i = 0; i < arity; i += 1) {
+        const targetType = paramTypes[i] || (isPrintf ? 'f64' : 'i32');
+        if (i < argumentsToCompile.length) {
+          const argNode = argumentsToCompile[i];
+          const argType = inferExpressionType(argNode, context) || 'i32';
+          const argInstr = compileExpression(argNode, context, { keepValue: true });
+          instructions.push(...coerceInstructionsToType(argInstr, argType, targetType, context));
+        } else {
+          instructions.push(`${targetType}.const 0`);
+        }
+      }
+
+      instructions.push(`call $${importDef.internalName}`);
+
+      if (!keepValue && importDef.resultType !== null) {
+        instructions.push('drop');
+      }
+
+      return instructions;
     }
-    instructions.push('call $imp_printf');
-    if (!keepValue) {
-      instructions.push('drop');
-    }
-    return instructions;
   }
 
   for (const argumentNode of argumentsToCompile) {
@@ -5032,6 +5149,9 @@ function validateWat(wat) {
   return wasm;
 }
 
+// Built-in include directory shipped with the compiler (maiac_compat.h etc.).
+const COMPILER_INCLUDE_DIR = path.join(__dirname, 'include');
+
 function compileSource(source, options = {}) {
   const backend = options.backend || 'wat';
   const emitter = SUPPORTED_BACKENDS[backend];
@@ -5040,8 +5160,12 @@ function compileSource(source, options = {}) {
     throw new Error(`Unsupported backend '${backend}'. Supported backends: ${Object.keys(SUPPORTED_BACKENDS).join(', ')}`);
   }
 
+  // Always add the compiler's own include/ dir so <maiac_compat.h> resolves.
+  const includeDirs = [COMPILER_INCLUDE_DIR, ...(options.includeDirs || [])];
+
   const parsed = parseCSource(source, {
-    sourcePath: options.sourcePath || null
+    sourcePath: options.sourcePath || null,
+    includeDirs
   });
   const moduleModel = buildModuleModel(parsed.ast, {
     aggregateTags: collectNamedAggregateTags(parsed.normalizedSource || source)
@@ -5062,12 +5186,18 @@ function compileSource(source, options = {}) {
     }
   }
 
+  // Collect annotated host-import descriptors so callers can generate the
+  // corresponding JS env wrapper without parsing the WAT themselves.
+  const hostImports = (moduleModel.imports || [])
+    .filter((imp) => imp.hostInfo != null);
+
   return {
     ...parsed,
     module: moduleModel,
     wat,
     wasm,
-    validationError
+    validationError,
+    hostImports
   };
 }
 
@@ -5265,5 +5395,6 @@ module.exports = {
   compileSource,
   emitWatFromModule,
   parseArguments,
+  parseHostExternName,
   main
 };

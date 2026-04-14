@@ -7,6 +7,7 @@ const path = require('path');
 
 const { compileSource } = require('../compiler/c-compiler.js');
 const { createPrintfHost } = require('./runtime/printf-host.js');
+const { buildHostEnv } = require('./host-env-builder.js');
 
 function usage() {
   console.log('Usage: node tools/run-test-node.js [source.c]');
@@ -40,12 +41,24 @@ async function main() {
   }
 
   let memoryRef = null;
+
+  // Build env entries for all '__object__method' host externs declared in the
+  // C source.  Each entry is auto-generated from the compiler's hostImports
+  // metadata: char* params are dereferenced to JS strings, and the JS call
+  // target is derived from the name (e.g. __console__log → console.log).
+  const hostEnv = buildHostEnv(result.hostImports, {
+    getMemory: () => memoryRef
+  });
+
   const imports = {
     env: {
+      // Legacy variadic import – always provided.
       printf: createPrintfHost({
         getMemory: () => memoryRef,
         write: (text) => process.stdout.write(String(text))
-      })
+      }),
+      // Auto-generated wrappers for user-declared extern __* functions.
+      ...hostEnv
     }
   };
 
@@ -66,3 +79,4 @@ main().catch((error) => {
   console.error(`[maiac-runner] ${error.message}`);
   process.exitCode = 1;
 });
+

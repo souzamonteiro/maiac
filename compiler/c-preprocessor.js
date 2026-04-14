@@ -217,12 +217,23 @@ function createIncludeContext(options = {}) {
   const sourcePath = options.sourcePath || null;
   const sourceDir = sourcePath ? path.dirname(path.resolve(sourcePath)) : process.cwd();
 
+  // Extra directories to search for #include "..." (user includes).
+  // Always appended after the source-file directory.
+  const includeDirs = Array.isArray(options.includeDirs) ? options.includeDirs : [];
+
   const resolveInclude = options.resolveInclude || ((includePath, includeKind, fromDir) => {
     if (includeKind === 'system') {
       return null;
     }
-    const candidate = path.resolve(fromDir || sourceDir, includePath);
-    return fs.existsSync(candidate) ? candidate : null;
+    // 1. Relative to the currently-processed file
+    const primary = path.resolve(fromDir || sourceDir, includePath);
+    if (fs.existsSync(primary)) return primary;
+    // 2. Walk every extra include directory
+    for (const dir of includeDirs) {
+      const candidate = path.resolve(dir, includePath);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
   });
 
   return {
@@ -235,6 +246,10 @@ function createIncludeContext(options = {}) {
 function processPreprocessorDirectives(source, options = {}) {
   const context = createIncludeContext(options);
   const macros = new Map();
+
+  // Predefined macros
+  macros.set('__MAIAC__', { kind: 'object', tokens: ['1'] });
+  macros.set('__MAIAC_VERSION__', { kind: 'object', tokens: ['1'] });
 
   const processText = (text, currentDir) => {
     const outputLines = [];
