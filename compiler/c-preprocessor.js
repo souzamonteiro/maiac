@@ -216,23 +216,29 @@ function createIncludeContext(options = {}) {
   const includeStack = new Set();
   const sourcePath = options.sourcePath || null;
   const sourceDir = sourcePath ? path.dirname(path.resolve(sourcePath)) : process.cwd();
+  const resolveSystemIncludes = options.resolveSystemIncludes === true;
 
   // Extra directories to search for #include "..." (user includes).
   // Always appended after the source-file directory.
   const includeDirs = Array.isArray(options.includeDirs) ? options.includeDirs : [];
 
   const resolveInclude = options.resolveInclude || ((includePath, includeKind, fromDir) => {
-    if (includeKind === 'system') {
+    if (includeKind === 'system' && !resolveSystemIncludes) {
       return null;
     }
-    // 1. Relative to the currently-processed file
-    const primary = path.resolve(fromDir || sourceDir, includePath);
-    if (fs.existsSync(primary)) return primary;
-    // 2. Walk every extra include directory
+
+    if (includeKind !== 'system') {
+      // 1. Local include: relative to the currently-processed file.
+      const primary = path.resolve(fromDir || sourceDir, includePath);
+      if (fs.existsSync(primary)) return primary;
+    }
+
+    // 2. System include (and local fallback): walk configured include dirs.
     for (const dir of includeDirs) {
       const candidate = path.resolve(dir, includePath);
       if (fs.existsSync(candidate)) return candidate;
     }
+
     return null;
   });
 

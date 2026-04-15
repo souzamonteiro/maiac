@@ -6,8 +6,9 @@ const fs = require('fs');
 const path = require('path');
 
 const { compileSource } = require('../compiler/c-compiler.js');
-const { createPrintfHost } = require('./runtime/printf-host.js');
+const { createPrintfHost } = require('../src/runtime/stdio.js');
 const { buildHostEnv } = require('./host-env-builder.js');
+const { createDefaultHostBuiltins } = require('../src/runtime/default-host-builtins.js');
 
 function usage() {
   console.log('Usage: node tools/run-test-node.js [source.c]');
@@ -15,6 +16,28 @@ function usage() {
   console.log('Examples:');
   console.log('  node tools/run-test-node.js');
   console.log('  node tools/run-test-node.js compiler/examples/test.c');
+}
+
+function extractHeaderLibraries(source) {
+  const includeRegex = /^\s*#\s*include\s*[<"]([^">]+)[">]/gm;
+  const libs = [];
+  const seen = new Set();
+  let match;
+
+  while ((match = includeRegex.exec(String(source || ''))) !== null) {
+    const includePath = String(match[1] || '').trim();
+    if (!includePath.toLowerCase().endsWith('.h')) {
+      continue;
+    }
+    const name = path.basename(includePath, '.h');
+    if (!name || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    libs.push(name);
+  }
+
+  return libs;
 }
 
 async function main() {
@@ -30,10 +53,12 @@ async function main() {
   }
 
   const source = fs.readFileSync(sourcePath, 'utf8');
+  const requiredLibraries = extractHeaderLibraries(source);
   const result = compileSource(source, {
     sourcePath,
     validate: true,
-    printWat: false
+    printWat: false,
+    resolveSystemIncludes: true
   });
 
   if (!result.wasm) {
@@ -49,6 +74,7 @@ async function main() {
   const hostEnv = buildHostEnv(result.hostImports, {
     getMemory: () => memoryRef
   });
+  const defaultBuiltins = createDefaultHostBuiltins(() => memoryRef);
 
   const imports = {
     env: {
@@ -57,10 +83,36 @@ async function main() {
         getMemory: () => memoryRef,
         write: (text) => process.stdout.write(String(text))
       }),
+      ...defaultBuiltins,
       // Auto-generated wrappers for user-declared extern __* functions.
       ...hostEnv
     }
   };
+
+  const baseDir = path.dirname(sourcePath);
+  for (const libName of requiredLibraries) {
+    const libPath = path.join(baseDir, `${libName}.wasm`);
+    if (!fs.existsSync(libPath)) {
+      continue;
+    }
+
+    const libBytes = fs.readFileSync(libPath);
+    const libInstantiated = await WebAssembly.instantiate(libBytes, imports);
+    const libInstance = libInstantiated.instance || libInstantiated;
+    const exported = libInstance && libInstance.exports ? Object.entries(libInstance.exports) : [];
+
+    for (const exportEntry of exported) {
+      const exportName = exportEntry[0];
+      const exportValue = exportEntry[1];
+      if (typeof exportValue === 'function' && imports.env[exportName] == null) {
+        imports.env[exportName] = exportValue;
+      }
+    }
+
+    if (!memoryRef && libInstance.exports && libInstance.exports.memory) {
+      memoryRef = libInstance.exports.memory;
+    }
+  }
 
   const wasmBytes = Buffer.from(result.wasm);
   const { instance } = await WebAssembly.instantiate(wasmBytes, imports);

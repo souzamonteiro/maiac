@@ -16,14 +16,22 @@
     "compiler/parse-tree-collector.js",
     "compiler/wat-templates.js",
     "grammar/C.ebnf",
+    "src/runtime/*.js",
+    "lib/*.wasm",
     "tools/build-c-parser.sh",
+    "tools/build-libs.js",
+    "tools/create-dist.js",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
     "test": "node compiler/tests/test-all.js",
     "build:parser": "bash tools/build-c-parser.sh",
-    "compile:example": "node compiler/c-compiler.js --file ./compiler/examples/test.c --no-wat"
+    "build:libs": "node tools/build-libs.js",
+    "dist:create": "node tools/create-dist.js",
+    "compile:example": "node compiler/c-compiler.js --file ./compiler/examples/test.c --no-wat",
+    "demo:vfs:node": "node tools/examples/run-vfs-demo-node.js",
+    "demo:vfs:node:clean": "node tools/examples/run-vfs-demo-node.js --clean"
   },
   "repository": {
     "type": "git",

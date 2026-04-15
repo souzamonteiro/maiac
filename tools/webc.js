@@ -20,6 +20,8 @@
  *                   Example: -o out/hello  →  out/hello.wasm, out/hello.js
  *   --wat           Also write the WAT source file (<output>.wat)
  *   --no-validate   Skip WAT/WASM validation
+ *   --resolve-system-includes  Expand system includes (<...>) via include dirs
+ *   --no-system-includes       Disable system include expansion (default)
  *   --run           After compiling, run the WASM module with Node (requires
  *                   a main() export)
  *   -h, --help      Show this help message
@@ -30,8 +32,9 @@ const path = require('path');
 
 const { compileSource }         = require('../compiler/c-compiler.js');
 const { generateHostEnvSource } = require('./host-env-builder.js');
-const { createPrintfHost }      = require('./runtime/printf-host.js');
+const { createPrintfHost }      = require('../src/runtime/stdio.js');
 const { buildHostEnv }          = require('./host-env-builder.js');
+const { createDefaultHostBuiltins } = require('../src/runtime/default-host-builtins.js');
 
 // ---------------------------------------------------------------------------
 // Help
@@ -46,6 +49,8 @@ Options:
   -o <base>       Output base path (no extension). Default: same dir as input.
   --wat           Also emit a .wat source file alongside the .wasm
   --no-validate   Skip WAT/WASM validation step
+  --resolve-system-includes  Enable system include expansion
+  --no-system-includes       Disable system include expansion (default)
   --run           Execute the compiled module immediately after building
   -h, --help      Show this message
 
@@ -66,6 +71,7 @@ function parseArgs(argv) {
     outBase:  null,
     wat:      false,
     validate: true,
+    resolveSystemIncludes: false,
     run:      false,
     help:     false,
   };
@@ -75,6 +81,8 @@ function parseArgs(argv) {
     if (a === '-h' || a === '--help') { opts.help = true; }
     else if (a === '--wat')           { opts.wat = true; }
     else if (a === '--no-validate')   { opts.validate = false; }
+    else if (a === '--resolve-system-includes') { opts.resolveSystemIncludes = true; }
+    else if (a === '--no-system-includes')      { opts.resolveSystemIncludes = false; }
     else if (a === '--run')           { opts.run = true; }
     else if (a === '-o') {
       i++;
@@ -90,6 +98,28 @@ function parseArgs(argv) {
   return opts;
 }
 
+function extractHeaderLibraries(source) {
+  const includeRegex = /^\s*#\s*include\s*[<"]([^">]+)[">]/gm;
+  const libraries = [];
+  const seen = new Set();
+  let match;
+
+  while ((match = includeRegex.exec(String(source || ''))) !== null) {
+    const includePath = String(match[1] || '').trim();
+    if (!includePath.toLowerCase().endsWith('.h')) {
+      continue;
+    }
+    const headerBase = path.basename(includePath, '.h');
+    if (!headerBase || seen.has(headerBase)) {
+      continue;
+    }
+    seen.add(headerBase);
+    libraries.push(headerBase);
+  }
+
+  return libraries;
+}
+
 // ---------------------------------------------------------------------------
 // JS wrapper generator
 // ---------------------------------------------------------------------------
@@ -102,18 +132,46 @@ function parseArgs(argv) {
  *   run(wasmPath)             – convenience: loads + instantiates the .wasm
  *                               and calls main()
  */
-function generateWrapper(hostImports) {
+function generateWrapper(hostImports, requiredLibraries) {
   const hostEnvSrc = generateHostEnvSource(hostImports);
+  const serializedLibraries = JSON.stringify(requiredLibraries || []);
+
+  function sanitizeRuntimeModuleSource(source, options = {}) {
+    let out = String(source || '');
+    out = out.replace(/^'use strict';\s*/m, '');
+
+    if (options.stripRequireSprintf) {
+      out = out.replace(/^const\s*\{\s*sprintf\s*,\s*parseFormatSpec\s*\}\s*=\s*require\('\.\/sprintf\.js'\);\s*/m, '');
+    }
+
+    if (options.stripRequireC89Hosts) {
+      out = out.replace(/^const\s*\{\s*createC89JsHosts\s*\}\s*=\s*require\('\.\/c89-js-hosts\.js'\);\s*/m, '');
+    }
+
+    // Remove trailing CommonJS exports in both multiline and inline forms.
+    out = out.replace(/\nmodule\.exports\s*=\s*\{[\s\S]*?\};?\s*$/m, '\n');
+    out = out.replace(/\nmodule\.exports\.[^\n]*\n?/g, '\n');
+    out = out.replace(/\nmodule\.exports\s*=\s*[^\n]*\n?/g, '\n');
+
+    return out.trimEnd();
+  }
 
   // Read the real sprintf/printf-host sources so the wrapper is self-contained
   // and handles all C format specifiers (width, precision, %lu, %.2f, etc.).
-  const sprintfSrc    = fs.readFileSync(path.join(__dirname, 'runtime', 'sprintf.js'), 'utf8')
-    .replace(/^'use strict';\s*/m, '')
-    .replace(/\nmodule\.exports\s*=.*$/m, '');
-  const printfHostSrc = fs.readFileSync(path.join(__dirname, 'runtime', 'printf-host.js'), 'utf8')
-    .replace(/^'use strict';\s*/m, '')
-    .replace(/^const\s*\{.*?sprintf.*?\}.*?=.*?require.*?;\s*/m, '')
-    .replace(/\nmodule\.exports\s*=.*$/m, '');
+  const sprintfSrc = sanitizeRuntimeModuleSource(
+    fs.readFileSync(path.join(__dirname, '..', 'src', 'runtime', 'sprintf.js'), 'utf8')
+  );
+  const stdioRuntimeSrc = sanitizeRuntimeModuleSource(
+    fs.readFileSync(path.join(__dirname, '..', 'src', 'runtime', 'stdio.js'), 'utf8'),
+    { stripRequireSprintf: true }
+  );
+  const defaultHostBuiltinsSrc = sanitizeRuntimeModuleSource(
+    fs.readFileSync(path.join(__dirname, '..', 'src', 'runtime', 'default-host-builtins.js'), 'utf8'),
+    { stripRequireC89Hosts: true }
+  );
+  const c89JsHostsSrc = sanitizeRuntimeModuleSource(
+    fs.readFileSync(path.join(__dirname, '..', 'src', 'runtime', 'c89-js-hosts.js'), 'utf8')
+  );
 
   return `\
 // Auto-generated by webc – do not edit manually.
@@ -123,11 +181,55 @@ function generateWrapper(hostImports) {
 // ---------- sprintf (full C format support: width, precision, %lu, %.2f …) ----------
 ${sprintfSrc}
 
-// ---------- printf bridge (variadic C printf → stdout) ----------
-${printfHostSrc}
+// ---------- stdio bridge (variadic C printf → stdout) ----------
+${stdioRuntimeSrc}
+
+// ---------- default WASM host builtins ----------
+${defaultHostBuiltinsSrc}
+
+// ---------- C89 JS host implementations ----------
+${c89JsHostsSrc}
 
 // ---------- host-extern wrappers (auto-generated from source) ----------
 const _buildHostEnv = ${hostEnvSrc};
+const _linkedLibraries = ${serializedLibraries};
+
+function _mergeLibraryExports(env, instance) {
+  const exportsObj = (instance && instance.exports) ? instance.exports : null;
+  const entries = exportsObj ? Object.entries(exportsObj) : [];
+  for (const pair of entries) {
+    const name = pair[0];
+    const value = pair[1];
+    if (typeof value === 'function' && env[name] == null) {
+      env[name] = value;
+    }
+  }
+}
+
+async function _loadLinkedLibraries(baseDir, imports) {
+  if (!_linkedLibraries.length) {
+    return [];
+  }
+
+  const fs = require('fs');
+  const path = require('path');
+  const loaded = [];
+  const env = (imports && imports.env) ? imports.env : {};
+
+  for (const libName of _linkedLibraries) {
+    const wasmPath = path.join(baseDir, libName + '.wasm');
+    if (!fs.existsSync(wasmPath)) {
+      continue;
+    }
+    const bytes = fs.readFileSync(wasmPath);
+    const instantiated = await WebAssembly.instantiate(bytes, imports);
+    const instance = instantiated && (instantiated.instance || instantiated);
+    _mergeLibraryExports(env, instance);
+    loaded.push({ name: libName, path: wasmPath, instance });
+  }
+
+  return loaded;
+}
 
 // ---------- public API ----------
 
@@ -140,9 +242,12 @@ const _buildHostEnv = ${hostEnvSrc};
  */
 function createImports(getMemory, opts = {}) {
   const write = opts.write || (s => process.stdout.write(s));
+  const defaultBuiltins = createDefaultHostBuiltins(getMemory, opts);
+
   return {
     env: {
       printf: createPrintfHost({ getMemory, write }),
+      ...defaultBuiltins,
       ..._buildHostEnv(getMemory),
     }
   };
@@ -156,9 +261,14 @@ function createImports(getMemory, opts = {}) {
  */
 async function run(wasmPath) {
   const fs   = require('fs');
+  const path = require('path');
   const bytes = fs.readFileSync(wasmPath);
   let memoryRef = null;
   const imports = createImports(() => memoryRef);
+
+  const baseDir = path.dirname(path.resolve(wasmPath));
+  await _loadLinkedLibraries(baseDir, imports);
+
   const { instance } = await WebAssembly.instantiate(bytes, imports);
   memoryRef = instance.exports.memory || null;
   const entry = instance.exports.main || instance.exports.test_entry;
@@ -216,6 +326,7 @@ async function main() {
   // Compile
   // ------------------------------------------------------------------
   const source = fs.readFileSync(inputPath, 'utf8');
+  const requiredLibraries = extractHeaderLibraries(source);
 
   let result;
   try {
@@ -223,6 +334,7 @@ async function main() {
       sourcePath: inputPath,
       validate:   opts.validate,
       printWat:   false,
+      resolveSystemIncludes: opts.resolveSystemIncludes,
     });
   } catch (err) {
     console.error(`[webc] Compilation error: ${err.message}`);
@@ -250,7 +362,7 @@ async function main() {
     console.log(`[webc] wat   → ${watOut}`);
   }
 
-  const wrapperSrc = generateWrapper(result.hostImports || []);
+  const wrapperSrc = generateWrapper(result.hostImports || [], requiredLibraries);
   fs.writeFileSync(jsOut, wrapperSrc, 'utf8');
   console.log(`[webc] js    → ${jsOut}`);
 
@@ -261,15 +373,42 @@ async function main() {
     console.log('[webc] running...');
     let memoryRef = null;
     const hostEnv = buildHostEnv(result.hostImports, { getMemory: () => memoryRef });
+    const defaultBuiltins = createDefaultHostBuiltins(() => memoryRef);
     const imports = {
       env: {
         printf: createPrintfHost({
           getMemory: () => memoryRef,
           write: (text) => process.stdout.write(String(text)),
         }),
+        ...defaultBuiltins,
         ...hostEnv,
       }
     };
+
+    for (const libName of requiredLibraries) {
+      const libPath = path.join(path.dirname(jsOut), `${libName}.wasm`);
+      if (!fs.existsSync(libPath)) {
+        continue;
+      }
+
+      const libBytes = fs.readFileSync(libPath);
+      const libInstantiated = await WebAssembly.instantiate(libBytes, imports);
+      const libInstance = libInstantiated.instance || libInstantiated;
+      const exported = libInstance && libInstance.exports ? Object.entries(libInstance.exports) : [];
+
+      for (const entryPair of exported) {
+        const exportName = entryPair[0];
+        const exportValue = entryPair[1];
+        if (typeof exportValue === 'function' && imports.env[exportName] == null) {
+          imports.env[exportName] = exportValue;
+        }
+      }
+
+      if (!memoryRef && libInstance.exports && libInstance.exports.memory) {
+        memoryRef = libInstance.exports.memory;
+      }
+    }
+
     const bytes = Buffer.from(result.wasm);
     const { instance } = await WebAssembly.instantiate(bytes, imports);
     memoryRef = instance.exports.memory || null;

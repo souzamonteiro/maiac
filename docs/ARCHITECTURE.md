@@ -78,8 +78,8 @@ sequenceDiagram
   - WAT rendering from module model.
 - `compiler/tests/`
   - Unit/integration/regression test bundles.
-- `tools/runtime/`
-  - Host-side formatting and `printf` integration.
+- `src/runtime/`
+  - Host-side formatting and C89 JS host integration (`printf`, stdio/time/math/locale/signal).
 - `bin/`
   - Stable wrappers for local workflows.
 
@@ -89,7 +89,10 @@ Two primary runtime surfaces:
 
 - Node runtime:
   - `tools/run-test-node.js`
-  - `tools/runtime/printf-host.js`
+  - `src/runtime/stdio.js`
+- Distribution packaging:
+  - `tools/create-dist.js`
+  - Produces app wrapper + wasm + linked wasm libs in a single output folder
 - Browser runtime:
   - `tools/browser/run-wasm.html`
   - `tools/browser/run-wasm.js`

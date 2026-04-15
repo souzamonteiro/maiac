@@ -1232,7 +1232,8 @@ function normalizeSourceForCurrentParser(source, options = {}) {
 function parseCSource(source, options = {}) {
   const normalizedSource = normalizeSourceForCurrentParser(source, {
     sourcePath: options.sourcePath || null,
-    includeDirs: options.includeDirs || []
+    includeDirs: options.includeDirs || [],
+    resolveSystemIncludes: options.resolveSystemIncludes === true
   });
   const collector = new ParseTreeCollector();
   const parser = new Parser(normalizedSource, collector);
@@ -1341,7 +1342,7 @@ function buildModuleModel(ast, options = {}) {
     pendingAggregateTags: Array.isArray(options.aggregateTags) ? [...options.aggregateTags] : [],
     enumValues: new Map(),
     stringLiterals: new Map(),
-    nextDataOffset: 0
+    nextDataOffset: 16
   };
 
   moduleModel.functionTypes = new Map();
@@ -4745,43 +4746,87 @@ function compilePostfixExpression(node, context, keepValue) {
   const argumentList = callSuffix ? findFirstNonterminal(callSuffix, 'argumentExpressionList') : null;
   const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
   const instructions = [];
+  const fixedStdIoHostSignatures = {
+    fopen: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    freopen: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    fclose: { paramTypes: ['i32'], resultType: 'i32' },
+    fflush: { paramTypes: ['i32'], resultType: 'i32' },
+    fread: { paramTypes: ['i32', 'i32', 'i32', 'i32'], resultType: 'i32' },
+    fwrite: { paramTypes: ['i32', 'i32', 'i32', 'i32'], resultType: 'i32' },
+    fseek: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    ftell: { paramTypes: ['i32'], resultType: 'i32' },
+    fgetpos: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    fsetpos: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    rewind: { paramTypes: ['i32'], resultType: null },
+    clearerr: { paramTypes: ['i32'], resultType: null },
+    feof: { paramTypes: ['i32'], resultType: 'i32' },
+    ferror: { paramTypes: ['i32'], resultType: 'i32' },
+    remove: { paramTypes: ['i32'], resultType: 'i32' },
+    rename: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    fgetc: { paramTypes: ['i32'], resultType: 'i32' },
+    fgets: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    fputc: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    fputs: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    getc: { paramTypes: ['i32'], resultType: 'i32' },
+    putc: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    ungetc: { paramTypes: ['i32', 'i32'], resultType: 'i32' }
+  };
+  const variadicStdIoHostArity = {
+    printf: 8,
+    fprintf: 9,
+    sprintf: 9,
+    vprintf: 2,
+    vsprintf: 3
+  };
 
   // Handle host imports:
   //   1. Functions declared with the '__object__method' naming convention
   //      (registered by registerHostExternImport during module building).
-  //   2. The legacy 'printf' special-case (variadic → 8×f64 fixed arity).
+  //   2. Legacy stdio variadic special-cases mapped to fixed f64 arity.
   //
   // Both are handled here, BEFORE the generic args loop, so that arguments
   // can be coerced to the required WAT types before the call is emitted.
   {
     const hostFn = context.module.functionsByName.get(calleeName);
     const isNamedHostImport = !!(hostFn && hostFn.isHostImport);
-    const isPrintf = calleeName === 'printf';
+    const stdIoHostArity = variadicStdIoHostArity[calleeName] || 0;
+    const fixedStdIoHost = fixedStdIoHostSignatures[calleeName] || null;
+    const isVariadicStdIoHost = stdIoHostArity > 0;
+    const isFixedStdIoHost = !!fixedStdIoHost;
 
-    if (isNamedHostImport || isPrintf) {
+    if (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost) {
       let importDef;
 
-      if (isPrintf) {
-        // printf uses a fixed arity of 8×f64 to accommodate any argument mix
+      if (isVariadicStdIoHost) {
+        // stdio variadic hosts use a fixed f64 arity to accommodate mixed
         // across the variadic boundary without type inference.
-        const hostArity = 8;
+        const hostArity = stdIoHostArity;
         importDef = ensureImportedFunction(context.module, {
-          sourceName: 'printf',
-          internalName: 'imp_printf',
+          sourceName: calleeName,
+          internalName: `imp_${sanitizeIdentifier(calleeName)}`,
           module: 'env',
-          field: 'printf',
+          field: calleeName,
           paramTypes: new Array(hostArity).fill('f64'),
           resultType: 'i32'
+        });
+      } else if (isFixedStdIoHost) {
+        importDef = ensureImportedFunction(context.module, {
+          sourceName: calleeName,
+          internalName: `imp_${sanitizeIdentifier(calleeName)}`,
+          module: 'env',
+          field: calleeName,
+          paramTypes: fixedStdIoHost.paramTypes,
+          resultType: fixedStdIoHost.resultType
         });
       } else {
         importDef = hostFn.importDef;
       }
 
       const paramTypes = importDef.paramTypes || [];
-      const arity = isPrintf ? 8 : paramTypes.length;
+      const arity = isVariadicStdIoHost ? stdIoHostArity : paramTypes.length;
 
       for (let i = 0; i < arity; i += 1) {
-        const targetType = paramTypes[i] || (isPrintf ? 'f64' : 'i32');
+        const targetType = paramTypes[i] || (isVariadicStdIoHost ? 'f64' : 'i32');
         if (i < argumentsToCompile.length) {
           const argNode = argumentsToCompile[i];
           const argType = inferExpressionType(argNode, context) || 'i32';
@@ -5151,6 +5196,8 @@ function validateWat(wat) {
 
 // Built-in include directory shipped with the compiler (maiac_compat.h etc.).
 const COMPILER_INCLUDE_DIR = path.join(__dirname, 'include');
+// Project-level public headers (stdlib.h, string.h, ...).
+const PROJECT_INCLUDE_DIR = path.join(__dirname, '..', 'include');
 
 function compileSource(source, options = {}) {
   const backend = options.backend || 'wat';
@@ -5161,11 +5208,16 @@ function compileSource(source, options = {}) {
   }
 
   // Always add the compiler's own include/ dir so <maiac_compat.h> resolves.
-  const includeDirs = [COMPILER_INCLUDE_DIR, ...(options.includeDirs || [])];
+  const includeDirs = [
+    COMPILER_INCLUDE_DIR,
+    PROJECT_INCLUDE_DIR,
+    ...(options.includeDirs || [])
+  ];
 
   const parsed = parseCSource(source, {
     sourcePath: options.sourcePath || null,
-    includeDirs
+    includeDirs,
+    resolveSystemIncludes: options.resolveSystemIncludes === true
   });
   const moduleModel = buildModuleModel(parsed.ast, {
     aggregateTags: collectNamedAggregateTags(parsed.normalizedSource || source)

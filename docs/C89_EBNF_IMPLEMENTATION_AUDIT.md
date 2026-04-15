@@ -1,167 +1,167 @@
-# MaiaC C89 EBNF - Auditoria de Implementacao e Pendencias
+# MaiaC C89 EBNF - Implementation Audit and Pending Items
 
-Data: 2026-04-09
+Date: 2026-04-09
 
-## Resposta objetiva
+## Objective Answer
 
-Nao. O MaiaC nao esta 100 por cento implementado contra toda a EBNF do C89 do projeto.
+No. MaiaC is not 100% implemented against the project's complete C89 EBNF.
 
-O estado atual e de subconjunto pratico bem validado em execucao, com lacunas semanticas e de codegen para partes da gramatica.
+The current state is a well-validated, practical subset that runs successfully, with semantic and codegen gaps for parts of the grammar.
 
-## Evidencias observadas
+## Observed Evidence
 
-1. Escopo declarado no projeto
-- O proprio README define o alvo como "practical C89 subset".
+1. **Project Scope Statement**
+   - The README itself defines the target as a "practical C89 subset".
 
-2. Testes atuais
-- Bundle principal passou:
-  - preprocessor: 6/6
-  - mini-suite C89: 9/9
-  - exemplo grande E2E: PASS
-- Isso comprova maturidade do subconjunto suportado, nao cobertura total da EBNF.
+2. **Current Tests**
+   - Main test bundle passed:
+     - preprocessor: 6/6
+     - C89 mini-suite: 9/9
+     - large E2E example: PASS
+   - This proves maturity of the supported subset, not full EBNF coverage.
 
-3. Sinais de cobertura parcial no compilador
-- O arquivo compiler/c-compiler.js contem varios pontos explicitos de nao-suporte/limite, por exemplo:
-  - "Unsupported statement type"
-  - "Unsupported expression node"
-  - "Only named function calls are supported right now"
-  - "Nested aggregate initializers are not supported yet"
-  - "Pointer-to-pointer arithmetic is not supported yet"
-  - "Unsupported assignment target"
-  - "Unsupported jump statement"
+3. **Signs of Partial Coverage in the Compiler**
+   - The `compiler/c-compiler.js` file contains several explicit non-support/limit points, for example:
+     - "Unsupported statement type"
+     - "Unsupported expression node"
+     - "Only named function calls are supported right now"
+     - "Nested aggregate initializers are not supported yet"
+     - "Pointer-to-pointer arithmetic is not supported yet"
+     - "Unsupported assignment target"
+     - "Unsupported jump statement"
 
-## Matriz de status por familia da EBNF
+## Status Matrix by EBNF Family
 
-Legenda:
-- done: implementado e coberto no fluxo atual
-- partial: implementado com restricoes
-- missing: parse-level ou sem lowering semantico consistente
+Legend:
+- done: implemented and covered in the current flow
+- partial: implemented with restrictions
+- missing: parse-level or no consistent semantic lowering
 
-## A. Translation Unit e Declaracoes
+## A. Translation Unit and Declarations
 
 - translationUnit / externalDeclaration: done
 - functionDefinition: done
 - declaration / declarationSpecifiers / initDeclaratorList: partial
 - declarationList: partial
 
-Pendencias:
-- completar declaradores complexos em todos os cenarios sem fallback semantico.
+Pending Items:
+- Complete complex declarators in all scenarios without semantic fallback.
 
-## B. Tipos, Declaradores e Inicializacao
+## B. Types, Declarators, and Initialization
 
 - builtinTypeSpecifier / typeQualifier: done
-- struct/union/enum basicos: done
+- basic struct/union/enum: done
 - pointer/declarator/abstractDeclarator family: partial
 - initializer / initializerList: partial
 
-Pendencias:
-- inicializadores agregados aninhados completos.
-- casos completos de declaradores abstratos e combinacoes avancadas.
-- copy/init estrutural mais amplo.
+Pending Items:
+- Complete nested aggregate initializers.
+- Complete cases of abstract declarators and advanced combinations.
+- Broader structural copy/init.
 
-## C. Statements e Fluxo de Controle
+## C. Statements and Control Flow
 
 - expressionStatement / compoundStatement: done
 - if/else/switch/while/do/for: partial
 - jumpStatement: partial
 - labeledStatement: partial
 
-Pendencias:
-- cobertura total de goto (hoje restrito).
-- cobrir variacoes que hoje disparam "Unsupported statement type".
+Pending Items:
+- Full goto coverage (currently restricted).
+- Cover variations that currently trigger "Unsupported statement type".
 
-## D. Expressoes e Operadores
+## D. Expressions and Operators
 
-- hierarquia principal (aritmetica/logica/comparacao): partial
-- atribuicoes compostas: partial
+- main hierarchy (arithmetic/logic/comparison): partial
+- compound assignments: partial
 - unary/postfix: partial
-- chamada de funcao: partial
-- acesso array/ponteiro/campo: partial
+- function call: partial
+- array/pointer/field access: partial
 
-Pendencias:
-- ampliar alvo de atribuicao suportado.
-- suportar mais formas de chamada (nao apenas named function calls).
-- fechar lacunas de operadores e casos de indexacao/enderecamento.
+Pending Items:
+- Expand supported assignment targets.
+- Support more call forms (not just named function calls).
+- Close gaps in operators and indexing/addressing cases.
 
-## E. Struct/Union/Enum Semantica
+## E. Struct/Union/Enum Semantics
 
-- layout de struct e acesso a campos: done/partial
-- union e enum no mini-suite: done/partial
+- struct layout and field access: done/partial
+- union and enum in mini-suite: done/partial
 
-Pendencias:
-- ampliar cenarios de acesso/atribuicao estrutural.
-- reduzir restricoes de "frame-backed locals and parameters".
+Pending Items:
+- Expand structural access/assignment scenarios.
+- Reduce "frame-backed locals and parameters" restrictions.
 
-## F. Preprocessador
+## F. Preprocessor
 
-- define/undef/ifdef/ifndef/if/elif/else/endif/include: done (escopo atual)
-- pragmas/linhas e combinacoes complexas: partial
+- define/undef/ifdef/ifndef/if/elif/else/endif/include: done (current scope)
+- pragmas/lines and complex combinations: partial
 
-Pendencias:
-- consolidar cobertura de casos limítrofes de macro expansion e include.
+Pending Items:
+- Consolidate coverage of edge cases in macro expansion and include.
 
-## G. Integração WAT/WASM
+## G. WAT/WASM Integration
 
-- geracao WAT + validacao + execucao Node/browser: done (subconjunto)
-- equivalencia para 100 por cento da EBNF: partial
+- WAT generation + validation + Node/browser execution: done (subset)
+- Equivalence for 100% of EBNF: partial
 
-Pendencias:
-- expandir testes de equivalencia semantica por familia de regra.
+Pending Items:
+- Expand semantic equivalence tests by rule family.
 
-## Pendencias prioritarias (roadmap)
+## Priority Pending Items (Roadmap)
 
-## Prioridade P0 - Fechar lacunas de nao-suporte explicito
+## Priority P0 - Close Explicit Non-Support Gaps
 
-- [ ] Eliminar os casos mais frequentes de "Unsupported statement type".
-- [ ] Eliminar os casos mais frequentes de "Unsupported expression node".
-- [ ] Suportar mais alvos de atribuicao (alem do conjunto atual).
+- [ ] Eliminate the most frequent cases of "Unsupported statement type".
+- [ ] Eliminate the most frequent cases of "Unsupported expression node".
+- [ ] Support more assignment targets (beyond the current set).
 
-Criterio de aceite:
-- reduzir a zero os erros acima para o conjunto de fixtures de conformidade definido.
+Acceptance Criteria:
+- Reduce the above errors to zero for the defined conformance fixture set.
 
-## Prioridade P1 - Declaradores e inicializadores
+## Priority P1 - Declarators and Initializers
 
-- [ ] Cobrir declarator/abstractDeclarator complexos de forma total.
-- [ ] Implementar nested aggregate initializers completos.
-- [ ] Completar cenarios de inicializacao/copias estruturais.
+- [ ] Fully cover complex declarator/abstractDeclarator.
+- [ ] Implement complete nested aggregate initializers.
+- [ ] Complete structural initialization/copy scenarios.
 
-Criterio de aceite:
-- fixtures especificos por regra da EBNF para declaradores e inicializadores passando.
+Acceptance Criteria:
+- Specific EBNF rule fixtures for declarators and initializers passing.
 
-## Prioridade P2 - Fluxo de controle completo
+## Priority P2 - Complete Control Flow
 
-- [ ] Completar semantica de goto e labels sem restricao de forma.
-- [ ] Completar casos restantes de for/switch/jump em combinacoes reais.
+- [ ] Complete goto and label semantics without form restrictions.
+- [ ] Complete remaining for/switch/jump cases in real combinations.
 
-Criterio de aceite:
-- mini-suite expandido com casos de controle cobrindo toda familia de statements.
+Acceptance Criteria:
+- Expanded mini-suite with control cases covering the entire statement family.
 
-## Prioridade P3 - Expressoes avancadas
+## Priority P3 - Advanced Expressions
 
-- [ ] Completar matriz de operadores/fixidade com cobertura por fixture.
-- [ ] Completar chamadas indiretas e cenarios de ponteiros para funcao avancados.
+- [ ] Complete operator/fixity matrix with fixture coverage.
+- [ ] Complete indirect calls and advanced function pointer scenarios.
 
-Criterio de aceite:
-- suite dedicada de expressoes sem "unsupported".
+Acceptance Criteria:
+- Dedicated expression suite without "unsupported".
 
-## Prioridade P4 - Conformidade formal por regra
+## Priority P4 - Formal Rule-by-Rule Conformance
 
-- [ ] Criar matriz C89 regra-a-regra (parse, semantica, codegen, runtime).
-- [ ] Classificar cada regra em tiers:
+- [ ] Create C89 rule-by-rule matrix (parse, semantics, codegen, runtime).
+- [ ] Classify each rule into tiers:
   - Tier 1: parse + compile + run
-  - Tier 2: parse + compile (runtime parcial)
-  - Tier 3: parse-only (com justificativa tecnica)
+  - Tier 2: parse + compile (partial runtime)
+  - Tier 3: parse-only (with technical justification)
 
-Criterio de aceite:
-- 100 por cento das familias da EBNF classificadas e com teste associado.
+Acceptance Criteria:
+- 100% of EBNF families classified and associated with a test.
 
-## Definicao de pronto para "100 por cento"
+## Definition of Done for "100%"
 
-Para afirmar 100 por cento implementado, cada familia relevante da EBNF deve ter:
+To claim 100% implementation, each relevant EBNF family must have:
 
-1. parser aceita
-2. semantica resolve
-3. lowering/codegen gera WAT valido
-4. comportamento em runtime validado por fixture
+1. Parser accepts
+2. Semantics resolve
+3. Lowering/codegen generates valid WAT
+4. Runtime behavior validated by a fixture
 
-Sem os quatro itens, o estado e subconjunto suportado, nao cobertura total.
+Without all four items, the state is a supported subset, not full coverage.

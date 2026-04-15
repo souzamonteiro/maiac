@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-04-15T23:25:14.752Z",
+  "input": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/vfs_persist_demo.c",
+  "outDir": "/Volumes/External_SSD/Documentos/Projects/maiac/dist-vfs-demo",
+  "appName": "vfsdemo",
+  "artifacts": {
+    "wasm": "vfsdemo.wasm",
+    "wrapper": "vfsdemo.js",
+    "wat": null,
+    "browserRunner": "browser-runner.html",
+    "browserMemoryFileStore": "browser-memory-file-store.js"
+  },
+  "linkedLibraries": [
+    "stdio"
+  ],
+  "copiedLibraries": [],
+  "runtimeProvidedHeaders": [
+    "stdio"
+  ],
+  "missingLibraries": []
+}

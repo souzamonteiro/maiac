@@ -11,7 +11,12 @@ const scripts = [
   'test-phase3-initializers-diagnosis.js',
   'test-phase4-abstract-declarators-diagnosis.js',
   'test-phase5-preprocessor-edgecases.js',
-  'test-member-access-negative-diagnosis.js'
+  'test-member-access-negative-diagnosis.js',
+  'test-runtime-js-hosts.js',
+  'test-runtime-stdio-edgecases.js',
+  'test-runtime-stdio-browser-fallback.js',
+  'test-runtime-stdio-printf-family.js',
+  'test-runtime-memory-file-store.js'
 ];
 
 function parseJsonOutPath(argv) {
