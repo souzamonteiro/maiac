@@ -1061,12 +1061,34 @@ function extractDeclaratorInfo(declaratorNode) {
   }
 
   const parameterList = findFirstNonterminal(directDeclarator, 'parameterList');
+  const parameterTypeList = findFirstNonterminal(directDeclarator, 'parameterTypeList');
+  const isVariadic = !!(parameterTypeList && findFirstTerminal(parameterTypeList, 'TOKEN__2E__2E__2E_'));
 
   return {
     sourceName: identifier.value,
     name: sanitizeIdentifier(identifier.value),
     pointerDepth: countPointerDepthInDeclarator(declaratorNode),
-    params: extractParameters(parameterList)
+    params: extractParameters(parameterList),
+    isVariadic
+  };
+}
+
+function createVariadicBaseParam() {
+  return {
+    sourceName: '__maiac_va_base',
+    name: sanitizeIdentifier('__maiac_va_base'),
+    cType: 'void *',
+    typeKind: 'builtin',
+    structName: null,
+    structLayout: null,
+    isStruct: false,
+    pointerDepth: 1,
+    pointeeArrayDimensions: [],
+    declaredAsArray: false,
+    arrayLength: null,
+    arrayDimensions: [],
+    baseWatType: 'i32',
+    watType: 'i32'
   };
 }
 
@@ -1218,6 +1240,7 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
       isArray,
       isFunctionDeclaration,
       params: declaratorInfo.params || [],
+      isVariadic: !!declaratorInfo.isVariadic,
       arrayLength: isArray ? (normalizedArrayDimensions[0] ?? null) : null,
       arrayDimensions: normalizedArrayDimensions,
       initializer: initializerNode
@@ -1367,12 +1390,16 @@ function buildModuleModel(ast, options = {}) {
         : toWatType((returnPointerDepth > 0 || returnIsStruct) ? 'i32' : baseResultType);
 
       const functionModel = {
+        userParams: declaratorInfo.params,
         sourceName: declaratorInfo.sourceName,
         name: declaratorInfo.name,
         exportName: declaratorInfo.sourceName,
         cType: returnTypeInfo.cType,
         resultType,
-        params: declaratorInfo.params,
+        params: declaratorInfo.isVariadic
+          ? [...declaratorInfo.params, createVariadicBaseParam()]
+          : declaratorInfo.params,
+        isVariadic: !!declaratorInfo.isVariadic,
         locals: [],
         instructions: []
       };
@@ -4149,6 +4176,16 @@ function getIndexedAccessInfo(name, indexExpressions, context) {
 }
 
 function inferPointerPointeeType(node, context) {
+  if (isNonterminal(node, 'castExpression')) {
+    const typeNameNode = firstNonterminal(node, 'typeName');
+    if (typeNameNode) {
+      const castType = extractTypeInfoFromTypeName(typeNameNode);
+      if ((castType.pointerDepth || 0) > 0) {
+        return castType.baseWatType || 'i32';
+      }
+    }
+  }
+
   if (isNonterminal(node, 'postfixExpression')) {
     const primaryExpression = firstNonterminal(node, 'primaryExpression');
     const indexExpressions = getIndexExpressionsFromPostfix(node);
@@ -4746,6 +4783,7 @@ function compilePostfixExpression(node, context, keepValue) {
   const argumentList = callSuffix ? findFirstNonterminal(callSuffix, 'argumentExpressionList') : null;
   const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
   const instructions = [];
+  // Fixed signatures for non-variadic stdio functions (fopen, fwrite, etc.)
   const fixedStdIoHostSignatures = {
     fopen: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
     freopen: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
@@ -4771,6 +4809,22 @@ function compilePostfixExpression(node, context, keepValue) {
     putc: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
     ungetc: { paramTypes: ['i32', 'i32'], resultType: 'i32' }
   };
+  // ctype.h — all functions take one int, return int; come from ctype.wasm linked lib
+  const ctypeHostSignatures = {
+    isalnum:  { paramTypes: ['i32'], resultType: 'i32' },
+    isalpha:  { paramTypes: ['i32'], resultType: 'i32' },
+    iscntrl:  { paramTypes: ['i32'], resultType: 'i32' },
+    isdigit:  { paramTypes: ['i32'], resultType: 'i32' },
+    isgraph:  { paramTypes: ['i32'], resultType: 'i32' },
+    islower:  { paramTypes: ['i32'], resultType: 'i32' },
+    isprint:  { paramTypes: ['i32'], resultType: 'i32' },
+    ispunct:  { paramTypes: ['i32'], resultType: 'i32' },
+    isspace:  { paramTypes: ['i32'], resultType: 'i32' },
+    isupper:  { paramTypes: ['i32'], resultType: 'i32' },
+    isxdigit: { paramTypes: ['i32'], resultType: 'i32' },
+    tolower:  { paramTypes: ['i32'], resultType: 'i32' },
+    toupper:  { paramTypes: ['i32'], resultType: 'i32' }
+  };
   const variadicStdIoHostArity = {
     printf: 8,
     fprintf: 9,
@@ -4783,18 +4837,22 @@ function compilePostfixExpression(node, context, keepValue) {
   //   1. Functions declared with the '__object__method' naming convention
   //      (registered by registerHostExternImport during module building).
   //   2. Legacy stdio variadic special-cases mapped to fixed f64 arity.
+  //   3. Fixed-signature stdio non-variadic functions (fopen, fwrite, etc.)
+  //   4. ctype.h functions (isalpha, isdigit, etc.) linked from ctype.wasm
   //
-  // Both are handled here, BEFORE the generic args loop, so that arguments
+  // All handled here, BEFORE the generic args loop, so that arguments
   // can be coerced to the required WAT types before the call is emitted.
   {
     const hostFn = context.module.functionsByName.get(calleeName);
     const isNamedHostImport = !!(hostFn && hostFn.isHostImport);
     const stdIoHostArity = variadicStdIoHostArity[calleeName] || 0;
     const fixedStdIoHost = fixedStdIoHostSignatures[calleeName] || null;
+    const ctypeHost = ctypeHostSignatures[calleeName] || null;
     const isVariadicStdIoHost = stdIoHostArity > 0;
     const isFixedStdIoHost = !!fixedStdIoHost;
+    const isCtypeHost = !!ctypeHost;
 
-    if (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost) {
+    if (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost || isCtypeHost) {
       let importDef;
 
       if (isVariadicStdIoHost) {
@@ -4817,6 +4875,15 @@ function compilePostfixExpression(node, context, keepValue) {
           field: calleeName,
           paramTypes: fixedStdIoHost.paramTypes,
           resultType: fixedStdIoHost.resultType
+        });
+      } else if (isCtypeHost) {
+        importDef = ensureImportedFunction(context.module, {
+          sourceName: calleeName,
+          internalName: `imp_${sanitizeIdentifier(calleeName)}`,
+          module: 'env',
+          field: calleeName,
+          paramTypes: ctypeHost.paramTypes,
+          resultType: ctypeHost.resultType
         });
       } else {
         importDef = hostFn.importDef;
@@ -4847,11 +4914,89 @@ function compilePostfixExpression(node, context, keepValue) {
     }
   }
 
+  const fn = context.module.functionsByName.get(calleeName) || null;
+
+  if (fn && fn.isVariadic) {
+    const paramTypes = Array.isArray(fn.params) ? fn.params.map((param) => toWatType(param.watType || 'i32')) : [];
+    const fixedParamCount = Math.max(0, paramTypes.length - 1); // last param is __maiac_va_base
+    const fixedArgumentNodes = argumentsToCompile.slice(0, fixedParamCount);
+    const variadicArgumentNodes = argumentsToCompile.slice(fixedParamCount);
+
+    for (let i = 0; i < fixedParamCount; i += 1) {
+      const targetType = paramTypes[i] || 'i32';
+      if (i < fixedArgumentNodes.length) {
+        const argNode = fixedArgumentNodes[i];
+        const argType = inferExpressionType(argNode, context) || 'i32';
+        const argInstr = compileExpression(argNode, context, { keepValue: true });
+        instructions.push(...coerceInstructionsToType(argInstr, argType, targetType, context));
+      } else {
+        instructions.push(`${targetType}.const 0`);
+      }
+    }
+
+    if (variadicArgumentNodes.length === 0) {
+      instructions.push('i32.const 0');
+      instructions.push(`call $${sanitizeIdentifier(calleeName)}`);
+      if (!keepValue && fn.resultType !== null) {
+        instructions.push('drop');
+      }
+      return instructions;
+    }
+
+    context.module.usesLinearMemory = true;
+
+    const savedSpLocal = ensureInternalLocal(context, '__maiac_va_sp_save', 'i32');
+    const baseLocal = ensureInternalLocal(context, '__maiac_va_base_tmp', 'i32');
+
+    const packedArgs = [];
+    let packedSize = 0;
+    for (const argNode of variadicArgumentNodes) {
+      const inferred = inferExpressionType(argNode, context) || 'i32';
+      const storeType = (inferred === 'f32' || inferred === 'f64') ? 'f64' : 'i32';
+      const slotSize = storeType === 'f64' ? 8 : 4;
+      packedSize = alignTo(packedSize, slotSize);
+      packedArgs.push({ node: argNode, sourceType: inferred, storeType, offset: packedSize });
+      packedSize += slotSize;
+    }
+    packedSize = alignTo(packedSize, 8);
+
+    instructions.push(
+      'global.get $__stack_ptr',
+      `local.set $${savedSpLocal.name}`,
+      'global.get $__stack_ptr',
+      `i32.const ${packedSize}`,
+      'i32.add',
+      'global.set $__stack_ptr',
+      `local.get $${savedSpLocal.name}`,
+      `local.set $${baseLocal.name}`
+    );
+
+    for (const packed of packedArgs) {
+      const valueInstructions = compileExpression(packed.node, context, { keepValue: true });
+      instructions.push(
+        `local.get $${baseLocal.name}`,
+        `i32.const ${packed.offset}`,
+        'i32.add',
+        ...coerceInstructionsToType(valueInstructions, packed.sourceType, packed.storeType, context),
+        packed.storeType === 'f64' ? 'f64.store' : 'i32.store'
+      );
+    }
+
+    instructions.push(`local.get $${baseLocal.name}`);
+    instructions.push(`call $${sanitizeIdentifier(calleeName)}`);
+    instructions.push(`local.get $${savedSpLocal.name}`, 'global.set $__stack_ptr');
+
+    if (!keepValue && fn.resultType !== null) {
+      instructions.push('drop');
+    }
+
+    return instructions;
+  }
+
   for (const argumentNode of argumentsToCompile) {
     instructions.push(...compileExpression(argumentNode, context, { keepValue: true }));
   }
 
-  const fn = context.module.functionsByName.get(calleeName) || null;
   if (!fn) {
     const calleeSymbol = resolveSymbol(calleeName, context);
     if (!calleeSymbol || (calleeSymbol.pointerDepth || 0) <= 0) {

@@ -508,6 +508,27 @@ function expandFunctionMacro(macro, args) {
   return expanded ? `(${expanded})` : '';
 }
 
+function expandStdargBuiltinMacro(name, args) {
+  const apExpr = String(args[0] || '0').trim();
+  const typeExpr = String(args[1] || 'int').trim() || 'int';
+
+  if (name === 'va_start') {
+    // Bind va_list directly to the compiler-provided variadic-base pointer.
+    return `((${apExpr} = (char *)__maiac_va_base))`;
+  }
+
+  if (name === 'va_arg') {
+    // Expand to parseable C cast form: (type *) ...
+    return `(*((` + typeExpr + ` *)(((` + apExpr + ` += sizeof(` + typeExpr + `)) - sizeof(` + typeExpr + `)))))`;
+  }
+
+  if (name === 'va_end') {
+    return `((${apExpr} = (char *)0))`;
+  }
+
+  return null;
+}
+
 function expandMacrosOnce(source, macros) {
   let result = '';
   let index = 0;
@@ -636,7 +657,12 @@ function expandMacrosOnce(source, macros) {
         continue;
       }
 
-      result += expandFunctionMacro(macro, invocation.args);
+      const stdargBuiltin = expandStdargBuiltinMacro(identifier, invocation.args);
+      if (stdargBuiltin != null) {
+        result += stdargBuiltin;
+      } else {
+        result += expandFunctionMacro(macro, invocation.args);
+      }
       index = invocation.endIndex;
       continue;
     }

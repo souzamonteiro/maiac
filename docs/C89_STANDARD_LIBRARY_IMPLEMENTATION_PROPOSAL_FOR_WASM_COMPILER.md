@@ -4,7 +4,7 @@
 
 This document outlines which C89 standard library functions should be implemented **natively within the WASM module** versus **imported from JavaScript**, along with a phased roadmap for implementation.
 
-## Current Implementation Snapshot (2026-04-15)
+## Current Implementation Snapshot (2026-04-16)
 
 - Native/WASM libraries produced in `lib/`: `stdlib.wasm`, `string.wasm`, `setjmp.wasm`.
 - Runtime JS hosts implemented under `src/runtime/` for math/time/locale/signal/stdio core behavior.
@@ -12,9 +12,9 @@ This document outlines which C89 standard library functions should be implemente
 - A synchronous browser persistence adapter is available in `src/runtime/browser-memory-file-store.js` for `localStorage`-style backends.
 - Include-driven linked library loading and distribution packaging available via `tools/create-dist.js`.
 - `setjmp/longjmp` currently uses a bootstrap host unwind hook (not full stack restoration semantics).
-- `vprintf/vsprintf` host behavior is still minimal (`-1`) and requires full `va_list` ABI work.
+- `vprintf/vsprintf` host behavior reads `va_list` memory, but end-to-end `stdarg` usage is still incomplete because user-side variadic workflows are not fully supported by the current compile pipeline.
 
-### Header Implementation Status Matrix (2026-04-15)
+### Header Implementation Status Matrix (2026-04-16)
 
 | Header | Declared in `include/` | Implemented | Where | Status |
 |--------|------------------------|-------------|-------|--------|
@@ -26,8 +26,8 @@ This document outlines which C89 standard library functions should be implemente
 | `setjmp.h` | ✅ | ⚠️ | `src/setjmp.wat` — bootstrap only, no real frame restoration | ⚠️ Partial |
 | `locale.h` | ✅ | ✅ | `createLocaleHosts()` — functional stubs | ✅ Stubs OK |
 | `signal.h` | ✅ | ✅ | `createSignalHosts()` — basic mapping | ✅ Stubs OK |
-| `stdarg.h` | ✅ | ⚠️ | Header macros OK, but `vprintf`/`vsprintf` return `-1` | ❌ va_list ABI missing |
-| `ctype.h` | ✅ | ❌ | Declared in header, **no JS or WASM implementation** | ❌ Entirely missing |
+| `stdarg.h` | ✅ | ⚠️ | Header exists and host has `vprintf`/`vsprintf` `va_list` walker, but full user-side variadic macro flow is not yet working end-to-end | ⚠️ Partial |
+| `ctype.h` | ✅ | ✅ | `src/ctype.c` compiled to `lib/ctype.wasm`; all 13 functions declared as `env` imports in compiler | ✅ Complete |
 | `stddef.h` | ✅ | ✅ | Macros only (`NULL`, `size_t`, `ptrdiff_t`) | ✅ Header-only |
 | `limits.h` | ✅ | ✅ | `#define` constants only | ✅ Header-only |
 | `float.h` | ✅ | ✅ | `#define` constants only | ✅ Header-only |
@@ -36,23 +36,11 @@ This document outlines which C89 standard library functions should be implemente
 
 ### Known Implementation Gaps
 
-#### 1. `ctype.h` — entirely missing (13 functions)
+#### 1. `stdarg.h` — partial only
 
-All 13 functions are declared but have no runtime implementation (no native WASM `.c` and no JS host):
+`stdarg.h` is present, and runtime hosts include `vprintf`/`vsprintf` `va_list` walking. However, full end-to-end user usage with variadic functions/macros is not yet stable in the compiler pipeline, so this header remains partial.
 
-`isalnum`, `isalpha`, `iscntrl`, `isdigit`, `isgraph`, `islower`, `isprint`, `ispunct`, `isspace`, `isupper`, `isxdigit`, `tolower`, `toupper`
-
-Recommended approach: implement as `src/ctype.c` compiled to native WASM (no JS dependency needed — pure char value arithmetic).
-
-#### 2. `stdarg.h` / `va_list` ABI — macros OK, runtime stub
-
-The header defines `va_list`, `va_start`, `va_arg`, `va_end` as C macros targeting a pointer-walking ABI. However:
-- `vprintf(_formatPtr, _argPtr)` returns `-1`
-- `vsprintf(_dstPtr, _formatPtr, _argPtr)` returns `-1`
-
-A full implementation requires a defined convention for how variadic arguments are laid out in WASM linear memory, and a host-side walker that reads them by type in sequence.
-
-#### 3. `setjmp.h` — bootstrap only
+#### 2. `setjmp.h` — bootstrap only
 
 `setjmp`/`longjmp` are exported via `src/setjmp.wat` but do not save/restore the real WASM `__stack_pointer` / `__frame_pointer`. A complete implementation requires WAT-level frame snapshot integration.
 

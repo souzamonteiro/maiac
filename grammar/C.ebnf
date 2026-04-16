@@ -82,8 +82,8 @@ pointer ::= '*' typeQualifierList?
           
 typeQualifierList ::= typeQualifier+
                     
-parameterTypeList ::= parameterList
-                    | parameterList ',' '...'
+parameterTypeList ::= parameterList ',' '...'
+                    | parameterList
                     
 parameterList ::= parameterDeclaration ( ',' parameterDeclaration )*
                 

@@ -1713,6 +1713,8 @@ class Parser {
       const _ruleMark = this.markEventState();
       try {
     this.parseparameterList();
+    this.consume('TOKEN__2C_');
+    this.consume('TOKEN__2E__2E__2E_');
         _matched = true;
       } catch (e) {
         this.position = _ruleStart;
@@ -1723,8 +1725,6 @@ class Parser {
       const _ruleMark = this.markEventState();
       try {
     this.parseparameterList();
-    this.consume('TOKEN__2C_');
-    this.consume('TOKEN__2E__2E__2E_');
         _matched = true;
       } catch (e) {
         this.position = _ruleStart;

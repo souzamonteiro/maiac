@@ -19,7 +19,8 @@ const LIB_DIR = path.join(ROOT, 'lib');
 
 const C_LIBS = [
   { name: 'stdlib', file: 'stdlib-lite.c', required: true },
-  { name: 'string', file: 'string.c', required: true }
+  { name: 'string', file: 'string.c', required: true },
+  { name: 'ctype', file: 'ctype.c', required: true }
 ];
 
 const WAT_LIBS = [

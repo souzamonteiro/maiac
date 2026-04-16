@@ -285,7 +285,7 @@ function findLibraryWasm(sourceDir, libName) {
 }
 
 function compileApp(inputPath, outBase, emitWat) {
-  const args = [WEB_CLI, inputPath, '-o', outBase];
+  const args = [WEB_CLI, inputPath, '-o', outBase, '--resolve-system-includes'];
   if (emitWat) {
     args.push('--wat');
   }

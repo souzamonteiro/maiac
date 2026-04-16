@@ -710,12 +710,64 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     return mem.writeCString(dstPtr, text);
   }
 
-  function vprintf(_formatPtr, _argPtr) {
-    return -1;
+  // Walk a C va_list (char* pointer into WASM linear memory) collecting args
+  // based on format specifiers. C89 promotion rules apply:
+  //   - int/uint/char/short and pointers → 4 bytes (i32) in our WASM ABI
+  //   - float/double → 8 bytes (f64), promoted per C89 default arg promotion
+  function readVaListArgs(fmt, apPtr) {
+    const specs = extractFormatSpecifiers(fmt);
+    const args = [];
+    let ap = apPtr | 0;
+
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
+
+      if (spec.widthFromArg) {
+        args.push(mem.readI32(ap));
+        ap += 4;
+      }
+      if (spec.precisionFromArg) {
+        args.push(mem.readI32(ap));
+        ap += 4;
+      }
+
+      const type = spec.type;
+      if ('fFeEgG'.indexOf(type) !== -1) {
+        args.push(mem.readF64(ap));
+        ap += 8;
+      } else if (type === 's') {
+        const ptr = mem.readI32(ap) >>> 0;
+        args.push(ptr ? mem.readCString(ptr) : '(null)');
+        ap += 4;
+      } else {
+        // d, i, u, o, x, X, c, p — all 4-byte i32 in our ABI
+        args.push(mem.readI32(ap));
+        ap += 4;
+      }
+    }
+
+    return args;
   }
 
-  function vsprintfHost(_dstPtr, _formatPtr, _argPtr) {
-    return -1;
+  function vprintf(formatPtr, apPtr) {
+    const runtimeSprintf = getRuntimeSprintf();
+    if (!runtimeSprintf || !formatPtr) return -1;
+
+    const fmt = mem.readCString(formatPtr);
+    const args = readVaListArgs(fmt, apPtr);
+    const text = runtimeSprintf(fmt, args);
+    write(text);
+    return textEncoder.encode(text).length;
+  }
+
+  function vsprintfHost(dstPtr, formatPtr, apPtr) {
+    const runtimeSprintf = getRuntimeSprintf();
+    if (!runtimeSprintf || !formatPtr || !dstPtr) return -1;
+
+    const fmt = mem.readCString(formatPtr);
+    const args = readVaListArgs(fmt, apPtr);
+    const text = runtimeSprintf(fmt, args);
+    return mem.writeCString(dstPtr, text);
   }
 
   function getc(streamPtr) {
