@@ -11,8 +11,8 @@ This document outlines which C89 standard library functions should be implemente
 - Browser-like fallback available for stdio through in-memory files (`forceMemoryFiles`) with optional persistence adapter (`memoryFileStore`).
 - A synchronous browser persistence adapter is available in `src/runtime/browser-memory-file-store.js` for `localStorage`-style backends.
 - Include-driven linked library loading and distribution packaging available via `tools/create-dist.js`.
-- `setjmp/longjmp` currently uses a bootstrap host unwind hook (not full stack restoration semantics).
-- `vprintf/vsprintf` host behavior reads `va_list` memory, but end-to-end `stdarg` usage is still incomplete because user-side variadic workflows are not fully supported by the current compile pipeline.
+- `setjmp/longjmp` now supports emulated resume at `setjmp` through host-assisted unwind + pending return capture (`_setjmp_capture_js`/`_longjmp_unwind_js`) with stack/frame restoration.
+- `vprintf/vsprintf` host behavior reads `va_list` memory, and end-to-end variadic workflows for stable paths are covered by `compiler/tests/test-stdarg-e2e.js`.
 
 ### Header Implementation Status Matrix (2026-04-16)
 
@@ -23,10 +23,10 @@ This document outlines which C89 standard library functions should be implemente
 | `time.h` | ✅ | ✅ | `createTimeHosts()` — `clock`, `time`, `localtime`, `gmtime`, `mktime`, `strftime`, `asctime`, `ctime`, `difftime` | ✅ Complete |
 | `string.h` | ✅ | ✅ | `src/string.c` compiled to `string.wasm` (native WASM) | ✅ Complete |
 | `stdlib.h` | ✅ | ✅ | `src/stdlib.c` compiled to `stdlib.wasm` (native WASM) + JS hosts (`exit`, `getenv`, `abort`) | ✅ Complete |
-| `setjmp.h` | ✅ | ⚠️ | `src/setjmp.wat` — bootstrap only, no real frame restoration | ⚠️ Partial |
+| `setjmp.h` | ✅ | ⚠️ | `src/setjmp.wat` + runtime hooks — captures/restores `__stack_ptr`/`__frame_ptr` and provides emulated `setjmp` resume via reentry | ⚠️ Partial |
 | `locale.h` | ✅ | ✅ | `createLocaleHosts()` — functional stubs | ✅ Stubs OK |
 | `signal.h` | ✅ | ✅ | `createSignalHosts()` — basic mapping | ✅ Stubs OK |
-| `stdarg.h` | ✅ | ⚠️ | Header exists and host has `vprintf`/`vsprintf` `va_list` walker, but full user-side variadic macro flow is not yet working end-to-end | ⚠️ Partial |
+| `stdarg.h` | ✅ | ⚠️ | Header + compiler variadic packing + runtime `vprintf`/`vsprintf` `va_list` walker with E2E tests for stable paths (`test-stdarg-e2e.js`) | ⚠️ Partial |
 | `ctype.h` | ✅ | ✅ | `src/ctype.c` compiled to `lib/ctype.wasm`; all 13 functions declared as `env` imports in compiler | ✅ Complete |
 | `stddef.h` | ✅ | ✅ | Macros only (`NULL`, `size_t`, `ptrdiff_t`) | ✅ Header-only |
 | `limits.h` | ✅ | ✅ | `#define` constants only | ✅ Header-only |
@@ -36,13 +36,13 @@ This document outlines which C89 standard library functions should be implemente
 
 ### Known Implementation Gaps
 
-#### 1. `stdarg.h` — partial only
+#### `stdarg.h` — partial only
 
-`stdarg.h` is present, and runtime hosts include `vprintf`/`vsprintf` `va_list` walking. However, full end-to-end user usage with variadic functions/macros is not yet stable in the compiler pipeline, so this header remains partial.
+`stdarg.h` supports stable end-to-end flows (covered in `compiler/tests/test-stdarg-e2e.js`), but some variadic edge cases still need hardening in the compiler pipeline.
 
-#### 2. `setjmp.h` — bootstrap only
+#### `setjmp.h` — bootstrap only
 
-`setjmp`/`longjmp` are exported via `src/setjmp.wat` but do not save/restore the real WASM `__stack_pointer` / `__frame_pointer`. A complete implementation requires WAT-level frame snapshot integration.
+`setjmp`/`longjmp` are exported via `src/setjmp.wat` and now support an emulated resume path: `longjmp` schedules a pending return value, unwinds, and the next reentry consumes that value at `setjmp`. This still depends on host unwind/reentry (not a true low-level in-WASM continuation).
 
 ### Browser VFS Persistence Note
 
@@ -200,11 +200,11 @@ These functions map naturally to browser or Node.js APIs.
 - [x] `bsearch` — Binary search
 
 ### Phase 3: Non-Local Jumps (Week 4)
-- [~] `setjmp` / `longjmp` — Bootstrap implementation exported in `setjmp.wasm`
+- [~] `setjmp` / `longjmp` — Bootstrap + emulated resume implementation exported in `setjmp.wasm`
 - [ ] Full integration with WAT `__stack_pointer`/frame restoration semantics
 
 ### Phase 4: I/O (Week 5)
-- [~] `printf` family — `printf`, `fprintf`, `sprintf` host imports implemented; `vprintf`/`vsprintf` pending full `va_list`
+- [~] `printf` family — `printf`, `fprintf`, `sprintf` complete; `vprintf`/`vsprintf` validated for stable `va_list` flows with remaining edge cases
 - [x] `fopen`, `fclose`, `fread`, `fwrite` — JS imports
 - [x] `fflush`, `remove`, `rename`
 - [x] `perror`
@@ -223,7 +223,7 @@ These functions map naturally to browser or Node.js APIs.
 ### Phase 7: Polish & Testing (Week 8)
 - [x] Wide char functions (`mblen`, `mbstowcs`, etc.) — UTF-8 stubs
 - [x] Comprehensive test suite
-- [ ] Performance benchmarking (native vs. import)
+- [x] Performance benchmarking (native vs. import) — `npm run bench:native-vs-import`
 
 ## Technical Notes
 

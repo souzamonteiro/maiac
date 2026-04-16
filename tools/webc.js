@@ -34,7 +34,7 @@ const { compileSource }         = require('../compiler/c-compiler.js');
 const { generateHostEnvSource } = require('./host-env-builder.js');
 const { createPrintfHost }      = require('../src/runtime/stdio.js');
 const { buildHostEnv }          = require('./host-env-builder.js');
-const { createDefaultHostBuiltins } = require('../src/runtime/default-host-builtins.js');
+const { createDefaultHostBuiltins, isLongjmpSignal } = require('../src/runtime/default-host-builtins.js');
 
 // ---------------------------------------------------------------------------
 // Help
@@ -118,6 +118,21 @@ function extractHeaderLibraries(source) {
   }
 
   return libraries;
+}
+
+function runEntrypointWithLongjmpResume(entry, maxAttempts = 32) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return entry();
+    } catch (error) {
+      if (isLongjmpSignal(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`Exceeded longjmp resume limit (${maxAttempts})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +246,28 @@ async function _loadLinkedLibraries(baseDir, imports) {
   return loaded;
 }
 
+function _runEntrypointWithLongjmpResume(entry, maxAttempts = 32) {
+  const isLongjmpLike = (error) => {
+    if (typeof isLongjmpSignal === 'function' && isLongjmpSignal(error)) {
+      return true;
+    }
+    return !!(error && typeof error === 'object' && error.__maiacLongjmp === true);
+  };
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return entry();
+    } catch (error) {
+      if (isLongjmpLike(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error('Exceeded longjmp resume limit (' + maxAttempts + ')');
+}
+
 // ---------- public API ----------
 
 /**
@@ -273,7 +310,7 @@ async function run(wasmPath) {
   memoryRef = instance.exports.memory || null;
   const entry = instance.exports.main || instance.exports.test_entry;
   if (typeof entry !== 'function') throw new Error('No main() export found');
-  return entry();
+  return _runEntrypointWithLongjmpResume(entry);
 }
 
 if (typeof module !== 'undefined') {
@@ -417,7 +454,7 @@ async function main() {
       console.error('[webc] No main() export found in compiled module');
       process.exit(1);
     }
-    const exitCode = entry();
+    const exitCode = runEntrypointWithLongjmpResume(entry);
     process.stdout.write(`\n[webc] program returned: ${exitCode}\n`);
     process.exitCode = exitCode;
   }

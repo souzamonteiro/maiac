@@ -29,6 +29,7 @@
     "build:parser": "bash tools/build-c-parser.sh",
     "build:libs": "node tools/build-libs.js",
     "dist:create": "node tools/create-dist.js",
+    "bench:native-vs-import": "node tools/benchmarks/native-vs-import.js",
     "compile:example": "node compiler/c-compiler.js --file ./compiler/examples/test.c --no-wat",
     "demo:vfs:node": "node tools/examples/run-vfs-demo-node.js",
     "demo:vfs:node:clean": "node tools/examples/run-vfs-demo-node.js --clean"

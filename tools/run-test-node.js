@@ -8,7 +8,7 @@ const path = require('path');
 const { compileSource } = require('../compiler/c-compiler.js');
 const { createPrintfHost } = require('../src/runtime/stdio.js');
 const { buildHostEnv } = require('./host-env-builder.js');
-const { createDefaultHostBuiltins } = require('../src/runtime/default-host-builtins.js');
+const { createDefaultHostBuiltins, isLongjmpSignal } = require('../src/runtime/default-host-builtins.js');
 
 function usage() {
   console.log('Usage: node tools/run-test-node.js [source.c]');
@@ -40,6 +40,21 @@ function extractHeaderLibraries(source) {
   return libs;
 }
 
+function runEntrypointWithLongjmpResume(entry, maxAttempts = 32) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return entry();
+    } catch (error) {
+      if (isLongjmpSignal(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`Exceeded longjmp resume limit (${maxAttempts})`);
+}
+
 async function main() {
   const arg = process.argv[2];
   if (arg === '--help' || arg === '-h') {
@@ -54,11 +69,12 @@ async function main() {
 
   const source = fs.readFileSync(sourcePath, 'utf8');
   const requiredLibraries = extractHeaderLibraries(source);
+  const resolveSystemIncludes = process.argv.includes('--resolve-system-includes');
   const result = compileSource(source, {
     sourcePath,
     validate: true,
     printWat: false,
-    resolveSystemIncludes: true
+    resolveSystemIncludes
   });
 
   if (!result.wasm) {
@@ -66,6 +82,25 @@ async function main() {
   }
 
   let memoryRef = null;
+  let wasmInstanceRef = null;
+
+  function getExportedGlobalValue(name) {
+    if (!wasmInstanceRef || !wasmInstanceRef.exports) return 0;
+    const exported = wasmInstanceRef.exports[name];
+    if (exported == null) return 0;
+    if (typeof exported === 'number') return exported | 0;
+    if (typeof exported.value === 'number') return exported.value | 0;
+    return 0;
+  }
+
+  function setExportedGlobalValue(name, value) {
+    if (!wasmInstanceRef || !wasmInstanceRef.exports) return;
+    const exported = wasmInstanceRef.exports[name];
+    if (exported == null) return;
+    if (typeof exported.value === 'number') {
+      exported.value = value | 0;
+    }
+  }
 
   // Build env entries for all '__object__method' host externs declared in the
   // C source.  Each entry is auto-generated from the compiler's hostImports
@@ -74,7 +109,12 @@ async function main() {
   const hostEnv = buildHostEnv(result.hostImports, {
     getMemory: () => memoryRef
   });
-  const defaultBuiltins = createDefaultHostBuiltins(() => memoryRef);
+  const defaultBuiltins = createDefaultHostBuiltins(() => memoryRef, {
+    getStackPointer: () => getExportedGlobalValue('__stack_ptr'),
+    setStackPointer: (value) => setExportedGlobalValue('__stack_ptr', value),
+    getFramePointer: () => getExportedGlobalValue('__frame_ptr'),
+    setFramePointer: (value) => setExportedGlobalValue('__frame_ptr', value)
+  });
 
   const imports = {
     env: {
@@ -116,6 +156,7 @@ async function main() {
 
   const wasmBytes = Buffer.from(result.wasm);
   const { instance } = await WebAssembly.instantiate(wasmBytes, imports);
+  wasmInstanceRef = instance;
 
   memoryRef = instance.exports.memory || null;
   const entry = instance.exports.main || instance.exports.test_entry;
@@ -123,7 +164,7 @@ async function main() {
     throw new Error('Missing exported entrypoint (expected main or test_entry)');
   }
 
-  const exitCode = entry();
+  const exitCode = runEntrypointWithLongjmpResume(entry);
   process.stdout.write(`\n[maiac] program returned: ${exitCode}\n`);
 }
 

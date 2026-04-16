@@ -181,6 +181,28 @@ function writeBrowserRunner(outDir, appName) {
         outputEl.scrollTop = outputEl.scrollHeight;
       }
 
+      function isLongjmpLike(error) {
+        if (typeof isLongjmpSignal === 'function' && isLongjmpSignal(error)) {
+          return true;
+        }
+        return !!(error && typeof error === 'object' && error.__maiacLongjmp === true);
+      }
+
+      function runEntryWithLongjmpResume(entry, maxAttempts) {
+        const attempts = Number.isInteger(maxAttempts) && maxAttempts > 0 ? maxAttempts : 32;
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          try {
+            return entry();
+          } catch (error) {
+            if (isLongjmpLike(error)) {
+              continue;
+            }
+            throw error;
+          }
+        }
+        throw new Error('Exceeded longjmp resume limit (' + attempts + ')');
+      }
+
       function clearStoredFiles() {
         const keys = [];
         for (let index = 0; index < localStorage.length; index += 1) {
@@ -246,7 +268,7 @@ function writeBrowserRunner(outDir, appName) {
             throw new Error('No main() or test_entry export found');
           }
 
-          const result = entry();
+          const result = runEntryWithLongjmpResume(entry);
           write('\\n[webc] program returned: ' + result + '\\n');
           statusEl.textContent = 'Done';
         } catch (error) {
@@ -285,7 +307,7 @@ function findLibraryWasm(sourceDir, libName) {
 }
 
 function compileApp(inputPath, outBase, emitWat) {
-  const args = [WEB_CLI, inputPath, '-o', outBase, '--resolve-system-includes'];
+  const args = [WEB_CLI, inputPath, '-o', outBase];
   if (emitWat) {
     args.push('--wat');
   }

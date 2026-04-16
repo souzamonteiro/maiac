@@ -1003,7 +1003,6 @@ function registerEnumConstantsFromDeclaration(declarationNode, moduleModel) {
     }
   }
 }
-
 function extractParameters(parameterListNode) {
   if (!parameterListNode) return [];
 
@@ -1477,7 +1476,7 @@ function buildModuleModel(ast, options = {}) {
         baseWatType: 'i32',
         pointerDepth: 0,
         mutable: true,
-        exported: false,
+        exported: true,
         // Place the stack above all string-literal data. With 1-byte-per-char
         // storage the data region can easily exceed the old hard-coded 1024 byte
         // limit, causing the stack to overwrite string constants.
@@ -1485,6 +1484,23 @@ function buildModuleModel(ast, options = {}) {
       };
       moduleModel.globals.unshift(stackPointerGlobal);
       moduleModel.globalsByName.set(stackPointerGlobal.sourceName, stackPointerGlobal);
+    }
+
+    if (!moduleModel.globalsByName.has('__frame_ptr')) {
+      const framePointerGlobal = {
+        sourceName: '__frame_ptr',
+        name: '__frame_ptr',
+        exportName: '__frame_ptr',
+        cType: 'int',
+        watType: 'i32',
+        baseWatType: 'i32',
+        pointerDepth: 0,
+        mutable: true,
+        exported: true,
+        initExpression: '(i32.const 0)'
+      };
+      moduleModel.globals.unshift(framePointerGlobal);
+      moduleModel.globalsByName.set(framePointerGlobal.sourceName, framePointerGlobal);
     }
   }
 
@@ -2603,10 +2619,15 @@ function buildFunctionPrologue(context) {
   }
 
   const frameLocal = ensureInternalLocal(context, '__frame', 'i32');
+  const parentFrameLocal = ensureInternalLocal(context, '__parent_frame', 'i32');
   const frameSize = alignTo(context.frameSize, 8);
   const instructions = [
+    'global.get $__frame_ptr',
+    `local.set $${parentFrameLocal.name}`,
     'global.get $__stack_ptr',
-    `local.set $${frameLocal.name}`
+    `local.set $${frameLocal.name}`,
+    `local.get $${frameLocal.name}`,
+    'global.set $__frame_ptr'
   ];
 
   if (frameSize > 0) {
@@ -2640,7 +2661,10 @@ function buildFunctionEpilogue(context) {
   }
 
   const frameLocal = ensureInternalLocal(context, '__frame', 'i32');
+  const parentFrameLocal = ensureInternalLocal(context, '__parent_frame', 'i32');
   return [
+    `local.get $${parentFrameLocal.name}`,
+    'global.set $__frame_ptr',
     `local.get $${frameLocal.name}`,
     'global.set $__stack_ptr'
   ];
@@ -3279,8 +3303,22 @@ function inferExpressionType(node, context) {
     if (postfixSuffix) {
       const calleeName = extractIdentifierFromNode(primaryExpression);
       const fn = context.module.functionsByName.get(calleeName);
-      // eslint-disable-next-line no-console
-      return fn ? fn.resultType : 'i32';
+      if (fn) {
+        return fn.resultType;
+      }
+
+      const imported = (context.module.imports || []).find(
+        (importDef) => importDef && (importDef.sourceName === calleeName || importDef.field === calleeName)
+      );
+      if (imported) {
+        return imported.resultType;
+      }
+
+      if (calleeName === 'longjmp' || calleeName === 'rewind' || calleeName === 'clearerr') {
+        return null;
+      }
+
+      return 'i32';
     }
   }
 
@@ -4825,6 +4863,10 @@ function compilePostfixExpression(node, context, keepValue) {
     tolower:  { paramTypes: ['i32'], resultType: 'i32' },
     toupper:  { paramTypes: ['i32'], resultType: 'i32' }
   };
+  const setjmpHostSignatures = {
+    setjmp: { paramTypes: ['i32'], resultType: 'i32' },
+    longjmp: { paramTypes: ['i32', 'i32'], resultType: 'i32' }
+  };
   const variadicStdIoHostArity = {
     printf: 8,
     fprintf: 9,
@@ -4848,11 +4890,13 @@ function compilePostfixExpression(node, context, keepValue) {
     const stdIoHostArity = variadicStdIoHostArity[calleeName] || 0;
     const fixedStdIoHost = fixedStdIoHostSignatures[calleeName] || null;
     const ctypeHost = ctypeHostSignatures[calleeName] || null;
+    const setjmpHost = setjmpHostSignatures[calleeName] || null;
     const isVariadicStdIoHost = stdIoHostArity > 0;
     const isFixedStdIoHost = !!fixedStdIoHost;
     const isCtypeHost = !!ctypeHost;
+    const isSetjmpHost = !!setjmpHost;
 
-    if (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost || isCtypeHost) {
+    if (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost || isCtypeHost || isSetjmpHost) {
       let importDef;
 
       if (isVariadicStdIoHost) {
@@ -4884,6 +4928,15 @@ function compilePostfixExpression(node, context, keepValue) {
           field: calleeName,
           paramTypes: ctypeHost.paramTypes,
           resultType: ctypeHost.resultType
+        });
+      } else if (isSetjmpHost) {
+        importDef = ensureImportedFunction(context.module, {
+          sourceName: calleeName,
+          internalName: `imp_${sanitizeIdentifier(calleeName)}`,
+          module: 'env',
+          field: calleeName,
+          paramTypes: setjmpHost.paramTypes,
+          resultType: setjmpHost.resultType
         });
       } else {
         importDef = hostFn.importDef;
@@ -4954,11 +5007,9 @@ function compilePostfixExpression(node, context, keepValue) {
       const inferred = inferExpressionType(argNode, context) || 'i32';
       const storeType = (inferred === 'f32' || inferred === 'f64') ? 'f64' : 'i32';
       const slotSize = storeType === 'f64' ? 8 : 4;
-      packedSize = alignTo(packedSize, slotSize);
       packedArgs.push({ node: argNode, sourceType: inferred, storeType, offset: packedSize });
       packedSize += slotSize;
     }
-    packedSize = alignTo(packedSize, 8);
 
     instructions.push(
       'global.get $__stack_ptr',

@@ -16,6 +16,9 @@ const scripts = [
   'test-runtime-stdio-edgecases.js',
   'test-runtime-stdio-browser-fallback.js',
   'test-runtime-stdio-printf-family.js',
+  'test-stdarg-e2e.js',
+  'test-setjmp-resume.js',
+  'test-setjmp-bootstrap.js',
   'test-runtime-memory-file-store.js'
 ];
 

@@ -59,6 +59,105 @@ Then open:
 
 - `http://127.0.0.1:8080/tools/browser/run-wasm.html`
 
+## Runtime Tooling (Consistent Flow)
+
+### `tools/webc.js` (compile + wrapper + optional run)
+
+`webc` compiles a C source and emits:
+
+- `<out>.wasm`
+- `<out>.js` wrapper (`createImports()` + `run()`)
+- optional `<out>.wat`
+
+Example:
+
+```bash
+node tools/webc.js compiler/examples/test.c -o out/test --wat
+```
+
+Run immediately:
+
+```bash
+node tools/webc.js compiler/examples/test.c -o out/test --run
+```
+
+Optional (experimental include expansion):
+
+```bash
+node tools/webc.js compiler/examples/test.c -o out/test --run --resolve-system-includes
+```
+
+### `tools/create-dist.js` (browser distributable package)
+
+Creates a distributable folder containing app wasm/js, copied linked libs, manifest, and a browser runner:
+
+```bash
+node tools/create-dist.js compiler/examples/test.c -o dist --name test --wat
+```
+
+Outputs include:
+
+- `dist/test.wasm`
+- `dist/test.js`
+- `dist/manifest.json`
+- `dist/browser-runner.html`
+- `dist/browser-memory-file-store.js`
+
+Serve the repo root and open `dist/browser-runner.html`.
+
+### `tools/host-env-builder.js` (extern `__host__path` bridge)
+
+`host-env-builder` converts compiler `hostImports` metadata into `imports.env` functions.
+
+C example:
+
+```c
+extern void __console__log(char *msg);
+extern double __Math__sin(double x);
+```
+
+At runtime this maps to `console.log(...)` and `Math.sin(...)`, with automatic C string dereference for `char *` parameters.
+
+## Recommended Validation Flow
+
+Use this sequence to validate compiler/runtime behavior quickly and consistently.
+
+### 1) Core large example (`compiler/examples/test.c`)
+
+```bash
+node tools/webc.js compiler/examples/test.c -o out/test --run
+node tools/run-test-node.js compiler/examples/test.c
+node tools/create-dist.js compiler/examples/test.c -o dist --name test
+```
+
+Expected result: all commands complete and return `0`.
+
+### 2) Host extern bridge (`compiler/examples/test-extern.c`)
+
+```bash
+node tools/webc.js compiler/examples/test-extern.c -o out/test-extern --run
+node tools/run-test-node.js compiler/examples/test-extern.c
+```
+
+Expected result: host calls such as `__console__log` and `__Math__sqrt` execute correctly and return `0`.
+
+### 3) About `--resolve-system-includes`
+
+- This flag is optional and currently experimental for complex sources.
+- It is useful when you explicitly want inline expansion of system headers.
+- The default validation path for `test.c` and `test-extern.c` should run without this flag.
+
+## `setjmp/longjmp` Runtime Semantics (Current)
+
+- Current implementation is host-assisted and **emulated resume**.
+- `longjmp` restores `__stack_ptr`/`__frame_ptr`, signals unwind, and runtime re-enters the program entrypoint.
+- The next `setjmp` capture for the same `jmp_buf` returns the pending value (`longjmp(..., 0)` normalizes to `1`).
+- This is now handled consistently in:
+	- `tools/run-test-node.js`
+	- `tools/webc.js --run`
+	- generated wrapper `run()`
+	- `create-dist` browser runner page
+
 ## Compiler CLI
 
 Main CLI entrypoint:
@@ -96,6 +195,8 @@ Includes:
 - Preprocessor tests.
 - C89 mini-suite runtime validation.
 - Large end-to-end example test.
+- `stdarg` end-to-end tests.
+- `setjmp/longjmp` bootstrap + emulated-resume tests.
 
 Optional JSON report:
 
