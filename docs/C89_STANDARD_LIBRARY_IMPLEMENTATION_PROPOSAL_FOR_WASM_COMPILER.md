@@ -10,7 +10,7 @@ This document outlines which C89 standard library functions should be implemente
 - Runtime JS hosts implemented under `src/runtime/` for math/time/locale/signal/stdio core behavior.
 - Browser-like fallback available for stdio through in-memory files (`forceMemoryFiles`) with optional persistence adapter (`memoryFileStore`).
 - A synchronous browser persistence adapter is available in `src/runtime/browser-memory-file-store.js` for `localStorage`-style backends.
-- Include-driven linked library loading and distribution packaging available via `tools/create-dist.js`.
+- Include-driven linked library loading and distribution packaging available via `tools/webc.js --dist` (`tools/create-dist.js` remains as compatibility wrapper).
 - `setjmp/longjmp` now supports emulated resume at `setjmp` through host-assisted unwind + pending return capture (`_setjmp_capture_js`/`_longjmp_unwind_js`) with stack/frame restoration.
 - `vprintf/vsprintf` host behavior reads `va_list` memory, and end-to-end variadic workflows for stable paths are covered by `compiler/tests/test-stdarg-e2e.js`.
 

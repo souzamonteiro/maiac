@@ -1684,13 +1684,9 @@ const _buildHostEnv = // Auto-generated host env – do not edit manually
     return new TextDecoder('utf-8').decode(mem.subarray(offset, end));
   }
   return {
-    "__console__log": (p0) => console.log(readCString(p0)),
-    "__console__error": (p0) => console.error(readCString(p0)),
-    "__Math__sqrt": (p0) => Math.sqrt(p0),
-    "__Math__floor": (p0) => Math.floor(p0),
   };
 });
-const _linkedLibraries = [];
+const _linkedLibraries = ["stdio"];
 
 function _mergeLibraryExports(env, instance) {
   const exportsObj = (instance && instance.exports) ? instance.exports : null;

@@ -91,7 +91,8 @@ Two primary runtime surfaces:
   - `tools/run-test-node.js`
   - `src/runtime/stdio.js`
 - Distribution packaging:
-  - `tools/create-dist.js`
+  - `tools/webc.js --dist` (primary)
+  - `tools/create-dist.js` (compatibility wrapper)
   - Produces app wrapper + wasm + linked wasm libs in a single output folder
 - Browser runtime:
   - `tools/browser/run-wasm.html`
@@ -160,6 +161,13 @@ node compiler/tests/test-all.js
 
 ```bash
 bash bin/run-test-node.sh compiler/examples/test.c
+```
+
+### Dist packaging (browser + node)
+
+```bash
+node tools/webc.js compiler/examples/test.c --dist --out-dir dist --name test
+bash dist/node-runner.sh
 ```
 
 ## 9. Architectural Risks and Mitigations

@@ -61,13 +61,15 @@ Then open:
 
 ## Runtime Tooling (Consistent Flow)
 
-### `tools/webc.js` (compile + wrapper + optional run)
+### `tools/webc.js` (compile + wrapper + optional run + dist)
 
 `webc` compiles a C source and emits:
 
 - `<out>.wasm`
 - `<out>.js` wrapper (`createImports()` + `run()`)
 - optional `<out>.wat`
+
+It can also package a complete distributable folder (`--dist`) containing browser and Node runners.
 
 Example:
 
@@ -87,23 +89,46 @@ Optional (experimental include expansion):
 node tools/webc.js compiler/examples/test.c -o out/test --run --resolve-system-includes
 ```
 
-### `tools/create-dist.js` (browser distributable package)
+Create distribution package (browser + node):
 
-Creates a distributable folder containing app wasm/js, copied linked libs, manifest, and a browser runner:
+```bash
+node tools/webc.js compiler/examples/test.c --dist --out-dir dist --name test --wat
+```
+
+Create dist and run generated Node runner in one step:
+
+```bash
+node tools/webc.js compiler/examples/test.c --dist-run --out-dir dist --name test
+```
+
+Dist outputs include:
+
+- `dist/test.wasm`
+- `dist/test.js`
+- `dist/test.wat` (when `--wat` is used)
+- `dist/manifest.json`
+- `dist/browser-runner.html`
+- `dist/browser-memory-file-store.js`
+- `dist/node-runner.js`
+- `dist/node-runner.sh`
+
+Run from dist in Node:
+
+```bash
+node dist/node-runner.js
+# or
+bash dist/node-runner.sh
+```
+
+Run from dist in browser: serve the repo root and open `dist/browser-runner.html`.
+
+### `tools/create-dist.js` (compatibility wrapper)
+
+`create-dist.js` remains available for backward compatibility and delegates to `webc --dist` internally:
 
 ```bash
 node tools/create-dist.js compiler/examples/test.c -o dist --name test --wat
 ```
-
-Outputs include:
-
-- `dist/test.wasm`
-- `dist/test.js`
-- `dist/manifest.json`
-- `dist/browser-runner.html`
-- `dist/browser-memory-file-store.js`
-
-Serve the repo root and open `dist/browser-runner.html`.
 
 ### `tools/host-env-builder.js` (extern `__host__path` bridge)
 
@@ -127,7 +152,8 @@ Use this sequence to validate compiler/runtime behavior quickly and consistently
 ```bash
 node tools/webc.js compiler/examples/test.c -o out/test --run
 node tools/run-test-node.js compiler/examples/test.c
-node tools/create-dist.js compiler/examples/test.c -o dist --name test
+node tools/webc.js compiler/examples/test.c --dist --out-dir dist --name test
+node dist/node-runner.js
 ```
 
 Expected result: all commands complete and return `0`.
@@ -156,7 +182,8 @@ Expected result: host calls such as `__console__log` and `__Math__sqrt` execute 
 	- `tools/run-test-node.js`
 	- `tools/webc.js --run`
 	- generated wrapper `run()`
-	- `create-dist` browser runner page
+	- `webc --dist` browser runner page
+	- `webc --dist` node runner scripts
 
 ## Compiler CLI
 
