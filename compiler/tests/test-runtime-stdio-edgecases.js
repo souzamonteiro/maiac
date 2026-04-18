@@ -40,7 +40,8 @@ function main() {
     () => memory,
     {
       write: (text) => writes.push(String(text)),
-      readLine: () => 'stdin-line'
+      readLine: () => 'stdin-line',
+      forceMemoryFiles: true
     }
   );
 
@@ -149,6 +150,87 @@ function main() {
       const view = new DataView(scanMemory.buffer);
       assert.strictEqual(view.getInt32(aPtr, true), 42);
       assert.strictEqual(view.getInt32(bPtr, true), 9);
+    }),
+
+    runTest('scanf supports unsigned and hexadecimal tokens', () => {
+      const scanMemory = new WebAssembly.Memory({ initial: 1 });
+      const lines = ['255 0x2a'];
+      const scanHosts = createDefaultHostBuiltins(
+        () => scanMemory,
+        {
+          readLine: () => (lines.length > 0 ? lines.shift() : null),
+          forceMemoryFiles: true
+        }
+      );
+
+      const fmtPtr = 40;
+      const uPtr = 112;
+      const xPtr = 116;
+      writeCString(scanMemory, fmtPtr, '%u %x');
+
+      const assigned = scanHosts.scanf(fmtPtr, uPtr, xPtr, 0, 0, 0, 0, 0);
+      assert.strictEqual(assigned, 2);
+      const view = new DataView(scanMemory.buffer);
+      assert.strictEqual(view.getUint32(uPtr, true), 255);
+      assert.strictEqual(view.getUint32(xPtr, true), 0x2a);
+    }),
+
+    runTest('sscanf parses values from in-memory string buffer', () => {
+      const scanMemory = new WebAssembly.Memory({ initial: 1 });
+      const scanHosts = createDefaultHostBuiltins(
+        () => scanMemory,
+        {
+          forceMemoryFiles: true
+        }
+      );
+
+      const srcPtr = 48;
+      const fmtPtr = 80;
+      const aPtr = 160;
+      const bPtr = 164;
+      writeCString(scanMemory, srcPtr, '17 31');
+      writeCString(scanMemory, fmtPtr, '%d %i');
+
+      const assigned = scanHosts.sscanf(srcPtr, fmtPtr, aPtr, bPtr, 0, 0, 0, 0, 0);
+      assert.strictEqual(assigned, 2);
+      const view = new DataView(scanMemory.buffer);
+      assert.strictEqual(view.getInt32(aPtr, true), 17);
+      assert.strictEqual(view.getInt32(bPtr, true), 31);
+    }),
+
+    runTest('fscanf parses values from file stream', () => {
+      const scanMemory = new WebAssembly.Memory({ initial: 1 });
+      const scanHosts = createDefaultHostBuiltins(
+        () => scanMemory,
+        {
+          forceMemoryFiles: true
+        }
+      );
+
+      const namePtr = 96;
+      const modePtr = 224;
+      const fmtPtr = 240;
+      const inputPtr = 280;
+      const aPtr = 320;
+      const bPtr = 324;
+      writeCString(scanMemory, namePtr, 'scan_stream_case.tmp');
+      writeCString(scanMemory, modePtr, 'w+');
+      writeCString(scanMemory, fmtPtr, '%d %x');
+      writeCString(scanMemory, inputPtr, '10 2f');
+
+      const stream = scanHosts.fopen(namePtr, modePtr);
+      assert.ok(stream > 0);
+      assert.strictEqual(scanHosts.fwrite(inputPtr, 1, 5, stream), 5);
+      assert.strictEqual(scanHosts.fseek(stream, 0, 0), 0);
+
+      const assigned = scanHosts.fscanf(stream, fmtPtr, aPtr, bPtr, 0, 0, 0, 0, 0);
+      assert.strictEqual(assigned, 2);
+      const view = new DataView(scanMemory.buffer);
+      assert.strictEqual(view.getInt32(aPtr, true), 10);
+      assert.strictEqual(view.getUint32(bPtr, true), 0x2f);
+
+      assert.strictEqual(scanHosts.fclose(stream), 0);
+      assert.strictEqual(scanHosts.remove(namePtr), 0);
     }),
 
     runTest('perror writes error text to sink', () => {

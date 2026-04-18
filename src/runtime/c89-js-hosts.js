@@ -807,65 +807,136 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     return mem.writeCString(dstPtr, text);
   }
 
-  function scanf(formatPtr, a1, a2, a3, a4, a5, a6, a7) {
-    if (!formatPtr) return 0;
+  function isSpaceChar(ch) {
+    return ch === 32 || ch === 9 || ch === 10 || ch === 13 || ch === 11 || ch === 12;
+  }
 
-    const fmt = mem.readCString(formatPtr);
-    const targets = [a1, a2, a3, a4, a5, a6, a7];
+  function isDigitForBase(ch, base) {
+    if (base <= 10) {
+      return ch >= 48 && ch < (48 + base);
+    }
+    if (ch >= 48 && ch <= 57) return true;
+    const lower = ch | 32;
+    return lower >= 97 && lower < (97 + (base - 10));
+  }
+
+  function createStdinReader() {
     const stdin = getStream(1);
-    if (!stdin) return 0;
+    if (!stdin) return null;
 
-    const readChar = () => {
-      if (!stdin.buffer || stdin.pos >= stdin.buffer.length) {
-        const line = readLine();
-        if (line == null) {
-          stdin.eof = 1;
-          return -1;
+    return {
+      readChar: () => {
+        if (!stdin.buffer || stdin.pos >= stdin.buffer.length) {
+          const line = readLine();
+          if (line == null) {
+            stdin.eof = 1;
+            return -1;
+          }
+          stdin.buffer = String(line) + '\n';
+          stdin.pos = 0;
         }
-        stdin.buffer = String(line) + '\n';
-        stdin.pos = 0;
+        if (stdin.pos >= stdin.buffer.length) return -1;
+        return stdin.buffer.charCodeAt(stdin.pos++) & 0xFF;
+      },
+      unreadChar: (ch) => {
+        if (ch < 0) return;
+        if (stdin.pos > 0) stdin.pos -= 1;
       }
-      if (stdin.pos >= stdin.buffer.length) return -1;
-      return stdin.buffer.charCodeAt(stdin.pos++) & 0xFF;
     };
+  }
 
-    const unreadChar = (ch) => {
-      if (ch < 0) return;
-      if (stdin.pos > 0) stdin.pos -= 1;
-    };
-
-    const skipInputWhitespace = () => {
-      let ch = readChar();
-      while (ch === 32 || ch === 9 || ch === 10 || ch === 13 || ch === 11 || ch === 12) {
-        ch = readChar();
+  function createStreamReader(streamPtr) {
+    const s = getStream(streamPtr);
+    if (!s) return null;
+    return {
+      readChar: () => fgetc(streamPtr),
+      unreadChar: (ch) => {
+        if (ch < 0) return;
+        ungetc(ch, streamPtr);
       }
-      return ch;
     };
+  }
 
-    const scanInt = () => {
-      let ch = skipInputWhitespace();
-      let sign = 1;
-      let value = 0;
-      let hasDigit = 0;
+  function createCStringReader(srcPtr) {
+    const text = mem.readCString(srcPtr) || '';
+    let index = 0;
+    return {
+      readChar: () => {
+        if (index >= text.length) return -1;
+        const ch = text.charCodeAt(index) & 0xFF;
+        index += 1;
+        return ch;
+      },
+      unreadChar: (ch) => {
+        if (ch < 0) return;
+        if (index > 0) index -= 1;
+      }
+    };
+  }
 
+  function readScanfNumber(readChar, unreadChar, spec) {
+    let ch = readChar();
+    while (isSpaceChar(ch)) {
+      ch = readChar();
+    }
+
+    let sign = 1;
+    if (spec === 'd' || spec === 'i') {
       if (ch === 45) {
         sign = -1;
         ch = readChar();
       } else if (ch === 43) {
         ch = readChar();
       }
+    }
 
-      while (ch >= 48 && ch <= 57) {
-        hasDigit = 1;
-        value = value * 10 + (ch - 48);
-        ch = readChar();
+    let base = 10;
+    let value = 0;
+    let hasDigit = false;
+
+    if (spec === 'x' || spec === 'X') {
+      base = 16;
+      if (ch === 48) {
+        const next = readChar();
+        if (next === 120 || next === 88) {
+          ch = readChar();
+        } else {
+          unreadChar(next);
+        }
       }
+    } else if (spec === 'i') {
+      if (ch === 48) {
+        const next = readChar();
+        if (next === 120 || next === 88) {
+          base = 16;
+          ch = readChar();
+        } else {
+          base = 8;
+          unreadChar(next);
+        }
+      }
+    }
 
-      unreadChar(ch);
-      if (!hasDigit) return null;
-      return sign * value;
+    while (isDigitForBase(ch, base)) {
+      hasDigit = true;
+      let digit;
+      if (ch >= 48 && ch <= 57) digit = ch - 48;
+      else digit = (ch | 32) - 87;
+      value = value * base + digit;
+      ch = readChar();
+    }
+
+    unreadChar(ch);
+    if (!hasDigit) return null;
+
+    const signedValue = sign < 0 ? -value : value;
+    return {
+      signed: signedValue | 0,
+      unsigned: (signedValue >>> 0)
     };
+  }
 
+  function scanFormattedInput(fmt, targets, readChar, unreadChar) {
     let assigned = 0;
     let targetIndex = 0;
     let i = 0;
@@ -873,8 +944,11 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     while (i < fmt.length) {
       const c = fmt.charCodeAt(i);
 
-      if (c === 32 || c === 9 || c === 10 || c === 13 || c === 11 || c === 12) {
-        const ch = skipInputWhitespace();
+      if (isSpaceChar(c)) {
+        let ch = readChar();
+        while (isSpaceChar(ch)) {
+          ch = readChar();
+        }
         unreadChar(ch);
         i += 1;
         continue;
@@ -883,7 +957,7 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
       if (c !== 37) {
         const ch = readChar();
         if (ch !== c) {
-          if (ch >= 0) unreadChar(ch);
+          unreadChar(ch);
           break;
         }
         i += 1;
@@ -892,43 +966,91 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
 
       i += 1;
       if (i >= fmt.length) break;
+
       if (fmt.charCodeAt(i) === 37) {
         const literal = readChar();
         if (literal !== 37) {
-          if (literal >= 0) unreadChar(literal);
+          unreadChar(literal);
           break;
         }
         i += 1;
         continue;
       }
 
+      let suppressAssign = false;
+      if (fmt.charAt(i) === '*') {
+        suppressAssign = true;
+        i += 1;
+      }
+
+      while (i < fmt.length && fmt.charAt(i) >= '0' && fmt.charAt(i) <= '9') {
+        i += 1;
+      }
+
       while (i < fmt.length) {
         const fc = fmt.charAt(i);
-        if ((fc >= '0' && fc <= '9') || fc === '*' || fc === 'h' || fc === 'l' || fc === 'L') {
+        if (fc === 'h' || fc === 'l' || fc === 'L') {
           i += 1;
           continue;
         }
         break;
       }
+
       if (i >= fmt.length) break;
 
       const spec = fmt.charAt(i);
-      if (spec === 'd' || spec === 'i') {
+      if (spec !== 'd' && spec !== 'i' && spec !== 'u' && spec !== 'x' && spec !== 'X') {
+        break;
+      }
+
+      const parsed = readScanfNumber(readChar, unreadChar, spec);
+      if (!parsed) {
+        break;
+      }
+
+      if (!suppressAssign) {
         const targetPtr = targets[targetIndex++] | 0;
-        const scanned = scanInt();
-        if (scanned == null || !targetPtr) {
+        if (!targetPtr) {
           break;
         }
-        mem.writeI32(targetPtr, scanned | 0);
+        if (spec === 'd' || spec === 'i') {
+          mem.writeI32(targetPtr, parsed.signed);
+        } else {
+          mem.writeI32(targetPtr, parsed.unsigned);
+        }
         assigned += 1;
-      } else {
-        break;
       }
 
       i += 1;
     }
 
     return assigned | 0;
+  }
+
+  function scanf(formatPtr, a1, a2, a3, a4, a5, a6, a7) {
+    if (!formatPtr) return 0;
+    const reader = createStdinReader();
+    if (!reader) return 0;
+    const fmt = mem.readCString(formatPtr);
+    const targets = [a1, a2, a3, a4, a5, a6, a7];
+    return scanFormattedInput(fmt, targets, reader.readChar, reader.unreadChar);
+  }
+
+  function fscanf(streamPtr, formatPtr, a1, a2, a3, a4, a5, a6, a7) {
+    if (!formatPtr) return 0;
+    const reader = createStreamReader(streamPtr);
+    if (!reader) return 0;
+    const fmt = mem.readCString(formatPtr);
+    const targets = [a1, a2, a3, a4, a5, a6, a7];
+    return scanFormattedInput(fmt, targets, reader.readChar, reader.unreadChar);
+  }
+
+  function sscanf(srcPtr, formatPtr, a1, a2, a3, a4, a5, a6, a7) {
+    if (!srcPtr || !formatPtr) return 0;
+    const reader = createCStringReader(srcPtr);
+    const fmt = mem.readCString(formatPtr);
+    const targets = [a1, a2, a3, a4, a5, a6, a7];
+    return scanFormattedInput(fmt, targets, reader.readChar, reader.unreadChar);
   }
 
   function getc(streamPtr) {
@@ -1075,6 +1197,8 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     perror,
     fprintf,
     scanf,
+    fscanf,
+    sscanf,
     sprintf: sprintfHost,
     vprintf,
     vsprintf: vsprintfHost

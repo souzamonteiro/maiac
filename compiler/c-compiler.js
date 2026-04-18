@@ -4876,7 +4876,9 @@ function compilePostfixExpression(node, context, keepValue) {
     sprintf: { arity: 9, paramType: 'f64', resultType: 'i32' },
     vprintf: { arity: 2, paramType: 'f64', resultType: 'i32' },
     vsprintf: { arity: 3, paramType: 'f64', resultType: 'i32' },
-    scanf: { arity: 8, paramType: 'i32', resultType: 'i32' }
+    scanf: { arity: 8, paramType: 'i32', resultType: 'i32' },
+    fscanf: { arity: 9, paramType: 'i32', resultType: 'i32' },
+    sscanf: { arity: 9, paramType: 'i32', resultType: 'i32' }
   };
 
   // Handle host imports:
