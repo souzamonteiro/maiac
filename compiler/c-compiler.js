@@ -4844,7 +4844,10 @@ function compilePostfixExpression(node, context, keepValue) {
     fputc: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
     fputs: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
     getc: { paramTypes: ['i32'], resultType: 'i32' },
+    getchar: { paramTypes: [], resultType: 'i32' },
     putc: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    putchar: { paramTypes: ['i32'], resultType: 'i32' },
+    puts: { paramTypes: ['i32'], resultType: 'i32' },
     ungetc: { paramTypes: ['i32', 'i32'], resultType: 'i32' }
   };
   // ctype.h — all functions take one int, return int; come from ctype.wasm linked lib
@@ -4867,12 +4870,13 @@ function compilePostfixExpression(node, context, keepValue) {
     setjmp: { paramTypes: ['i32'], resultType: 'i32' },
     longjmp: { paramTypes: ['i32', 'i32'], resultType: 'i32' }
   };
-  const variadicStdIoHostArity = {
-    printf: 8,
-    fprintf: 9,
-    sprintf: 9,
-    vprintf: 2,
-    vsprintf: 3
+  const variadicStdIoHostSignatures = {
+    printf: { arity: 8, paramType: 'f64', resultType: 'i32' },
+    fprintf: { arity: 9, paramType: 'f64', resultType: 'i32' },
+    sprintf: { arity: 9, paramType: 'f64', resultType: 'i32' },
+    vprintf: { arity: 2, paramType: 'f64', resultType: 'i32' },
+    vsprintf: { arity: 3, paramType: 'f64', resultType: 'i32' },
+    scanf: { arity: 8, paramType: 'i32', resultType: 'i32' }
   };
 
   // Handle host imports:
@@ -4887,11 +4891,11 @@ function compilePostfixExpression(node, context, keepValue) {
   {
     const hostFn = context.module.functionsByName.get(calleeName);
     const isNamedHostImport = !!(hostFn && hostFn.isHostImport);
-    const stdIoHostArity = variadicStdIoHostArity[calleeName] || 0;
+    const variadicStdIoHost = variadicStdIoHostSignatures[calleeName] || null;
     const fixedStdIoHost = fixedStdIoHostSignatures[calleeName] || null;
     const ctypeHost = ctypeHostSignatures[calleeName] || null;
     const setjmpHost = setjmpHostSignatures[calleeName] || null;
-    const isVariadicStdIoHost = stdIoHostArity > 0;
+    const isVariadicStdIoHost = !!variadicStdIoHost;
     const isFixedStdIoHost = !!fixedStdIoHost;
     const isCtypeHost = !!ctypeHost;
     const isSetjmpHost = !!setjmpHost;
@@ -4900,16 +4904,17 @@ function compilePostfixExpression(node, context, keepValue) {
       let importDef;
 
       if (isVariadicStdIoHost) {
-        // stdio variadic hosts use a fixed f64 arity to accommodate mixed
-        // across the variadic boundary without type inference.
-        const hostArity = stdIoHostArity;
+        // Variadic stdio hosts use fixed import arity/signatures so WAT can
+        // coerce each argument deterministically before emitting the call.
+        const hostArity = variadicStdIoHost.arity;
+        const hostParamType = variadicStdIoHost.paramType || 'i32';
         importDef = ensureImportedFunction(context.module, {
           sourceName: calleeName,
           internalName: `imp_${sanitizeIdentifier(calleeName)}`,
           module: 'env',
           field: calleeName,
-          paramTypes: new Array(hostArity).fill('f64'),
-          resultType: 'i32'
+          paramTypes: new Array(hostArity).fill(hostParamType),
+          resultType: variadicStdIoHost.resultType || 'i32'
         });
       } else if (isFixedStdIoHost) {
         importDef = ensureImportedFunction(context.module, {
@@ -4943,10 +4948,10 @@ function compilePostfixExpression(node, context, keepValue) {
       }
 
       const paramTypes = importDef.paramTypes || [];
-      const arity = isVariadicStdIoHost ? stdIoHostArity : paramTypes.length;
+      const arity = isVariadicStdIoHost ? (variadicStdIoHost.arity || 0) : paramTypes.length;
 
       for (let i = 0; i < arity; i += 1) {
-        const targetType = paramTypes[i] || (isVariadicStdIoHost ? 'f64' : 'i32');
+        const targetType = paramTypes[i] || (isVariadicStdIoHost ? (variadicStdIoHost.paramType || 'i32') : 'i32');
         if (i < argumentsToCompile.length) {
           const argNode = argumentsToCompile[i];
           const argType = inferExpressionType(argNode, context) || 'i32';

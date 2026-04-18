@@ -343,9 +343,46 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     }
   };
 
-  const readLine = typeof opts.readLine === 'function'
-    ? opts.readLine
-    : () => '';
+  const readLine = (() => {
+    if (typeof opts.readLine === 'function') return opts.readLine;
+
+    // Node fallback: consume stdin once and serve lines synchronously.
+    if (typeof process !== 'undefined' && fs && typeof fs.readFileSync === 'function') {
+      let stdinText = null;
+      let cursor = 0;
+      let reachedEof = false;
+
+      return () => {
+        if (reachedEof) return null;
+        if (stdinText == null) {
+          try {
+            stdinText = String(fs.readFileSync(0, 'utf8') || '');
+          } catch (_error) {
+            stdinText = '';
+          }
+        }
+
+        if (cursor >= stdinText.length) {
+          reachedEof = true;
+          return null;
+        }
+
+        const nextNl = stdinText.indexOf('\n', cursor);
+        if (nextNl < 0) {
+          const tail = stdinText.slice(cursor).replace(/\r$/, '');
+          cursor = stdinText.length;
+          return tail;
+        }
+
+        const line = stdinText.slice(cursor, nextNl).replace(/\r$/, '');
+        cursor = nextNl + 1;
+        return line;
+      };
+    }
+
+    // Browser/unknown host fallback: no stdin source.
+    return () => null;
+  })();
 
   let nextHandle = 4;
   const streams = new Map();
@@ -770,6 +807,130 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     return mem.writeCString(dstPtr, text);
   }
 
+  function scanf(formatPtr, a1, a2, a3, a4, a5, a6, a7) {
+    if (!formatPtr) return 0;
+
+    const fmt = mem.readCString(formatPtr);
+    const targets = [a1, a2, a3, a4, a5, a6, a7];
+    const stdin = getStream(1);
+    if (!stdin) return 0;
+
+    const readChar = () => {
+      if (!stdin.buffer || stdin.pos >= stdin.buffer.length) {
+        const line = readLine();
+        if (line == null) {
+          stdin.eof = 1;
+          return -1;
+        }
+        stdin.buffer = String(line) + '\n';
+        stdin.pos = 0;
+      }
+      if (stdin.pos >= stdin.buffer.length) return -1;
+      return stdin.buffer.charCodeAt(stdin.pos++) & 0xFF;
+    };
+
+    const unreadChar = (ch) => {
+      if (ch < 0) return;
+      if (stdin.pos > 0) stdin.pos -= 1;
+    };
+
+    const skipInputWhitespace = () => {
+      let ch = readChar();
+      while (ch === 32 || ch === 9 || ch === 10 || ch === 13 || ch === 11 || ch === 12) {
+        ch = readChar();
+      }
+      return ch;
+    };
+
+    const scanInt = () => {
+      let ch = skipInputWhitespace();
+      let sign = 1;
+      let value = 0;
+      let hasDigit = 0;
+
+      if (ch === 45) {
+        sign = -1;
+        ch = readChar();
+      } else if (ch === 43) {
+        ch = readChar();
+      }
+
+      while (ch >= 48 && ch <= 57) {
+        hasDigit = 1;
+        value = value * 10 + (ch - 48);
+        ch = readChar();
+      }
+
+      unreadChar(ch);
+      if (!hasDigit) return null;
+      return sign * value;
+    };
+
+    let assigned = 0;
+    let targetIndex = 0;
+    let i = 0;
+
+    while (i < fmt.length) {
+      const c = fmt.charCodeAt(i);
+
+      if (c === 32 || c === 9 || c === 10 || c === 13 || c === 11 || c === 12) {
+        const ch = skipInputWhitespace();
+        unreadChar(ch);
+        i += 1;
+        continue;
+      }
+
+      if (c !== 37) {
+        const ch = readChar();
+        if (ch !== c) {
+          if (ch >= 0) unreadChar(ch);
+          break;
+        }
+        i += 1;
+        continue;
+      }
+
+      i += 1;
+      if (i >= fmt.length) break;
+      if (fmt.charCodeAt(i) === 37) {
+        const literal = readChar();
+        if (literal !== 37) {
+          if (literal >= 0) unreadChar(literal);
+          break;
+        }
+        i += 1;
+        continue;
+      }
+
+      while (i < fmt.length) {
+        const fc = fmt.charAt(i);
+        if ((fc >= '0' && fc <= '9') || fc === '*' || fc === 'h' || fc === 'l' || fc === 'L') {
+          i += 1;
+          continue;
+        }
+        break;
+      }
+      if (i >= fmt.length) break;
+
+      const spec = fmt.charAt(i);
+      if (spec === 'd' || spec === 'i') {
+        const targetPtr = targets[targetIndex++] | 0;
+        const scanned = scanInt();
+        if (scanned == null || !targetPtr) {
+          break;
+        }
+        mem.writeI32(targetPtr, scanned | 0);
+        assigned += 1;
+      } else {
+        break;
+      }
+
+      i += 1;
+    }
+
+    return assigned | 0;
+  }
+
   function getc(streamPtr) {
     return fgetc(streamPtr);
   }
@@ -782,7 +943,12 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     const stdin = getStream(1);
     if (!stdin) return -1;
     if (!stdin.buffer || stdin.pos >= stdin.buffer.length) {
-      stdin.buffer = String(readLine() || '') + '\n';
+      const line = readLine();
+      if (line == null) {
+        stdin.eof = 1;
+        return -1;
+      }
+      stdin.buffer = String(line) + '\n';
       stdin.pos = 0;
     }
     if (stdin.pos >= stdin.buffer.length) return -1;
@@ -908,6 +1074,7 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     tmpnam,
     perror,
     fprintf,
+    scanf,
     sprintf: sprintfHost,
     vprintf,
     vsprintf: vsprintfHost

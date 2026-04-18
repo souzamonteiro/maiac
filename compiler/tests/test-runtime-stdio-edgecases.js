@@ -129,6 +129,28 @@ function main() {
       assert.strictEqual(ch, 's'.charCodeAt(0));
     }),
 
+    runTest('scanf parses two integers from stdin line', () => {
+      const scanMemory = new WebAssembly.Memory({ initial: 1 });
+      const lines = ['42 9'];
+      const scanHosts = createDefaultHostBuiltins(
+        () => scanMemory,
+        {
+          readLine: () => (lines.length > 0 ? lines.shift() : null)
+        }
+      );
+
+      const fmtPtr = 32;
+      const aPtr = 96;
+      const bPtr = 100;
+      writeCString(scanMemory, fmtPtr, '%d %d');
+
+      const assigned = scanHosts.scanf(fmtPtr, aPtr, bPtr, 0, 0, 0, 0, 0);
+      assert.strictEqual(assigned, 2);
+      const view = new DataView(scanMemory.buffer);
+      assert.strictEqual(view.getInt32(aPtr, true), 42);
+      assert.strictEqual(view.getInt32(bPtr, true), 9);
+    }),
+
     runTest('perror writes error text to sink', () => {
       const msgPtr = 704;
       writeCString(memory, msgPtr, 'io-fail');
