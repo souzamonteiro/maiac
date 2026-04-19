@@ -1593,13 +1593,23 @@ function registerHostExternImport(itemDef, moduleModel) {
   const hostInfo = parseHostExternName(itemDef.sourceName);
   if (!hostInfo || !moduleModel) return null;
 
+  const hostSignatureOverrides = {
+    __malloc: { paramTypes: ['i32'], resultType: 'i32' },
+    __free: { paramTypes: ['i32'], resultType: null }
+  };
+  const override = hostSignatureOverrides[itemDef.sourceName] || null;
+
   const paramDefs = Array.isArray(itemDef.params) ? itemDef.params : [];
-  const paramTypes = paramDefs.map((p) => toWatType(p.watType || 'i32'));
+  const paramTypes = override
+    ? override.paramTypes
+    : paramDefs.map((p) => toWatType(p.watType || 'i32'));
 
   // void return → resultType null; otherwise use the declared WAT type.
-  const resultType = (itemDef.watType === null || itemDef.cType === 'void')
-    ? null
-    : toWatType(itemDef.watType || 'i32');
+  const resultType = override
+    ? override.resultType
+    : ((itemDef.watType === null || itemDef.cType === 'void')
+      ? null
+      : toWatType(itemDef.watType || 'i32'));
 
   const importDef = ensureImportedFunction(moduleModel, {
     sourceName: itemDef.sourceName,
@@ -4871,6 +4881,8 @@ function compilePostfixExpression(node, context, keepValue) {
   const instructions = [];
   // Fixed signatures for non-variadic stdio functions (fopen, fwrite, etc.)
   const fixedStdIoHostSignatures = {
+    __malloc: { paramTypes: ['i32'], resultType: 'i32' },
+    __free: { paramTypes: ['i32'], resultType: null },
     fopen: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
     freopen: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
     fclose: { paramTypes: ['i32'], resultType: 'i32' },
