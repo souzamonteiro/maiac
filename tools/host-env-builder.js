@@ -102,6 +102,52 @@ function isStringParam(paramDef) {
     && (paramDef.cType === 'char' || paramDef.cType === 'signed char' || paramDef.cType === 'unsigned char');
 }
 
+function alignUp(value, alignment) {
+  const a = Math.max(1, Number(alignment) | 0);
+  const v = Number(value) | 0;
+  return (v + (a - 1)) & ~(a - 1);
+}
+
+function createLinearAllocator(getMemory) {
+  let top = 0;
+
+  function ensureCapacity(bytes) {
+    const memory = getMemory();
+    if (!memory) return 0;
+    const need = Math.max(0, Number(bytes) | 0);
+
+    if (top === 0) {
+      top = memory.buffer.byteLength;
+    }
+
+    if (top + need > memory.buffer.byteLength) {
+      const missing = top + need - memory.buffer.byteLength;
+      const pages = Math.ceil(missing / 65536);
+      if (pages > 0) {
+        memory.grow(pages);
+      }
+    }
+
+    return 1;
+  }
+
+  function alloc(bytes, align = 8) {
+    const size = Math.max(0, Number(bytes) | 0);
+    if (size === 0) return 0;
+    if (!ensureCapacity(size + align)) return 0;
+    top = alignUp(top, align);
+    const ptr = top;
+    top += size;
+    return ptr >>> 0;
+  }
+
+  function free(_ptr) {
+    return;
+  }
+
+  return { alloc, free };
+}
+
 /**
  * Build a plain JS object suitable for use as `imports.env` that provides
  * implementations for every host import declared with the `__` naming convention.
@@ -122,11 +168,27 @@ function isStringParam(paramDef) {
 function buildHostEnv(hostImports, opts = {}) {
   const getMemory = typeof opts.getMemory === 'function' ? opts.getMemory : () => null;
   const env = {};
+  const allocator = createLinearAllocator(getMemory);
 
   for (const imp of (hostImports || [])) {
     const { envKey, parts } = imp.hostInfo;
     const paramDefs = imp.paramDefs || [];
     const hasResult = imp.resultType !== null;
+
+    if (envKey === '__malloc') {
+      env[envKey] = (bytes) => allocator.alloc(bytes, 8);
+      Object.defineProperty(env[envKey], 'name', { value: envKey, configurable: true });
+      continue;
+    }
+
+    if (envKey === '__free') {
+      env[envKey] = (ptr) => {
+        allocator.free(ptr);
+        return undefined;
+      };
+      Object.defineProperty(env[envKey], 'name', { value: envKey, configurable: true });
+      continue;
+    }
 
     env[envKey] = (...rawArgs) => {
       // Coerce each raw WASM argument to the correct JS value.
@@ -175,6 +237,34 @@ function generateHostEnvSource(hostImports) {
   const lines = [
     '// Auto-generated host env – do not edit manually',
     '(function buildEnv(getMemory) {',
+    '  function alignUp(value, alignment) {',
+    '    const a = Math.max(1, Number(alignment) | 0);',
+    '    const v = Number(value) | 0;',
+    '    return (v + (a - 1)) & ~(a - 1);',
+    '  }',
+    '  let __allocTop = 0;',
+    '  function __ensureAlloc(bytes) {',
+    '    const memory = getMemory();',
+    '    if (!memory) return 0;',
+    '    const need = Math.max(0, Number(bytes) | 0);',
+    '    if (__allocTop === 0) __allocTop = memory.buffer.byteLength;',
+    '    if (__allocTop + need > memory.buffer.byteLength) {',
+    '      const missing = __allocTop + need - memory.buffer.byteLength;',
+    '      const pages = Math.ceil(missing / 65536);',
+    '      if (pages > 0) memory.grow(pages);',
+    '    }',
+    '    return 1;',
+    '  }',
+    '  function __malloc(bytes) {',
+    '    const size = Math.max(0, Number(bytes) | 0);',
+    '    if (size === 0) return 0;',
+    '    if (!__ensureAlloc(size + 8)) return 0;',
+    '    __allocTop = alignUp(__allocTop, 8);',
+    '    const ptr = __allocTop;',
+    '    __allocTop += size;',
+    '    return ptr >>> 0;',
+    '  }',
+    '  function __free(_ptr) { return; }',
     "  function readCString(ptr) {",
     "    const memory = getMemory();",
     "    if (!memory) return '';",
@@ -189,6 +279,16 @@ function generateHostEnvSource(hostImports) {
   for (const imp of (hostImports || [])) {
     const { envKey, jsExpr, parts } = imp.hostInfo;
     const paramDefs = imp.paramDefs || [];
+
+    if (envKey === '__malloc') {
+      lines.push(`    ${JSON.stringify(envKey)}: (p0) => __malloc(p0),`);
+      continue;
+    }
+
+    if (envKey === '__free') {
+      lines.push(`    ${JSON.stringify(envKey)}: (p0) => __free(p0),`);
+      continue;
+    }
 
     const paramNames = paramDefs.map((p, i) => `p${i}`);
     const argExprs = paramDefs.map((p, i) => {
