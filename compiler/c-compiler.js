@@ -3292,12 +3292,23 @@ function inferExpressionType(node, context) {
       return accessInfo.resultIsAddress ? 'i32' : accessInfo.watType;
     }
 
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const memberAccessPath = getMemberAccessPathFromPostfix(node);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName && memberAccessPath.length > 0) {
+      const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+      if (memberAccess) {
+        if (memberAccess.isStruct || memberAccess.isArray || memberAccess.pointerDepth > 0) {
+          return 'i32';
+        }
+        return toWatType(memberAccess.watType || 'i32');
+      }
+    }
+
     const indexExpressions = getIndexExpressionsFromPostfix(node);
     if (indexExpressions.length > 0) {
       return 'i32';
     }
-
-    const primaryExpression = firstNonterminal(node, 'primaryExpression');
 
     const postfixSuffix = firstNonterminal(node, 'postfixSuffix');
     if (postfixSuffix) {
@@ -4047,6 +4058,9 @@ function resolvePostfixMemberAccess(baseName, memberAccessPath, context) {
     field: currentField,
     addressInstructions,
     watType: currentField ? (currentField.watType || currentField.baseWatType || 'i32') : (baseSymbol.watType || 'i32'),
+    pointerDepth: currentField ? (currentField.pointerDepth || 0) : 0,
+    isArray: !!(currentField && (currentField.isArray || currentField.declaredAsArray)),
+    arrayDimensions: currentField ? getSymbolArrayDimensions(currentField) : [],
     isStruct: !!(currentField && currentField.isStruct),
     structLayout: currentField && currentField.isStruct
       ? resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null)
@@ -4404,6 +4418,11 @@ function compileAssignmentExpression(node, context, options = {}) {
 }
 
 function isPointerLikeNode(node, context) {
+  const unwrapped = unwrapSingleNonterminalChain(node);
+  if (unwrapped && unwrapped !== node) {
+    return isPointerLikeNode(unwrapped, context);
+  }
+
   const type = inferExpressionType(node, context);
   if (type !== 'i32') {
     return false;
@@ -4420,6 +4439,14 @@ function isPointerLikeNode(node, context) {
     if (accessInfo) {
       return accessInfo.resultIsAddress;
     }
+
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const memberAccessPath = getMemberAccessPathFromPostfix(node);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName && memberAccessPath.length > 0) {
+      const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+      return !!memberAccess && (memberAccess.isStruct || memberAccess.isArray || memberAccess.pointerDepth > 0);
+    }
   }
 
   if (isNonterminal(node, 'unaryExpression')) {
@@ -4432,6 +4459,11 @@ function isPointerLikeNode(node, context) {
 }
 
 function getPointerElementSize(node, context) {
+  const unwrapped = unwrapSingleNonterminalChain(node);
+  if (unwrapped && unwrapped !== node) {
+    return getPointerElementSize(unwrapped, context);
+  }
+
   const simpleIdentifier = getSimpleIdentifierName(node);
   if (simpleIdentifier) {
     const symbol = resolveSymbol(simpleIdentifier, context);
@@ -4444,6 +4476,22 @@ function getPointerElementSize(node, context) {
     const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
     if (accessInfo) {
       return getStrideForAccess(accessInfo.watType, accessInfo.resultObjectDimensions.slice(1));
+    }
+
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const memberAccessPath = getMemberAccessPathFromPostfix(node);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName && memberAccessPath.length > 0) {
+      const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+      if (memberAccess) {
+        if (memberAccess.isArray) {
+          const dims = Array.isArray(memberAccess.arrayDimensions) ? memberAccess.arrayDimensions.slice(1) : [];
+          return getStrideForAccess(memberAccess.watType || 'i32', dims);
+        }
+        if (memberAccess.pointerDepth > 0) {
+          return getTypeSize(memberAccess.watType || 'i32');
+        }
+      }
     }
   }
 
@@ -4791,7 +4839,7 @@ function compilePostfixExpression(node, context, keepValue) {
         if (!keepValue) {
           return memberAccess.addressInstructions.concat('drop');
         }
-        if (memberAccess.isStruct) {
+        if (memberAccess.isStruct || memberAccess.isArray) {
           return memberAccess.addressInstructions;
         }
         return memberAccess.addressInstructions.concat(getLoadOpcodeForType(memberAccess.watType || 'i32'));
