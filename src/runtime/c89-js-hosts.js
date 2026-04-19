@@ -193,6 +193,12 @@ function createMemoryAccess(getMemory) {
     v.setFloat64(ptr >>> 0, Number(value), true);
   }
 
+  function writeF32(ptr, value) {
+    const v = view();
+    if (!v || !ptr) return;
+    v.setFloat32(ptr >>> 0, Number(value), true);
+  }
+
   function readBytes(ptr, len) {
     const bytes = u8();
     if (!bytes || !ptr || len <= 0) return new Uint8Array(0);
@@ -246,6 +252,7 @@ function createMemoryAccess(getMemory) {
     writeI8,
     readF64,
     writeF64,
+    writeF32,
     readBytes,
     writeBytes,
     readCString,
@@ -936,6 +943,71 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
     };
   }
 
+  function readScanfFloat(readChar, unreadChar) {
+    let ch = readChar();
+    while (isSpaceChar(ch)) {
+      ch = readChar();
+    }
+
+    let text = '';
+    if (ch === 45 || ch === 43) {
+      text += String.fromCharCode(ch);
+      ch = readChar();
+    }
+
+    let hasDigits = false;
+
+    while (ch >= 48 && ch <= 57) {
+      hasDigits = true;
+      text += String.fromCharCode(ch);
+      ch = readChar();
+    }
+
+    if (ch === 46) {
+      text += '.';
+      ch = readChar();
+      while (ch >= 48 && ch <= 57) {
+        hasDigits = true;
+        text += String.fromCharCode(ch);
+        ch = readChar();
+      }
+    }
+
+    if (!hasDigits) {
+      unreadChar(ch);
+      return null;
+    }
+
+    if (ch === 101 || ch === 69) {
+      // Optional exponent: accept e[+/-]?digits when complete.
+      const expPrefix = String.fromCharCode(ch);
+      let expText = '';
+      let expCh = readChar();
+      if (expCh === 45 || expCh === 43) {
+        expText += String.fromCharCode(expCh);
+        expCh = readChar();
+      }
+      let expDigits = 0;
+      while (expCh >= 48 && expCh <= 57) {
+        expDigits += 1;
+        expText += String.fromCharCode(expCh);
+        expCh = readChar();
+      }
+      if (expDigits > 0) {
+        text += expPrefix + expText;
+        ch = expCh;
+      } else {
+        // Exponent marker without digits: keep numeric part parsed so far.
+        ch = expCh;
+      }
+    }
+
+    unreadChar(ch);
+    const value = Number(text);
+    if (!Number.isFinite(value)) return null;
+    return value;
+  }
+
   function scanFormattedInput(fmt, targets, readChar, unreadChar) {
     let assigned = 0;
     let targetIndex = 0;
@@ -987,9 +1059,11 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
         i += 1;
       }
 
+      let longCount = 0;
       while (i < fmt.length) {
         const fc = fmt.charAt(i);
         if (fc === 'h' || fc === 'l' || fc === 'L') {
+          if (fc === 'l' || fc === 'L') longCount += 1;
           i += 1;
           continue;
         }
@@ -999,13 +1073,20 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
       if (i >= fmt.length) break;
 
       const spec = fmt.charAt(i);
-      if (spec !== 'd' && spec !== 'i' && spec !== 'u' && spec !== 'x' && spec !== 'X') {
+      const isIntSpec = (spec === 'd' || spec === 'i' || spec === 'u' || spec === 'x' || spec === 'X');
+      const isFloatSpec = (spec === 'f' || spec === 'F' || spec === 'e' || spec === 'E' || spec === 'g' || spec === 'G');
+      if (!isIntSpec && !isFloatSpec) {
         break;
       }
 
-      const parsed = readScanfNumber(readChar, unreadChar, spec);
-      if (!parsed) {
-        break;
+      let parsedInt = null;
+      let parsedFloat = null;
+      if (isFloatSpec) {
+        parsedFloat = readScanfFloat(readChar, unreadChar);
+        if (parsedFloat == null) break;
+      } else {
+        parsedInt = readScanfNumber(readChar, unreadChar, spec);
+        if (!parsedInt) break;
       }
 
       if (!suppressAssign) {
@@ -1013,10 +1094,13 @@ function createStdioHosts(getMemory, allocator, cstr, opts = {}) {
         if (!targetPtr) {
           break;
         }
-        if (spec === 'd' || spec === 'i') {
-          mem.writeI32(targetPtr, parsed.signed);
+        if (isFloatSpec) {
+          if (longCount > 0) mem.writeF64(targetPtr, parsedFloat);
+          else mem.writeF32(targetPtr, parsedFloat);
+        } else if (spec === 'd' || spec === 'i') {
+          mem.writeI32(targetPtr, parsedInt.signed);
         } else {
-          mem.writeI32(targetPtr, parsed.unsigned);
+          mem.writeI32(targetPtr, parsedInt.unsigned);
         }
         assigned += 1;
       }
