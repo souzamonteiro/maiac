@@ -98,8 +98,19 @@ function resolveJsTarget(parts) {
  * @returns {boolean}
  */
 function isStringParam(paramDef) {
+  const baseType = String(paramDef && paramDef.cType ? paramDef.cType : '')
+    .replace(/\bconst\b|\bvolatile\b|\brestrict\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   return (paramDef.pointerDepth || 0) > 0
-    && (paramDef.cType === 'char' || paramDef.cType === 'signed char' || paramDef.cType === 'unsigned char');
+    && (baseType === 'char' || baseType === 'signed char' || baseType === 'unsigned char');
+}
+
+function isConsoleStringHost(envKey, paramDefs) {
+  return /^__console__(log|warn|error)$/.test(String(envKey || ''))
+    && Array.isArray(paramDefs)
+    && paramDefs.length === 1;
 }
 
 function alignUp(value, alignment) {
@@ -192,10 +203,11 @@ function buildHostEnv(hostImports, opts = {}) {
 
     env[envKey] = (...rawArgs) => {
       // Coerce each raw WASM argument to the correct JS value.
+      const forceConsoleString = isConsoleStringHost(envKey, paramDefs);
       const jsArgs = paramDefs.map((p, i) => {
         const raw = rawArgs[i] != null ? rawArgs[i] : 0;
 
-        if (isStringParam(p)) {
+        if (isStringParam(p) || (forceConsoleString && i === 0)) {
           const memory = getMemory();
           if (!memory) {
             throw new Error(
@@ -291,8 +303,9 @@ function generateHostEnvSource(hostImports) {
     }
 
     const paramNames = paramDefs.map((p, i) => `p${i}`);
+    const forceConsoleString = isConsoleStringHost(envKey, paramDefs);
     const argExprs = paramDefs.map((p, i) => {
-      if (isStringParam(p)) return `readCString(p${i})`;
+      if (isStringParam(p) || (forceConsoleString && i === 0)) return `readCString(p${i})`;
       return `p${i}`;
     });
 
