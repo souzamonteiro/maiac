@@ -284,6 +284,50 @@ function writeBrowserRunner(outDir, appName) {
         keys.forEach((key) => localStorage.removeItem(key));
       }
 
+      function createMachineAwareBridgeResolver(runtimeBridgeEntries, availableBridgeSymbols) {
+        const pointerToBridge = new Map();
+        const bridgeToPointer = new Map();
+
+        return function resolveResumeBridge(event) {
+          if (!event || availableBridgeSymbols.length === 0) {
+            return null;
+          }
+
+          const stateId = Number(event.stateId) | 0;
+          for (const entry of runtimeBridgeEntries) {
+            if (!entry || typeof entry.bridgeSymbol !== 'string') {
+              continue;
+            }
+
+            const start = entry.scheduleStateStart;
+            const end = entry.scheduleStateEnd;
+            if (Number.isInteger(start) && Number.isInteger(end) && stateId >= start && stateId <= end) {
+              return entry.bridgeSymbol;
+            }
+          }
+
+          const ptr = Number(event.smPtr) >>> 0;
+          const existing = pointerToBridge.get(ptr);
+          if (typeof existing === 'string') {
+            return existing;
+          }
+
+          let index = ptr % availableBridgeSymbols.length;
+          for (let attempt = 0; attempt < availableBridgeSymbols.length; attempt += 1) {
+            const candidate = availableBridgeSymbols[index];
+            const owner = bridgeToPointer.get(candidate);
+            if (owner == null || owner === ptr) {
+              pointerToBridge.set(ptr, candidate);
+              bridgeToPointer.set(candidate, ptr);
+              return candidate;
+            }
+            index = (index + 1) % availableBridgeSymbols.length;
+          }
+
+          return null;
+        };
+      }
+
       async function runApp() {
         outputEl.textContent = '';
         statusEl.textContent = 'Running...';
@@ -291,6 +335,17 @@ function writeBrowserRunner(outDir, appName) {
         try {
           const manifestResponse = await fetch('./manifest.json');
           const manifest = await manifestResponse.json();
+          const runtimeBridgeMeta = manifest
+            && manifest.asyncRuntime
+            && Array.isArray(manifest.asyncRuntime.resumeBridges)
+            ? manifest.asyncRuntime.resumeBridges
+            : [];
+          const runtimeBridgeEntries = runtimeBridgeMeta.map((item) => ({
+            bridgeSymbol: item && typeof item.bridgeSymbol === 'string' ? item.bridgeSymbol : null,
+            scheduleStateStart: Number.isInteger(item.scheduleStateStart) ? item.scheduleStateStart : null,
+            scheduleStateEnd: Number.isInteger(item.scheduleStateEnd) ? item.scheduleStateEnd : null
+          })).filter((item) => typeof item.bridgeSymbol === 'string' && item.bridgeSymbol.length > 0);
+          const availableBridgeSymbols = runtimeBridgeEntries.map((item) => item.bridgeSymbol);
           const response = await fetch('./${appName}.wasm');
           const bytes = await response.arrayBuffer();
           let memoryRef = null;
@@ -333,6 +388,20 @@ function writeBrowserRunner(outDir, appName) {
           const instance = instantiated.instance || instantiated;
           memoryRef = instance.exports.memory || null;
 
+          const exceptionRuntime = imports
+            && imports.env
+            && imports.env.__exceptionRuntime
+            && imports.env.__exceptionRuntime.scheduler
+            ? imports.env.__exceptionRuntime
+            : null;
+
+          if (exceptionRuntime && exceptionRuntime.scheduler && typeof exceptionRuntime.scheduler.setAutoResumeResolver === 'function') {
+            exceptionRuntime.scheduler.setAutoResumeResolver(
+              instance.exports,
+              createMachineAwareBridgeResolver(runtimeBridgeEntries, availableBridgeSymbols)
+            );
+          }
+
           const entry = instance.exports.main || instance.exports.test_entry;
           if (typeof entry !== 'function') {
             throw new Error('No main() or test_entry export found');
@@ -365,14 +434,76 @@ function writeNodeRunnerJs(outDir, appName) {
   const source = `#!/usr/bin/env node
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const app = require('./${appName}.js');
 
+function createMachineAwareBridgeResolver(runtimeBridgeEntries, availableBridgeSymbols) {
+  const pointerToBridge = new Map();
+  const bridgeToPointer = new Map();
+
+  return function resolveResumeBridge(event) {
+    if (!event || availableBridgeSymbols.length === 0) {
+      return null;
+    }
+
+    const stateId = Number(event.stateId) | 0;
+    for (const entry of runtimeBridgeEntries) {
+      if (!entry || typeof entry.bridgeSymbol !== 'string') {
+        continue;
+      }
+
+      const start = entry.scheduleStateStart;
+      const end = entry.scheduleStateEnd;
+      if (Number.isInteger(start) && Number.isInteger(end) && stateId >= start && stateId <= end) {
+        return entry.bridgeSymbol;
+      }
+    }
+
+    const ptr = Number(event.smPtr) >>> 0;
+    const existing = pointerToBridge.get(ptr);
+    if (typeof existing === 'string') {
+      return existing;
+    }
+
+    let index = ptr % availableBridgeSymbols.length;
+    for (let attempt = 0; attempt < availableBridgeSymbols.length; attempt += 1) {
+      const candidate = availableBridgeSymbols[index];
+      const owner = bridgeToPointer.get(candidate);
+      if (owner == null || owner === ptr) {
+        pointerToBridge.set(ptr, candidate);
+        bridgeToPointer.set(candidate, ptr);
+        return candidate;
+      }
+      index = (index + 1) % availableBridgeSymbols.length;
+    }
+
+    return null;
+  };
+}
+
 async function main() {
+  const manifestPath = path.join(__dirname, 'manifest.json');
+  const manifest = fs.existsSync(manifestPath)
+    ? JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    : {};
+  const runtimeBridgeMeta = manifest
+    && manifest.asyncRuntime
+    && Array.isArray(manifest.asyncRuntime.resumeBridges)
+    ? manifest.asyncRuntime.resumeBridges
+    : [];
+  const runtimeBridgeEntries = runtimeBridgeMeta.map((item) => ({
+    bridgeSymbol: item && typeof item.bridgeSymbol === 'string' ? item.bridgeSymbol : null,
+    scheduleStateStart: Number.isInteger(item.scheduleStateStart) ? item.scheduleStateStart : null,
+    scheduleStateEnd: Number.isInteger(item.scheduleStateEnd) ? item.scheduleStateEnd : null
+  })).filter((item) => typeof item.bridgeSymbol === 'string' && item.bridgeSymbol.length > 0);
+  const availableBridgeSymbols = runtimeBridgeEntries.map((item) => item.bridgeSymbol);
+  const resolveResumeExportName = createMachineAwareBridgeResolver(runtimeBridgeEntries, availableBridgeSymbols);
+
   const wasmPath = process.argv[2]
     ? path.resolve(process.argv[2])
     : path.join(__dirname, '${appName}.wasm');
-  const exitCode = await app.run(wasmPath);
+  const exitCode = await app.run(wasmPath, { resolveResumeExportName });
   process.stdout.write('\\n[node-runner] program returned: ' + exitCode + '\\n');
   process.exitCode = Number.isInteger(exitCode) ? exitCode : 0;
 }
