@@ -2,6 +2,12 @@
 
 MaiaC is a C-to-WebAssembly compiler focused on a practical C89 subset and a browser/Node execution workflow.
 
+## Process Documentation
+
+Mandatory cross-repository synchronization workflow:
+
+- [docs/Maia_Ecosystem_Synchronization_Protocol.md](docs/Maia_Ecosystem_Synchronization_Protocol.md)
+
 <img src="images/TheWebC.png" style="width: 512px; height: auto;" />
 
 ## Overview
