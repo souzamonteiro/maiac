@@ -1,0 +1,2 @@
+PASS sin_zero
+ALL PASS

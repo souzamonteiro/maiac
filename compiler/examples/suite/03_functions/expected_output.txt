@@ -1,0 +1,7 @@
+PASS factorial_5
+PASS factorial_7
+PASS fib_7
+PASS fib_10
+PASS swap
+PASS funcptr
+ALL PASS

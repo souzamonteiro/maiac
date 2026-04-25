@@ -1,0 +1,6 @@
+PASS pointer_read
+PASS pointer_arith
+PASS pointer_to_pointer
+PASS pointer_array
+PASS pointer_write
+ALL PASS

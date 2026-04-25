@@ -1,0 +1,5 @@
+PASS struct_point
+PASS nested_struct
+PASS union_int
+PASS enum_value
+ALL PASS

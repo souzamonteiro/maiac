@@ -1,0 +1,3 @@
+PASS host_console_log
+PASS host_math_sqrt
+ALL PASS

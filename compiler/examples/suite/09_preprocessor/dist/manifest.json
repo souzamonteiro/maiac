@@ -1,0 +1,30 @@
+{
+  "generatedAt": "2026-04-25T22:03:32.201Z",
+  "input": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/09_preprocessor/preprocessor.c",
+  "outDir": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/09_preprocessor/dist",
+  "appName": "preprocessor",
+  "artifacts": {
+    "wasm": "preprocessor.wasm",
+    "wrapper": "preprocessor.js",
+    "wat": "preprocessor.wat",
+    "browserRunner": "browser-runner.html",
+    "browserMemoryFileStore": "browser-memory-file-store.js",
+    "nodeRunner": "node-runner.js",
+    "nodeRunnerShell": "node-runner.sh"
+  },
+  "linkedLibraries": [
+    "stdio",
+    "string",
+    "preprocessor_defs"
+  ],
+  "copiedLibraries": [
+    "string"
+  ],
+  "runtimeProvidedHeaders": [
+    "stdio"
+  ],
+  "missingLibraries": [
+    "preprocessor_defs"
+  ],
+  "sourceBytes": 788
+}

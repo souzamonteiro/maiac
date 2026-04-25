@@ -1,0 +1,6 @@
+PASS object_macro
+PASS function_macro
+PASS nested_macro
+PASS conditional_macro
+PASS include_and_string
+ALL PASS

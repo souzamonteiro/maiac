@@ -227,6 +227,7 @@ Includes:
 
 - Preprocessor tests.
 - C89 mini-suite runtime validation.
+- Rich C89 example-suite dist/runtime validation (`compiler/examples/suite/`).
 - Large end-to-end example test.
 - `stdarg` end-to-end tests.
 - `setjmp/longjmp` bootstrap + emulated-resume tests.
@@ -241,6 +242,13 @@ For mini-suite artifacts (disabled by default):
 
 ```bash
 MAIAC_WRITE_TEST_OUTPUTS=1 node compiler/tests/test-c89-mini-suite.js
+```
+
+For the rich example suite directly:
+
+```bash
+bash compiler/examples/suite/build_all.sh
+bash compiler/examples/suite/run_all.sh
 ```
 
 ## Examples (Large + Small)

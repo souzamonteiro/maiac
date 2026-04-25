@@ -1,0 +1,3 @@
+PASS malloc_scalar
+PASS free
+ALL PASS

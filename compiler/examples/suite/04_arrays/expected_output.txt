@@ -1,0 +1,4 @@
+PASS array_sum
+PASS matrix_trace
+PASS bubble_sort
+ALL PASS
