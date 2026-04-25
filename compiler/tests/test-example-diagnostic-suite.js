@@ -27,6 +27,30 @@ const cases = [
     kind: 'runtime-failure',
     expectedPattern: /imported function does not match the expected type/,
     limitation: 'Generated dist node runner still does not provide a compatible setjmp/longjmp import path.'
+  },
+  {
+    file: '04_time_basic_dist.c',
+    kind: 'runtime-failure',
+    expectedPattern: /program returned: 31/,
+    limitation: 'Direct dist runner still returns a non-positive value for basic time() in standalone examples.'
+  },
+  {
+    file: '05_time_struct_runtime.c',
+    kind: 'runtime-failure',
+    expectedPattern: /program returned: 11/,
+    limitation: 'Direct dist runner still does not produce a usable gmtime/strftime flow in standalone examples.'
+  },
+  {
+    file: '06_locale_basic_dist.c',
+    kind: 'runtime-failure',
+    expectedPattern: /program returned: 41/,
+    limitation: 'Direct dist runner still returns null from basic setlocale() in standalone examples.'
+  },
+  {
+    file: '07_localeconv_structs.c',
+    kind: 'compile-failure',
+    expectedPattern: /Unknown struct layout for pointer 'conv'/,
+    limitation: 'Direct dist/example path still cannot compile localeconv()-backed lconv struct access.'
   }
 ];
 

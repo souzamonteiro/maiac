@@ -27,6 +27,10 @@
 - [ ] High priority: direct dist/example path still rejects `FILE *`-based stdio file examples with `Unknown symbol 'FILE'`.
 - [ ] High priority: direct dist/example path still rejects `stdarg.h` variadic examples during compilation (`Expected at least one translationUnitItem`).
 - [ ] High priority: generated dist node runner still cannot execute `setjmp/longjmp` examples due to import signature mismatch for `longjmp`.
+- [ ] High priority: direct dist node runner still returns a non-positive `time()` result in standalone examples, despite host-runtime unit coverage for `time`/`clock`.
+- [ ] High priority: direct dist node runner still does not produce a usable `gmtime`/`strftime` standalone path.
+- [ ] High priority: direct dist node runner still returns `NULL` from standalone `setlocale()` examples.
+- [ ] High priority: direct dist/example compilation still cannot lower `localeconv()` / `struct lconv` access (`Unknown struct layout for pointer 'conv'`).
 
 ## Completed Milestones
 

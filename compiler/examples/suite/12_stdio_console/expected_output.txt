@@ -1,0 +1,3 @@
+PASS puts
+PASS printf
+ALL PASS

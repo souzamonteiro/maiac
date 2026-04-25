@@ -15,6 +15,7 @@ Focused runtime-oriented examples that validate MaiaC from C89 source to WAT/WAS
 - `09_preprocessor` - local includes and macro expansion
 - `10_stdlib_math` - stdlib conversions and math support
 - `11_host_extern` - host import bridge (`__console__log`, `__Math__sqrt`)
+- `12_stdio_console` - console-oriented stdio through the generated dist runner (`puts`, `printf`)
 
 Each directory contains:
 
@@ -46,11 +47,11 @@ This suite is intentionally close in spirit to the MaiaCpp suite, but targets Ma
 
 - The current suite is a green regression suite: every included case builds, runs, and matches expected output.
 - MaiaC looks solid for the practical subset covered here: control flow, function calls, arrays, pointers, structs/enums, focused preprocessing, host externs, and basic runtime integration all passed end-to-end.
+- Console-oriented stdio is now directly covered by the dist runner, which gives a clearer split between working `puts`/`printf` and the still-diagnostic `FILE *`-backed file workflow.
 - The suite does not prove full libc/runtime breadth. During construction, broader heap-array and math/libc patterns were trimmed down to the subset that is stable today.
 - In practice, this means the suite is good evidence for current stability, but it should not be read as proof that all hosted C89 library behavior is equally mature.
 
 ## Pending Expansion
 
-- Add dedicated examples for richer `stdio` file operations.
-- Add standalone examples for `time`, `locale`, `stdarg`, and `setjmp/longjmp`.
-- Add a separate diagnostic suite for more aggressive patterns that may still expose compiler/runtime gaps.
+- Promote additional hosted-library examples into the green suite only after they are proven on the generated dist runner.
+- Keep `FILE *`, `time`, `locale`, `stdarg`, and `setjmp/longjmp` reproductions in the diagnostic suite until their direct dist/example path is stable.
