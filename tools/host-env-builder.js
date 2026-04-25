@@ -310,13 +310,18 @@ function generateHostEnvSource(hostImports) {
     });
 
     // Build the JS call expression: console.log(...) or alert(...) etc.
-    const callTarget = parts.length > 1
+    let callTarget = parts.length > 1
       ? `${parts.slice(0, -1).join('.')}.${parts[parts.length - 1]}`
       : parts[0];
 
     const fnParams = paramNames.join(', ');
     const fnArgs = argExprs.join(', ');
 
+    // Special handling for 'new' keyword: use space, not dot
+    if (parts.length > 1 && parts[0] === 'new') {
+      // new Constructor(args)
+      callTarget = `new ${parts.slice(1).join('.')}`;
+    }
     lines.push(`    ${JSON.stringify(envKey)}: (${fnParams}) => ${callTarget}(${fnArgs}),`);
   }
 
