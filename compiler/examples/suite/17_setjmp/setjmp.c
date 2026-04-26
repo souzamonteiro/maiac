@@ -1,4 +1,4 @@
-/* Diagnostic: direct dist-runner path for setjmp/longjmp. */
+#include <stdio.h>
 #include <setjmp.h>
 
 static jmp_buf env;
@@ -14,8 +14,13 @@ int main(void) {
     int rc;
 
     rc = setjmp(env);
-    if (rc == 7) return 0;
-    if (rc != 0) return 98;
-    dive(2);
+    if (rc == 0) {
+        dive(2);
+    } else if (rc == 7) {
+        printf("PASS setjmp_longjmp\n");
+        printf("ALL PASS\n");
+        return 0;
+    }
+
     return 99;
 }

@@ -4926,9 +4926,22 @@ function compilePostfixExpression(node, context, keepValue) {
     tolower:  { paramTypes: ['i32'], resultType: 'i32' },
     toupper:  { paramTypes: ['i32'], resultType: 'i32' }
   };
+  const timeLocaleHostSignatures = {
+    time: { paramTypes: ['i32'], resultType: 'i32' },
+    clock: { paramTypes: [], resultType: 'i32' },
+    difftime: { paramTypes: ['i32', 'i32'], resultType: 'f64' },
+    localtime: { paramTypes: ['i32'], resultType: 'i32' },
+    gmtime: { paramTypes: ['i32'], resultType: 'i32' },
+    mktime: { paramTypes: ['i32'], resultType: 'i32' },
+    asctime: { paramTypes: ['i32'], resultType: 'i32' },
+    ctime: { paramTypes: ['i32'], resultType: 'i32' },
+    strftime: { paramTypes: ['i32', 'i32', 'i32', 'i32'], resultType: 'i32' },
+    setlocale: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    localeconv: { paramTypes: [], resultType: 'i32' }
+  };
   const setjmpHostSignatures = {
-    setjmp: { paramTypes: ['i32'], resultType: 'i32' },
-    longjmp: { paramTypes: ['i32', 'i32'], resultType: 'i32' }
+    setjmp: { paramTypes: ['i32'], resultType: 'i32', field: '_setjmp_capture_js' },
+    longjmp: { paramTypes: ['i32', 'i32'], resultType: 'i32', field: '_longjmp_unwind_js' }
   };
   const variadicStdIoHostSignatures = {
     printf: { arity: 8, paramType: 'f64', resultType: 'i32' },
@@ -4956,13 +4969,15 @@ function compilePostfixExpression(node, context, keepValue) {
     const variadicStdIoHost = variadicStdIoHostSignatures[calleeName] || null;
     const fixedStdIoHost = fixedStdIoHostSignatures[calleeName] || null;
     const ctypeHost = ctypeHostSignatures[calleeName] || null;
+    const timeLocaleHost = timeLocaleHostSignatures[calleeName] || null;
     const setjmpHost = setjmpHostSignatures[calleeName] || null;
     const isVariadicStdIoHost = !!variadicStdIoHost;
     const isFixedStdIoHost = !!fixedStdIoHost;
     const isCtypeHost = !!ctypeHost;
+    const isTimeLocaleHost = !!timeLocaleHost;
     const isSetjmpHost = !!setjmpHost;
 
-    if (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost || isCtypeHost || isSetjmpHost) {
+    if (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost || isCtypeHost || isTimeLocaleHost || isSetjmpHost) {
       let importDef;
 
       if (isVariadicStdIoHost) {
@@ -4996,12 +5011,21 @@ function compilePostfixExpression(node, context, keepValue) {
           paramTypes: ctypeHost.paramTypes,
           resultType: ctypeHost.resultType
         });
-      } else if (isSetjmpHost) {
+      } else if (isTimeLocaleHost) {
         importDef = ensureImportedFunction(context.module, {
           sourceName: calleeName,
           internalName: `imp_${sanitizeIdentifier(calleeName)}`,
           module: 'env',
           field: calleeName,
+          paramTypes: timeLocaleHost.paramTypes,
+          resultType: timeLocaleHost.resultType
+        });
+      } else if (isSetjmpHost) {
+        importDef = ensureImportedFunction(context.module, {
+          sourceName: calleeName,
+          internalName: `imp_${sanitizeIdentifier(calleeName)}`,
+          module: 'env',
+          field: setjmpHost.field || calleeName,
           paramTypes: setjmpHost.paramTypes,
           resultType: setjmpHost.resultType
         });

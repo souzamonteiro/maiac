@@ -1,0 +1,2 @@
+PASS setjmp_longjmp
+ALL PASS

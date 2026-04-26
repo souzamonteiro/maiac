@@ -20,8 +20,8 @@
  *                   Example: -o out/hello  →  out/hello.wasm, out/hello.js
  *   --wat           Also write the WAT source file (<output>.wat)
  *   --no-validate   Skip WAT/WASM validation
- *   --resolve-system-includes  Expand system includes (<...>) via include dirs
- *   --no-system-includes       Disable system include expansion (default)
+ *   --resolve-system-includes  Expand system includes (<...>) via include dirs (default)
+ *   --no-system-includes       Disable system include expansion
  *   --run           After compiling, run the WASM module with Node (requires
  *                   a main() export)
  *   -h, --help      Show this help message
@@ -54,8 +54,8 @@ Options:
   -o <base>       Output base path (no extension). Default: same dir as input.
   --wat           Also emit a .wat source file alongside the .wasm
   --no-validate   Skip WAT/WASM validation step
-  --resolve-system-includes  Enable system include expansion
-  --no-system-includes       Disable system include expansion (default)
+  --resolve-system-includes  Enable system include expansion (default)
+  --no-system-includes       Disable system include expansion
   --dist          Create a distributable output folder (browser + Node runner)
   --dist-run      Create dist and run dist/node-runner.js immediately
   --out-dir <dir> Dist output directory (used with --dist; default: ./dist)
@@ -82,7 +82,7 @@ function parseArgs(argv) {
     outBase:  null,
     wat:      false,
     validate: true,
-    resolveSystemIncludes: false,
+    resolveSystemIncludes: true,
     dist:     false,
     distRun:  false,
     outDir:   null,

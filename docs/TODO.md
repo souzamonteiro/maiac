@@ -24,13 +24,7 @@
 
 ## Concrete Diagnostic-Suite Findings
 
-- [ ] High priority: direct dist/example path still rejects `FILE *`-based stdio file examples with `Unknown symbol 'FILE'`.
-- [ ] High priority: direct dist/example path still rejects `stdarg.h` variadic examples during compilation (`Expected at least one translationUnitItem`).
-- [ ] High priority: generated dist node runner still cannot execute `setjmp/longjmp` examples due to import signature mismatch for `longjmp`.
-- [ ] High priority: direct dist node runner still returns a non-positive `time()` result in standalone examples, despite host-runtime unit coverage for `time`/`clock`.
-- [ ] High priority: direct dist node runner still does not produce a usable `gmtime`/`strftime` standalone path.
-- [ ] High priority: direct dist node runner still returns `NULL` from standalone `setlocale()` examples.
-- [ ] High priority: direct dist/example compilation still cannot lower `localeconv()` / `struct lconv` access (`Unknown struct layout for pointer 'conv'`).
+- [ ] Add new aggressive hosted-lib diagnostic cases beyond the now-resolved baseline (`FILE`, `stdarg`, `time`, `locale`, `setjmp`) to catch future regressions earlier.
 
 ## Completed Milestones
 
@@ -42,3 +36,5 @@
 - [x] Large example end-to-end runtime test added and passing.
 - [x] Test artifact generation made opt-in (`MAIAC_WRITE_TEST_OUTPUTS=1`).
 - [x] Rich C89 example suite added under `compiler/examples/suite` and integrated into `compiler/tests/test-all.js`.
+- [x] Direct dist/example path now resolves system headers by default, so header-defined types like `FILE` are processed from real includes.
+- [x] Direct dist/example hosted-lib regressions resolved for `FILE` stdio, `stdarg`, `time`, `locale`, and `setjmp/longjmp`.

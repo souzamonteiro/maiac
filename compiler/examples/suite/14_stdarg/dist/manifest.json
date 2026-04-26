@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-04-26T00:47:38.074Z",
+  "input": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/14_stdarg/stdarg.c",
+  "outDir": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/14_stdarg/dist",
+  "appName": "stdarg",
+  "artifacts": {
+    "wasm": "stdarg.wasm",
+    "wrapper": "stdarg.js",
+    "wat": "stdarg.wat",
+    "browserRunner": "browser-runner.html",
+    "browserMemoryFileStore": "browser-memory-file-store.js",
+    "nodeRunner": "node-runner.js",
+    "nodeRunnerShell": "node-runner.sh"
+  },
+  "linkedLibraries": [
+    "stdio",
+    "stdarg"
+  ],
+  "copiedLibraries": [],
+  "runtimeProvidedHeaders": [
+    "stdio"
+  ],
+  "missingLibraries": [],
+  "sourceBytes": 353
+}

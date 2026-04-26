@@ -1,0 +1,3 @@
+PASS time_basic
+PASS gmtime_strftime
+ALL PASS

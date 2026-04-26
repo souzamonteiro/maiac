@@ -1,0 +1,2 @@
+PASS stdio_file
+ALL PASS

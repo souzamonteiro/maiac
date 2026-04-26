@@ -16,6 +16,11 @@ Focused runtime-oriented examples that validate MaiaC from C89 source to WAT/WAS
 - `10_stdlib_math` - stdlib conversions and math support
 - `11_host_extern` - host import bridge (`__console__log`, `__Math__sqrt`)
 - `12_stdio_console` - console-oriented stdio through the generated dist runner (`puts`, `printf`)
+- `13_stdio_file` - FILE-backed stdio file workflow (`fopen`, `fread`, `fwrite`, `fseek`, `fclose`)
+- `14_stdarg` - variadic argument handling (`va_start`, `va_arg`, `va_end`)
+- `15_time` - time host integration (`time`, `clock`, `gmtime`, `strftime`)
+- `16_locale` - locale host integration (`setlocale`, `localeconv`)
+- `17_setjmp` - non-local jump flow (`setjmp`, `longjmp`)
 
 Each directory contains:
 
@@ -48,10 +53,11 @@ This suite is intentionally close in spirit to the MaiaCpp suite, but targets Ma
 - The current suite is a green regression suite: every included case builds, runs, and matches expected output.
 - MaiaC looks solid for the practical subset covered here: control flow, function calls, arrays, pointers, structs/enums, focused preprocessing, host externs, and basic runtime integration all passed end-to-end.
 - Console-oriented stdio is now directly covered by the dist runner, which gives a clearer split between working `puts`/`printf` and the still-diagnostic `FILE *`-backed file workflow.
+- Hosted library coverage now includes direct dist-runner validation for `FILE`-backed stdio, `stdarg`, `time`, `locale`, and `setjmp/longjmp`.
 - The suite does not prove full libc/runtime breadth. During construction, broader heap-array and math/libc patterns were trimmed down to the subset that is stable today.
 - In practice, this means the suite is good evidence for current stability, but it should not be read as proof that all hosted C89 library behavior is equally mature.
 
 ## Pending Expansion
 
-- Promote additional hosted-library examples into the green suite only after they are proven on the generated dist runner.
-- Keep `FILE *`, `time`, `locale`, `stdarg`, and `setjmp/longjmp` reproductions in the diagnostic suite until their direct dist/example path is stable.
+- Keep the diagnostic suite for regression watchpoints and future aggressive hosted-lib edge cases.
+- Expand toward additional libc/runtime breadth only after each case is validated in dist-runner E2E.
