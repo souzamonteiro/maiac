@@ -223,6 +223,14 @@ Run the full bundle:
 node compiler/tests/test-all.js
 ```
 
+Run full regression (bundle + additional focused diagnostics):
+
+```bash
+bash tools/run-full-tests.sh
+# or
+npm run test:full
+```
+
 Includes:
 
 - Preprocessor tests.
@@ -231,6 +239,10 @@ Includes:
 - Large end-to-end example test.
 - `stdarg` end-to-end tests.
 - `setjmp/longjmp` bootstrap + emulated-resume tests.
+
+The full-regression script also executes focused tests that are intentionally kept
+outside `test-all.js` (debug/diagnostic pointer and WAT checks) to provide a
+broader post-change safety net.
 
 Optional JSON report:
 

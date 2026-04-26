@@ -26,6 +26,7 @@
   ],
   "scripts": {
     "test": "node compiler/tests/test-all.js",
+    "test:full": "bash tools/run-full-tests.sh",
     "build:parser": "bash tools/build-c-parser.sh",
     "build:libs": "node tools/build-libs.js",
     "dist:create": "node tools/webc.js --dist",

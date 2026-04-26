@@ -360,9 +360,13 @@ function resolveStructLayout(structName, moduleModel, inlineLayout = null, seenL
     layout = moduleModel.structsByName.get(structName);
   } else if (structName && moduleModel.pendingStructLayouts && moduleModel.pendingStructLayouts.length > 0) {
     const matchingPending = moduleModel.pendingStructLayouts.find((candidate) => candidate && candidate.name === structName);
+    if (matchingPending) {
+      layout = registerStructLayout(matchingPending, moduleModel, structName);
+    }
+  } else if (!structName && moduleModel.pendingStructLayouts && moduleModel.pendingStructLayouts.length > 0) {
     const unnamedPending = moduleModel.pendingStructLayouts.find((candidate) => candidate && !candidate.name);
-    const fallbackLayout = matchingPending || unnamedPending || moduleModel.pendingStructLayouts[0];
-    layout = registerStructLayout(fallbackLayout, moduleModel, structName || (fallbackLayout && fallbackLayout.name) || null);
+    const fallbackLayout = unnamedPending || moduleModel.pendingStructLayouts[0];
+    layout = registerStructLayout(fallbackLayout, moduleModel, (fallbackLayout && fallbackLayout.name) || null);
   }
 
   return layout ? finalizeStructLayout(layout, moduleModel, seenLayouts) : null;
@@ -1275,6 +1279,10 @@ function parseCSource(source, options = {}) {
   };
 }
 
+function declarationHasTypedefSpecifier(specifierNode) {
+  return !!findFirst(specifierNode, (candidate) => isTerminal(candidate, 'TOKEN_typedef'));
+}
+
 function functionRequiresLinearMemory(functionNode) {
   return !!findFirst(functionNode, (candidate) => {
     if (isNonterminal(candidate, 'pointer')) {
@@ -1414,9 +1422,14 @@ function buildModuleModel(ast, options = {}) {
       registerEnumConstantsFromDeclaration(declaration, moduleModel);
 
       const declarationSpecifiers = firstNonterminal(declaration, 'declarationSpecifiers');
+      const isTypedefDeclaration = declarationHasTypedefSpecifier(declarationSpecifiers);
       const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
       if (typeInfo.typeKind === 'struct') {
         registerStructLayout(typeInfo.structLayout, moduleModel, typeInfo.structName || null);
+      }
+
+      if (isTypedefDeclaration) {
+        continue;
       }
 
       for (const itemDef of extractDeclarationItems(declaration, moduleModel)) {

@@ -363,7 +363,8 @@ function processPreprocessorDirectives(source, options = {}) {
         try {
           context.includeStack.add(resolvedPath);
           const includedSource = fs.readFileSync(resolvedPath, 'utf8');
-          outputLines.push(processText(normalizeNewlines(includedSource), path.dirname(resolvedPath)));
+          const normalizedIncluded = injectAnonymousTypedefTags(joinLineContinuations(includedSource));
+          outputLines.push(processText(normalizedIncluded, path.dirname(resolvedPath)));
         } catch (_error) {
           outputLines.push('');
         } finally {
