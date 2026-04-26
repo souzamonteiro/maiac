@@ -15,6 +15,33 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
+  ;; global FILE
+  (global $FILE (mut i32) (i32.const 0))
+
+  ;; global fpos_t
+  (global $fpos_t (mut i64) (i64.const 0))
+
+  ;; global stdin
+  (global $stdin (mut i32) (i32.const 0))
+
+  ;; global stdout
+  (global $stdout (mut i32) (i32.const 0))
+
+  ;; global stderr
+  (global $stderr (mut i32) (i32.const 0))
+
+  ;; global div_t
+  (global $div_t (mut i32) (i32.const 0))
+
+  ;; global ldiv_t
+  (global $ldiv_t (mut i32) (i32.const 0))
+
+  ;; global size_t
+  (global $size_t (mut i32) (i32.const 0))
+
+  ;; global wchar_t
+  (global $wchar_t (mut i32) (i32.const 0))
+
   (data (i32.const 16) "PASS sin_zero\0a\00")
   (data (i32.const 32) "ALL PASS\0a\00")
 
@@ -68,4 +95,13 @@
   (export "memory" (memory $mem))
   (export "__frame_ptr" (global $__frame_ptr))
   (export "__stack_ptr" (global $__stack_ptr))
+  (export "FILE" (global $FILE))
+  (export "fpos_t" (global $fpos_t))
+  (export "stdin" (global $stdin))
+  (export "stdout" (global $stdout))
+  (export "stderr" (global $stderr))
+  (export "div_t" (global $div_t))
+  (export "ldiv_t" (global $ldiv_t))
+  (export "size_t" (global $size_t))
+  (export "wchar_t" (global $wchar_t))
 )

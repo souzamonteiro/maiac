@@ -16,6 +16,21 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
+  ;; global FILE
+  (global $FILE (mut i32) (i32.const 0))
+
+  ;; global fpos_t
+  (global $fpos_t (mut i64) (i64.const 0))
+
+  ;; global stdin
+  (global $stdin (mut i32) (i32.const 0))
+
+  ;; global stdout
+  (global $stdout (mut i32) (i32.const 0))
+
+  ;; global stderr
+  (global $stderr (mut i32) (i32.const 0))
+
   (data (i32.const 16) "PASS puts\00")
   (data (i32.const 28) "PASS printf\0a\00")
   (data (i32.const 44) "ALL PASS\0a\00")
@@ -59,4 +74,9 @@
   (export "memory" (memory $mem))
   (export "__frame_ptr" (global $__frame_ptr))
   (export "__stack_ptr" (global $__stack_ptr))
+  (export "FILE" (global $FILE))
+  (export "fpos_t" (global $fpos_t))
+  (export "stdin" (global $stdin))
+  (export "stdout" (global $stdout))
+  (export "stderr" (global $stderr))
 )
