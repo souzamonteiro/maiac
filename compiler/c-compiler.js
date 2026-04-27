@@ -1264,7 +1264,8 @@ function parseCSource(source, options = {}) {
   const collector = new ParseTreeCollector();
   const parser = new Parser(normalizedSource, collector);
 
-  parser.parse();
+  //parser.parse();
+  collector.parse(parser, normalizedSource);
 
   if (!collector.root) {
     throw new Error('No AST was generated from the parsed input');
