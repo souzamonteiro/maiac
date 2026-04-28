@@ -31,15 +31,28 @@ class ParseTreeCollector {
 
   checkpoint() {
     return {
-      stack: structuredClone(this.stack),
-      root: structuredClone(this.root)
+      stackLength: this.stack.length,
+      childCounts: this.stack.map((node) => Array.isArray(node.children) ? node.children.length : 0),
+      root: this.root
     };
   }
 
   restore(mark) {
     if (!mark) return;
-    this.stack = mark.stack;
-    this.root = mark.root;
+
+    while (this.stack.length > mark.stackLength) {
+      this.stack.pop();
+    }
+
+    for (let index = 0; index < this.stack.length; index += 1) {
+      const node = this.stack[index];
+      const childCount = mark.childCounts[index] ?? 0;
+      if (Array.isArray(node.children) && node.children.length > childCount) {
+        node.children.length = childCount;
+      }
+    }
+
+    this.root = mark.root || null;
   }
 
   startNonterminal(name) {

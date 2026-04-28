@@ -31,7 +31,8 @@ const fs   = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { compileSource }         = require('../compiler/c-compiler.js');
+const { compileSource, parseCSource } = require('../compiler/c-compiler.js');
+const { printTree } = require('../compiler/parse-tree-collector.js');
 const { generateHostEnvSource } = require('./host-env-builder.js');
 const { createPrintfHost }      = require('../src/runtime/stdio.js');
 const { buildHostEnv }          = require('./host-env-builder.js');
@@ -56,6 +57,12 @@ Options:
   --no-validate   Skip WAT/WASM validation step
   --resolve-system-includes  Enable system include expansion (default)
   --no-system-includes       Disable system include expansion
+  --parser-only    Parse only (skip WAT/WASM generation)
+  --ast            Print parse tree
+  --print-json     Print parse tree JSON
+  --print-xml      Print parse tree XML
+  --json-out <f>   Save parse tree JSON to file
+  --xml-out <f>    Save parse tree XML to file
   --dist          Create a distributable output folder (browser + Node runner)
   --dist-run      Create dist and run dist/node-runner.js immediately
   --out-dir <dir> Dist output directory (used with --dist; default: ./dist)
@@ -66,6 +73,7 @@ Options:
 Examples:
   node tools/webc.js compiler/examples/test-extern.c
   node tools/webc.js hello.c -o ./out/hello --wat --run
+  node tools/webc.js compiler/examples/test.c --parser-only --print-json
   node tools/webc.js compiler/examples/test.c --dist --out-dir dist --name test
   node tools/webc.js compiler/examples/test.c --dist-run --out-dir dist --name test
 `.trim());
@@ -83,6 +91,12 @@ function parseArgs(argv) {
     wat:      false,
     validate: true,
     resolveSystemIncludes: true,
+    parserOnly: false,
+    showAst: false,
+    printJson: false,
+    printXml: false,
+    jsonOut: null,
+    xmlOut: null,
     dist:     false,
     distRun:  false,
     outDir:   null,
@@ -98,6 +112,18 @@ function parseArgs(argv) {
     else if (a === '--no-validate')   { opts.validate = false; }
     else if (a === '--resolve-system-includes') { opts.resolveSystemIncludes = true; }
     else if (a === '--no-system-includes')      { opts.resolveSystemIncludes = false; }
+    else if (a === '--parser-only')   { opts.parserOnly = true; }
+    else if (a === '--ast')           { opts.showAst = true; }
+    else if (a === '--print-json')    { opts.printJson = true; }
+    else if (a === '--print-xml')     { opts.printXml = true; }
+    else if (a === '--json-out') {
+      i++;
+      opts.jsonOut = args[i] || null;
+    }
+    else if (a === '--xml-out') {
+      i++;
+      opts.xmlOut = args[i] || null;
+    }
     else if (a === '--dist')          { opts.dist = true; }
     else if (a === '--dist-run')      { opts.dist = true; opts.distRun = true; }
     else if (a === '--out-dir') {
@@ -165,6 +191,12 @@ function runEntrypointWithLongjmpResume(entry, maxAttempts = 32) {
 function copyFile(src, dst) {
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   fs.copyFileSync(src, dst);
+}
+
+function writeOutputFile(filePath, content) {
+  const absolutePath = path.resolve(filePath);
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, content);
 }
 
 function writeBrowserRunner(outDir, appName) {
@@ -921,6 +953,56 @@ async function main() {
   // ------------------------------------------------------------------
   const source = fs.readFileSync(inputPath, 'utf8');
   const requiredLibraries = extractHeaderLibraries(source);
+
+  const parserOnlyMode = opts.parserOnly
+    || opts.showAst
+    || opts.printJson
+    || opts.printXml
+    || !!opts.jsonOut
+    || !!opts.xmlOut;
+
+  if (parserOnlyMode) {
+    const parseResult = parseCSource(source, {
+      sourcePath: inputPath,
+      includeDirs: [
+        path.join(ROOT, 'compiler', 'include'),
+        path.join(ROOT, 'include')
+      ],
+      resolveSystemIncludes: opts.resolveSystemIncludes,
+    });
+
+    const shouldPrintAst = opts.showAst || (!opts.printJson && !opts.printXml && !opts.jsonOut && !opts.xmlOut);
+
+    if (shouldPrintAst) {
+      console.log('--- AST ---');
+      printTree(parseResult.ast);
+      console.log('');
+    }
+
+    if (opts.printXml) {
+      console.log('--- XML ---');
+      console.log(parseResult.xml);
+      console.log('');
+    }
+
+    if (opts.printJson) {
+      console.log('--- JSON ---');
+      console.log(parseResult.json);
+      console.log('');
+    }
+
+    if (opts.jsonOut) {
+      writeOutputFile(opts.jsonOut, parseResult.json);
+      console.log(`[webc] json  → ${path.resolve(opts.jsonOut)}`);
+    }
+
+    if (opts.xmlOut) {
+      writeOutputFile(opts.xmlOut, parseResult.xml);
+      console.log(`[webc] xml   → ${path.resolve(opts.xmlOut)}`);
+    }
+
+    return;
+  }
 
   let result;
   try {
