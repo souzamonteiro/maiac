@@ -1007,14 +1007,14 @@ function registerEnumConstantsFromDeclaration(declarationNode, moduleModel) {
     }
   }
 }
-function extractParameters(parameterListNode) {
+function extractParameters(parameterListNode, moduleModel = null) {
   if (!parameterListNode) return [];
 
   return nonterminalChildren(parameterListNode, 'parameterDeclaration')
     .map((parameterNode, index) => {
       const declarationSpecifiers = firstNonterminal(parameterNode, 'declarationSpecifiers');
       const declaratorNode = firstNonterminal(parameterNode, 'declarator');
-      const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers);
+      const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
       const rawPointerDepth = declaratorNode ? countPointerDepthInDeclarator(declaratorNode) : 0;
       const declaredAsArray = declaratorNode ? hasArrayDeclaratorSuffix(declaratorNode) : false;
       const arrayDimensions = declaratorNode ? extractArrayDimensionsFromDeclarator(declaratorNode) : [];
@@ -1050,7 +1050,27 @@ function extractParameters(parameterListNode) {
     .filter(Boolean);
 }
 
-function extractDeclaratorInfo(declaratorNode) {
+function countLeadingPointerDepthInDeclarator(declaratorNode) {
+  if (!declaratorNode || declaratorNode.kind !== 'nonterminal') {
+    return 0;
+  }
+
+  for (const child of childNodes(declaratorNode)) {
+    if (isNonterminal(child, 'pointer')) {
+      return findAll(
+        child,
+        (candidate) => candidate && candidate.kind === 'terminal' && candidate.token === 'TOKEN__2A_'
+      ).length;
+    }
+    if (isNonterminal(child, 'directDeclarator')) {
+      break;
+    }
+  }
+
+  return 0;
+}
+
+function extractDeclaratorInfo(declaratorNode, moduleModel = null) {
   const directDeclarator = firstNonterminal(declaratorNode, 'directDeclarator')
     || findFirstNonterminal(declaratorNode, 'directDeclarator');
 
@@ -1070,10 +1090,41 @@ function extractDeclaratorInfo(declaratorNode) {
   return {
     sourceName: identifier.value,
     name: sanitizeIdentifier(identifier.value),
-    pointerDepth: countPointerDepthInDeclarator(declaratorNode),
-    params: extractParameters(parameterList),
+    pointerDepth: countLeadingPointerDepthInDeclarator(declaratorNode),
+    params: extractParameters(parameterList, moduleModel),
     isVariadic
   };
+}
+
+function emitCopyBytesFromAddress(destinationAddressInstructions, sourceAddressInstructions, byteSize) {
+  const safeByteSize = Math.max(0, Number(byteSize) || 0);
+  const wordCount = Math.floor(safeByteSize / 4);
+  const remainderBytes = safeByteSize % 4;
+  const instructions = [];
+
+  for (let offset = 0; offset < wordCount * 4; offset += 4) {
+    instructions.push(
+      ...withAddressOffset(destinationAddressInstructions, offset),
+      ...sourceAddressInstructions,
+      `i32.const ${offset}`,
+      'i32.add',
+      'i32.load',
+      'i32.store'
+    );
+  }
+
+  for (let offset = wordCount * 4; offset < wordCount * 4 + remainderBytes; offset += 1) {
+    instructions.push(
+      ...withAddressOffset(destinationAddressInstructions, offset),
+      ...sourceAddressInstructions,
+      `i32.const ${offset}`,
+      'i32.add',
+      'i32.load8_u',
+      'i32.store8'
+    );
+  }
+
+  return instructions;
 }
 
 function createVariadicBaseParam() {
@@ -1207,7 +1258,7 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
 
   return nonterminalChildren(initDeclaratorList, 'initDeclarator').map((initDeclaratorNode, index) => {
     const declaratorNode = firstNonterminal(initDeclaratorNode, 'declarator');
-    const declaratorInfo = extractDeclaratorInfo(declaratorNode);
+    const declaratorInfo = extractDeclaratorInfo(declaratorNode, moduleModel);
     const initializerNode = firstNonterminal(initDeclaratorNode, 'initializer');
     const isFunctionDeclaration = hasFunctionDeclaratorSuffix(declaratorNode);
     const arrayDimensions = extractArrayDimensionsFromDeclarator(declaratorNode);
@@ -1387,14 +1438,17 @@ function buildModuleModel(ast, options = {}) {
     if (functionDefinition) {
       const declarationSpecifiers = firstNonterminal(functionDefinition, 'declarationSpecifiers');
       const declaratorNode = firstNonterminal(functionDefinition, 'declarator');
-      const declaratorInfo = extractDeclaratorInfo(declaratorNode);
+      const declaratorInfo = extractDeclaratorInfo(declaratorNode, moduleModel);
       const returnTypeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
       const returnPointerDepth = declaratorInfo.pointerDepth || 0;
       const returnIsStruct = returnTypeInfo.typeKind === 'struct' && returnPointerDepth === 0;
-      const baseResultType = returnTypeInfo.baseWatType || 'i32';
-      const resultType = baseResultType === null
+      const baseResultType = returnTypeInfo.baseWatType === undefined
+        ? 'i32'
+        : returnTypeInfo.baseWatType;
+      const isPlainVoidReturn = baseResultType === null && returnPointerDepth === 0 && !returnIsStruct;
+      const resultType = isPlainVoidReturn
         ? null
-        : toWatType((returnPointerDepth > 0 || returnIsStruct) ? 'i32' : baseResultType);
+        : toWatType((returnPointerDepth > 0 || returnIsStruct) ? 'i32' : (baseResultType || 'i32'));
 
       const functionModel = {
         userParams: declaratorInfo.params,
@@ -1747,6 +1801,9 @@ function compileFunctionBody(functionNode, functionModel, moduleModel) {
   };
 
   for (const param of functionModel.params) {
+    if (param.isStruct && !param.structLayout && param.structName) {
+      param.structLayout = resolveStructLayout(param.structName, moduleModel, null);
+    }
     context.params.set(param.sourceName, param);
     if (context.usesLinearMemory) {
       allocateStackSlot(context, param);
@@ -2609,12 +2666,13 @@ function compileArrayInitializer(localEntry, initializerNode, context) {
 }
 
 function ensureInternalLocal(context, baseName, watType = 'i32') {
-  const key = `${baseName}:${watType}`;
+  const normalizedWatType = toWatType(watType || 'i32');
+  const key = `${baseName}:${normalizedWatType}`;
   if (!context.internalLocals.has(key)) {
     const localEntry = {
       sourceName: baseName,
       name: sanitizeIdentifier(baseName),
-      watType,
+      watType: normalizedWatType,
       internal: true
     };
     context.internalLocals.set(key, localEntry);
@@ -2664,15 +2722,25 @@ function buildFunctionPrologue(context) {
 
   for (const param of context.params.values()) {
     if (param.stackOffset == null) continue;
-    instructions.push(
-      ...emitStoreToAddress(
-        emitAddressOfSymbol(param.sourceName, context),
-        [`local.get $${param.name}`],
-        param.watType,
-        context,
-        false
-      )
-    );
+    if (param.isStruct && (param.pointerDepth || 0) === 0) {
+      instructions.push(
+        ...emitCopyBytesFromAddress(
+          emitAddressOfSymbol(param.sourceName, context),
+          [`local.get $${param.name}`],
+          getSymbolSize(param)
+        )
+      );
+    } else {
+      instructions.push(
+        ...emitStoreToAddress(
+          emitAddressOfSymbol(param.sourceName, context),
+          [`local.get $${param.name}`],
+          param.watType,
+          context,
+          false
+        )
+      );
+    }
   }
 
   return instructions;
@@ -3735,12 +3803,13 @@ function compileUnaryExpression(node, context, keepValue) {
 
   if (directOperator) {
     const operandNode = nonterminalChildren(node)[0];
-    const targetName = extractIdentifierFromNode(operandNode);
-    if (!targetName) {
-      throw new CompilationError('Prefix increment/decrement requires a simple variable', getNodeName(node));
-    }
     const delta = directOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
-    return emitUpdateInstructions(targetName, delta, context, { prefix: true, keepValue });
+    const targetName = extractIdentifierFromNode(operandNode);
+    if (targetName) {
+      return emitUpdateInstructions(targetName, delta, context, { prefix: true, keepValue });
+    }
+    const lvalue = resolveLValue(operandNode, context);
+    return emitUpdateLValueInstructions(lvalue, delta, context, { prefix: true, keepValue });
   }
 
   const unaryOperatorNode = firstNonterminal(node, 'unaryOperator');
@@ -4810,6 +4879,12 @@ function compileTerminalExpression(node, context, options = {}) {
 function compilePostfixExpression(node, context, keepValue) {
   const primaryExpression = firstNonterminal(node, 'primaryExpression');
   const postfixSuffixes = nonterminalChildren(node, 'postfixSuffix');
+  const callSuffix = postfixSuffixes.find((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
+  const postfixOperator = postfixSuffixes
+    .flatMap((suffix) => childNodes(suffix))
+    .find((child) => child.kind === 'terminal' && ['TOKEN__2B__2B_', 'TOKEN__2D__2D_'].includes(child.token));
+  const argumentList = callSuffix ? findFirstNonterminal(callSuffix, 'argumentExpressionList') : null;
+  const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
 
   if (postfixSuffixes.length === 0) {
     return primaryExpression ? compileExpression(primaryExpression, context, { keepValue }) : [];
@@ -4821,6 +4896,18 @@ function compilePostfixExpression(node, context, keepValue) {
   // Handle indexing followed by possible member access
   const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
   if (accessInfo) {
+    if (postfixOperator) {
+      if (accessInfo.resultIsAddress) {
+        throw new CompilationError('Postfix increment/decrement requires a scalar indexed target', getNodeName(node));
+      }
+      const delta = postfixOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
+      return emitUpdateLValueInstructions({
+        kind: 'indirect',
+        addressInstructions: accessInfo.addressInstructions,
+        watType: accessInfo.watType
+      }, delta, context, { prefix: false, keepValue });
+    }
+
     let instructions = [...accessInfo.addressInstructions];
     
     // If we have member access after indexing, handle it
@@ -4835,6 +4922,34 @@ function compilePostfixExpression(node, context, keepValue) {
         instructions.push('drop');
       }
       return instructions;
+    }
+
+    if (callSuffix) {
+      const callInstructions = [];
+
+      for (const argumentNode of argumentsToCompile) {
+        callInstructions.push(...compileExpression(argumentNode, context, { keepValue: true }));
+      }
+
+      const indirectResultType = 'i32';
+      const typeIndex = ensureFunctionType(
+        context.module,
+        argumentsToCompile.map(() => 'i32'),
+        indirectResultType
+      );
+
+      if (!accessInfo.resultIsAddress) {
+        instructions.push(getLoadOpcodeForType(accessInfo.watType));
+      }
+
+      callInstructions.push(...instructions);
+      callInstructions.push(`call_indirect (type ${typeIndex})`);
+
+      if (!keepValue) {
+        callInstructions.push('drop');
+      }
+
+      return callInstructions;
     }
     
     // No member access, just return indexed access result
@@ -4859,6 +4974,43 @@ function compilePostfixExpression(node, context, keepValue) {
     if (baseName) {
       const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
       if (memberAccess) {
+        if (postfixOperator) {
+          if (memberAccess.isStruct || memberAccess.isArray) {
+            throw new CompilationError('Postfix increment/decrement requires a scalar struct member', getNodeName(node));
+          }
+          const delta = postfixOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
+          return emitUpdateLValueInstructions({
+            kind: 'indirect',
+            addressInstructions: memberAccess.addressInstructions,
+            watType: memberAccess.watType || 'i32'
+          }, delta, context, { prefix: false, keepValue });
+        }
+
+        if (callSuffix) {
+          const callInstructions = [];
+
+          for (const argumentNode of argumentsToCompile) {
+            callInstructions.push(...compileExpression(argumentNode, context, { keepValue: true }));
+          }
+
+          const indirectResultType = 'i32';
+          const typeIndex = ensureFunctionType(
+            context.module,
+            argumentsToCompile.map(() => 'i32'),
+            indirectResultType
+          );
+
+          callInstructions.push(...memberAccess.addressInstructions);
+          callInstructions.push(getLoadOpcodeForType(memberAccess.watType || 'i32'));
+          callInstructions.push(`call_indirect (type ${typeIndex})`);
+
+          if (!keepValue) {
+            callInstructions.push('drop');
+          }
+
+          return callInstructions;
+        }
+
         if (!keepValue) {
           return memberAccess.addressInstructions.concat('drop');
         }
@@ -4870,17 +5022,14 @@ function compilePostfixExpression(node, context, keepValue) {
     }
   }
 
-  const postfixOperator = postfixSuffixes
-    .flatMap((suffix) => childNodes(suffix))
-    .find((child) => child.kind === 'terminal' && ['TOKEN__2B__2B_', 'TOKEN__2D__2D_'].includes(child.token));
-
   if (postfixOperator) {
     const targetName = extractIdentifierFromNode(primaryExpression);
-    if (!targetName) {
-      throw new CompilationError('Postfix increment/decrement requires a simple variable', getNodeName(node));
-    }
     const delta = postfixOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
-    return emitUpdateInstructions(targetName, delta, context, { prefix: false, keepValue });
+    if (targetName) {
+      return emitUpdateInstructions(targetName, delta, context, { prefix: false, keepValue });
+    }
+    const lvalue = resolveLValue(node, context);
+    return emitUpdateLValueInstructions(lvalue, delta, context, { prefix: false, keepValue });
   }
 
   const calleeName = extractIdentifierFromNode(primaryExpression);
@@ -4888,14 +5037,12 @@ function compilePostfixExpression(node, context, keepValue) {
     throw new CompilationError('Only named function calls are supported right now', getNodeName(node));
   }
 
-  const callSuffix = postfixSuffixes.find((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
-  const argumentList = callSuffix ? findFirstNonterminal(callSuffix, 'argumentExpressionList') : null;
-  const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
   const instructions = [];
   // Fixed signatures for non-variadic stdio functions (fopen, fwrite, etc.)
   const fixedStdIoHostSignatures = {
     __malloc: { paramTypes: ['i32'], resultType: 'i32' },
     __free: { paramTypes: ['i32'], resultType: null },
+    strlen: { paramTypes: ['i32'], resultType: 'i32' },
     fopen: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
     freopen: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
     fclose: { paramTypes: ['i32'], resultType: 'i32' },
@@ -5154,6 +5301,51 @@ function compilePostfixExpression(node, context, keepValue) {
 
   if (!fn) {
     const calleeSymbol = resolveSymbol(calleeName, context);
+    const calleeIndexExpressions = getIndexExpressionsFromPostfix(node);
+    const nestedCalleePostfix = primaryExpression ? findFirstNonterminal(primaryExpression, 'postfixExpression') : null;
+    const nestedIndexedCallee = nestedCalleePostfix ? getIndexedAccessInfoFromPostfix(nestedCalleePostfix, context) : null;
+
+    if (nestedIndexedCallee && !nestedIndexedCallee.resultIsAddress) {
+      const indirectResultType = 'i32';
+      const typeIndex = ensureFunctionType(
+        context.module,
+        argumentsToCompile.map(() => 'i32'),
+        indirectResultType
+      );
+
+      instructions.push(...nestedIndexedCallee.addressInstructions);
+      instructions.push(getLoadOpcodeForType(nestedIndexedCallee.watType || 'i32'));
+      instructions.push(`call_indirect (type ${typeIndex})`);
+
+      if (keepValue) {
+        return instructions;
+      }
+
+      instructions.push('drop');
+      return instructions;
+    }
+
+    if (calleeSymbol && calleeIndexExpressions.length > 0 && (calleeSymbol.isArray || calleeSymbol.declaredAsArray)) {
+      const indexedCallee = getIndexedAccessInfo(calleeName, calleeIndexExpressions, context);
+      const indirectResultType = 'i32';
+      const typeIndex = ensureFunctionType(
+        context.module,
+        argumentsToCompile.map(() => 'i32'),
+        indirectResultType
+      );
+
+      instructions.push(...indexedCallee.addressInstructions);
+      instructions.push(getLoadOpcodeForType(indexedCallee.watType || 'i32'));
+      instructions.push(`call_indirect (type ${typeIndex})`);
+
+      if (keepValue) {
+        return instructions;
+      }
+
+      instructions.push('drop');
+      return instructions;
+    }
+
     if (!calleeSymbol || (calleeSymbol.pointerDepth || 0) <= 0) {
       for (let index = 0; index < argumentsToCompile.length; index += 1) {
         instructions.push('drop');
@@ -5413,6 +5605,67 @@ function emitUpdateInstructions(name, delta, context, options = {}) {
     arithmeticInstruction,
     setInstruction
   ];
+}
+
+function emitUpdateLValueInstructions(lvalue, delta, context, options = {}) {
+  if (!lvalue) {
+    throw new CompilationError('Missing update target', context.function.sourceName);
+  }
+
+  if (lvalue.kind === 'symbol') {
+    return emitUpdateInstructions(lvalue.name, delta, context, options);
+  }
+
+  if (lvalue.kind !== 'indirect') {
+    throw new CompilationError('Unsupported update target kind', context.function.sourceName);
+  }
+
+  const prefix = options.prefix !== false;
+  const keepValue = options.keepValue !== false;
+  const watType = lvalue.watType || 'i32';
+  const magnitude = Math.abs(delta);
+  const constInstruction = watType === 'i64'
+    ? `i64.const ${magnitude}`
+    : `i32.const ${magnitude}`;
+  const arithmeticInstruction = watType === 'i64'
+    ? (delta >= 0 ? 'i64.add' : 'i64.sub')
+    : (delta >= 0 ? 'i32.add' : 'i32.sub');
+  const addrTemp = ensureInternalLocal(context, '__tmp_addr', 'i32');
+  const valueTemp = ensureInternalLocal(context, `__tmp_${watType}`, watType);
+  const instructions = [
+    ...lvalue.addressInstructions,
+    `local.tee $${addrTemp.name}`,
+    getLoadOpcodeForType(watType),
+    constInstruction,
+    arithmeticInstruction,
+    `local.set $${valueTemp.name}`,
+    `local.get $${addrTemp.name}`,
+    `local.get $${valueTemp.name}`,
+    getStoreOpcodeForType(watType)
+  ];
+
+  if (keepValue) {
+    if (prefix) {
+      instructions.push(`local.get $${valueTemp.name}`);
+    } else {
+      const oldValueTemp = ensureInternalLocal(context, `__tmp_old_${watType}`, watType);
+      return [
+        ...lvalue.addressInstructions,
+        `local.tee $${addrTemp.name}`,
+        getLoadOpcodeForType(watType),
+        `local.tee $${oldValueTemp.name}`,
+        constInstruction,
+        arithmeticInstruction,
+        `local.set $${valueTemp.name}`,
+        `local.get $${addrTemp.name}`,
+        `local.get $${valueTemp.name}`,
+        getStoreOpcodeForType(watType),
+        `local.get $${oldValueTemp.name}`
+      ];
+    }
+  }
+
+  return instructions;
 }
 
 function emitStoreInstructions(name, rhsInstructions, context, keepValue) {

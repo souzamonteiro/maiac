@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-04-26T15:01:39.713Z",
-  "input": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/09_preprocessor/preprocessor.c",
-  "outDir": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/09_preprocessor/dist",
+  "generatedAt": "2026-04-28T17:15:26.363Z",
+  "input": "/home/roberto/projects/maiac/compiler/examples/suite/09_preprocessor/preprocessor.c",
+  "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/09_preprocessor/dist",
   "appName": "preprocessor",
   "artifacts": {
     "wasm": "preprocessor.wasm",

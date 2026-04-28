@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-04-26T15:01:35.090Z",
-  "input": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/03_functions/functions.c",
-  "outDir": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/03_functions/dist",
+  "generatedAt": "2026-04-28T17:15:19.273Z",
+  "input": "/home/roberto/projects/maiac/compiler/examples/suite/03_functions/functions.c",
+  "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/03_functions/dist",
   "appName": "functions",
   "artifacts": {
     "wasm": "functions.wasm",

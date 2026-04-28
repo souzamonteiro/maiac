@@ -1566,6 +1566,17 @@ function createSignalHosts(_getMemory, _allocator, _cstr, opts = {}) {
   };
 }
 
+function createStringHosts(getMemory) {
+  const mem = createMemoryAccess(getMemory);
+
+  return {
+    strlen: (ptr) => {
+      const text = mem.readCString(ptr);
+      return text.length | 0;
+    }
+  };
+}
+
 function createC89JsHosts(getMemory, opts = {}) {
   const allocator = createRuntimeAllocator(getMemory);
   const mem = createMemoryAccess(getMemory);
@@ -1573,6 +1584,7 @@ function createC89JsHosts(getMemory, opts = {}) {
 
   return {
     ...createMathHosts(getMemory),
+    ...createStringHosts(getMemory),
     ...createStdioHosts(getMemory, allocator, cstr, opts),
     ...createTimeHosts(getMemory, allocator, cstr, opts),
     ...createLocaleHosts(getMemory, allocator, cstr, opts),
@@ -1582,6 +1594,7 @@ function createC89JsHosts(getMemory, opts = {}) {
 
 module.exports = {
   createMathHosts,
+  createStringHosts,
   createStdioHosts,
   createTimeHosts,
   createLocaleHosts,

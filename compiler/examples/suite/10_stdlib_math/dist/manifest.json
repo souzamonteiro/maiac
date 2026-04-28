@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-04-26T15:01:39.999Z",
-  "input": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/10_stdlib_math/stdlib_math.c",
-  "outDir": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/10_stdlib_math/dist",
+  "generatedAt": "2026-04-28T17:15:26.823Z",
+  "input": "/home/roberto/projects/maiac/compiler/examples/suite/10_stdlib_math/stdlib_math.c",
+  "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/10_stdlib_math/dist",
   "appName": "stdlib_math",
   "artifacts": {
     "wasm": "stdlib_math.wasm",

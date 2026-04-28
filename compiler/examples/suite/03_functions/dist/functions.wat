@@ -84,7 +84,7 @@
   )
 
   ;; function swap_int
-  (func $swap_int (param $a i32) (param $b i32) (result i32)
+  (func $swap_int (param $a i32) (param $b i32)
     (local $__frame i32)
     (local $temp i32)
     (local $__tmp_i32 i32)
@@ -149,12 +149,6 @@
     i32.store
     local.get $__tmp_i32
     drop
-    i32.const 0
-    local.get $__parent_frame
-    global.set $__frame_ptr
-    local.get $__frame
-    global.set $__stack_ptr
-    return
   )
 
   ;; function double_value
@@ -331,7 +325,6 @@
     i32.const 4
     i32.add
     call $swap_int
-    drop
     local.get $__frame
     i32.const 0
     i32.add

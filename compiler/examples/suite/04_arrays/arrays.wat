@@ -153,7 +153,7 @@
   )
 
   ;; function bubble_sort
-  (func $bubble_sort (param $arr i32) (param $n i32) (result i32)
+  (func $bubble_sort (param $arr i32) (param $n i32)
     (local $__frame i32)
     (local $i i32)
     (local $j i32)
@@ -377,12 +377,6 @@
         br $bubble_sort_for_loop_2
       end
     end
-    i32.const 0
-    local.get $__parent_frame
-    global.set $__frame_ptr
-    local.get $__frame
-    global.set $__stack_ptr
-    return
   )
 
   ;; function main
@@ -781,7 +775,6 @@
     i32.add
     i32.const 5
     call $bubble_sort
-    drop
     local.get $__frame
     i32.const 64
     i32.add

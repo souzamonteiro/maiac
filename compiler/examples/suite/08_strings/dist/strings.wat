@@ -3,6 +3,7 @@
 ;; Style inspired by maiawasm/assembler/tests/fixtures
 
 (module
+  (import "env" "strlen" (func $imp_strlen (param i32) (result i32)))
   (import "env" "printf" (func $imp_printf (param f64 f64 f64 f64 f64 f64 f64 f64) (result i32)))
 
   (memory $mem 1)
@@ -296,8 +297,7 @@
     local.get $__tmp_i32
     drop
     i32.const 40
-    drop
-    i32.const 0
+    call $imp_strlen
     i32.const 0
     i32.eq
     i32.eqz

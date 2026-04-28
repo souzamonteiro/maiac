@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-04-26T15:01:40.482Z",
-  "input": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/13_stdio_file/stdio_file.c",
-  "outDir": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/suite/13_stdio_file/dist",
+  "generatedAt": "2026-04-28T17:15:27.621Z",
+  "input": "/home/roberto/projects/maiac/compiler/examples/suite/13_stdio_file/stdio_file.c",
+  "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/13_stdio_file/dist",
   "appName": "stdio_file",
   "artifacts": {
     "wasm": "stdio_file.wasm",

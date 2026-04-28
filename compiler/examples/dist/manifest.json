@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-04-28T17:22:24.079Z",
+  "input": "/home/roberto/projects/maiac/compiler/examples/test.c",
+  "outDir": "/home/roberto/projects/maiac/compiler/examples/dist",
+  "appName": "test",
+  "artifacts": {
+    "wasm": "test.wasm",
+    "wrapper": "test.js",
+    "wat": null,
+    "browserRunner": "browser-runner.html",
+    "browserMemoryFileStore": "browser-memory-file-store.js",
+    "nodeRunner": "node-runner.js",
+    "nodeRunnerShell": "node-runner.sh"
+  },
+  "linkedLibraries": [
+    "stdio",
+    "stdlib",
+    "string",
+    "math"
+  ],
+  "copiedLibraries": [
+    "stdlib",
+    "string"
+  ],
+  "runtimeProvidedHeaders": [
+    "stdio",
+    "math"
+  ],
+  "missingLibraries": [],
+  "sourceBytes": 18048
+}

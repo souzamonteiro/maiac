@@ -12,7 +12,7 @@ FAIL=0
 SKIP=0
 
 normalize_output() {
-    sed '/^\[node-runner\] program returned:/d' | sed '/^$/N;/^\n$/D' | awk '{print}'
+    sed '/^\[node-runner\] program returned:/d' | sed '/^$/N;/^\n$/D' | awk '{print}' | sed -e '${/^[[:space:]]*$/d;}' 
 }
 
 for test_dir in "$SCRIPT_DIR"/*/; do
@@ -36,7 +36,7 @@ for test_dir in "$SCRIPT_DIR"/*/; do
 
     bash "$runner" > "$actual_tmp" 2>&1 || true
     normalize_output < "$actual_tmp" > "$actual_tmp.norm"
-    awk '{print}' "$expected" > "$expected_tmp"
+    normalize_output < "$expected" > "$expected_tmp"
 
     if diff -u "$expected_tmp" "$actual_tmp.norm" >/dev/null 2>&1; then
         echo "    PASS"
