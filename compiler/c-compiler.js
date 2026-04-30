@@ -139,6 +139,21 @@ function getSymbolArrayDimensions(symbol) {
   return [];
 }
 
+function getAlignmentForSymbol(symbol) {
+  if (!symbol) return 4;
+  // Arrays: alignment = element type alignment (NOT total array size)
+  // e.g. char[32] has element alignment 1, int[4] has element alignment 4
+  if (symbol.isArray && (symbol.pointerDepth || 0) === 0) {
+    if (symbol.isStruct || symbol.typeKind === 'struct') return 4;
+    const elementType = symbol.baseWatType || symbol.watType || 'i32';
+    return Math.min(4, getTypeSize(elementType));
+  }
+  // Structs by value: align to 4
+  if (symbol.isStruct || symbol.typeKind === 'struct') return 4;
+  const size = getSymbolSize(symbol);
+  return size >= 8 ? 8 : 4;
+}
+
 function getSymbolSize(symbol) {
   if (!symbol) return 4;
   if (symbol.isArray) {
@@ -156,6 +171,19 @@ function getSymbolSize(symbol) {
   }
   if ((symbol.pointerDepth || 0) > 0) return 4;
   return getTypeSize(symbol.baseWatType || symbol.watType || 'i32');
+}
+
+function getStorageTypeForSymbol(symbol) {
+  if (!symbol) return 'i32';
+  if (symbol.isArray || symbol.isStruct || (symbol.pointerDepth || 0) > 0) {
+    return 'i32';
+  }
+  return symbol.baseWatType || symbol.watType || 'i32';
+}
+
+function getPointerStepForSymbol(symbol) {
+  if (!symbol || (symbol.pointerDepth || 0) <= 0) return 1;
+  return getStrideForAccess(symbol.baseWatType || 'i32', symbol.pointeeArrayDimensions || []);
 }
 
 function resolveDirectSymbol(name, context) {
@@ -197,7 +225,7 @@ function createStructLayout(fields = [], preferredName = null) {
 
   for (const field of fields) {
     const fieldSize = getSymbolSize(field);
-    const alignment = fieldSize >= 8 ? 8 : 4;
+    const alignment = getAlignmentForSymbol(field);
     offset = alignTo(offset, alignment);
 
     const layoutField = {
@@ -336,7 +364,7 @@ function finalizeStructLayout(layout, moduleModel, seenLayouts = new Set()) {
     }
 
     const fieldSize = getSymbolSize(field);
-    const alignment = fieldSize >= 8 ? 8 : 4;
+    const alignment = getAlignmentForSymbol(field);
     offset = alignTo(offset, alignment);
     field.offset = offset;
     field.size = fieldSize;
@@ -469,7 +497,10 @@ function resolveMemberAccess(name, context) {
     baseSymbol,
     field,
     addressInstructions,
-    watType: field ? (field.watType || field.baseWatType || 'i32') : (baseSymbol.watType || 'i32'),
+    watType: field ? getStorageTypeForSymbol(field) : getStorageTypeForSymbol(baseSymbol),
+    baseWatType: field ? (field.baseWatType || field.watType || 'i32') : (baseSymbol.baseWatType || baseSymbol.watType || 'i32'),
+    pointerDepth: field ? (field.pointerDepth || 0) : (baseSymbol.pointerDepth || 0),
+    pointeeArrayDimensions: field ? (field.pointeeArrayDimensions || []) : (baseSymbol.pointeeArrayDimensions || []),
     isStruct: !!(field && field.isStruct),
     structLayout
   };
@@ -1991,6 +2022,9 @@ function compileLocalDeclaration(declarationNode, context) {
       name: allocateUniqueLocalName(context, localDef.name),
       cType: localDef.cType,
       typeKind: localDef.typeKind,
+      isFunctionDeclaration: !!localDef.isFunctionDeclaration,
+      params: Array.isArray(localDef.params) ? [...localDef.params] : [],
+      isVariadic: !!localDef.isVariadic,
       structName: localDef.structName || null,
       structLayout,
       watType: localDef.watType,
@@ -2687,7 +2721,7 @@ function allocateStackSlot(context, symbol) {
   }
 
   const size = getSymbolSize(symbol);
-  const alignment = size >= 8 ? 8 : 4;
+  const alignment = getAlignmentForSymbol(symbol);
   context.frameSize = alignTo(context.frameSize, alignment);
   symbol.stackOffset = context.frameSize;
   context.frameSize += size;
@@ -4012,6 +4046,79 @@ function getIndexedAccessInfoFromPostfix(node, context) {
     return null;
   }
 
+  // Handle postfix expressions that have member-access suffixes (-> or .) followed by [index].
+  // Example: a->color[i]  — suffixes are ["->color", "[i]"]
+  // getMemberAccessPathFromPostfix skips suffixes BEFORE the last [, so we must handle
+  // this case here: find the last [ suffix, check if any -> or . precedes it.
+  const allSuffixes = nonterminalChildren(node, 'postfixSuffix');
+  let lastBracketIdx = -1;
+  for (let i = allSuffixes.length - 1; i >= 0; i--) {
+    if (firstTerminal(allSuffixes[i], 'TOKEN__5B_')) { lastBracketIdx = i; break; }
+  }
+  if (lastBracketIdx > 0) {
+    // Check if any suffix before lastBracketIdx is a member-access (-> or .)
+    const hasMemberAccessBefore = allSuffixes.slice(0, lastBracketIdx).some(
+      (s) => firstTerminal(s, 'TOKEN__2D__3E_') || firstTerminal(s, 'TOKEN__2E_')
+    );
+    if (hasMemberAccessBefore) {
+      // Build the member access path from suffixes 0..lastBracketIdx-1
+      const primaryExpression = firstNonterminal(node, 'primaryExpression');
+      const baseName = getSimpleIdentifierName(primaryExpression);
+      if (baseName) {
+        const memberAccessPath = [];
+        for (let i = 0; i < lastBracketIdx; i++) {
+          const s = allSuffixes[i];
+          const fieldId = firstTerminal(s, 'Identifier');
+          if (firstTerminal(s, 'TOKEN__2D__3E_') && fieldId) {
+            memberAccessPath.push({ isArrow: true, fieldName: fieldId.value });
+          } else if (firstTerminal(s, 'TOKEN__2E_') && fieldId) {
+            memberAccessPath.push({ isArrow: false, fieldName: fieldId.value });
+          }
+        }
+        if (memberAccessPath.length > 0) {
+          const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+          if (memberAccess && memberAccess.isArray) {
+            // The field is an array — apply index expressions using element stride
+            const field = memberAccess.field;
+            const rawBaseType = field ? (field.baseWatType || field.watType || 'i32') : 'i32';
+            const watType = (field && (field.pointerDepth || 0) > 0) ? 'i32' : rawBaseType;
+            // Collect index expressions starting at lastBracketIdx
+            const indexSuffixes = allSuffixes.slice(lastBracketIdx).filter(
+              (s) => firstTerminal(s, 'TOKEN__5B_')
+            );
+            const indexExpressions = indexSuffixes.map(
+              (s) => firstNonterminal(s, 'expression')
+            ).filter(Boolean);
+            // field.arrayDimensions drives the decay dimensions
+            let pointerPointeeDimensions = (field && Array.isArray(field.arrayDimensions))
+              ? field.arrayDimensions.slice(1) : [];
+            let addressInstructions = memberAccess.addressInstructions;
+            let resultObjectDimensions = [];
+            for (const indexExpression of indexExpressions) {
+              const stride = getStrideForAccess(watType, pointerPointeeDimensions);
+              addressInstructions = addressInstructions.concat(
+                compileExpression(indexExpression, context, { keepValue: true }),
+                `i32.const ${stride}`,
+                'i32.mul',
+                'i32.add'
+              );
+              resultObjectDimensions = [...pointerPointeeDimensions];
+              pointerPointeeDimensions = pointerPointeeDimensions.length > 0
+                ? pointerPointeeDimensions.slice(1) : [];
+            }
+            return {
+              symbol: field,
+              watType,
+              addressInstructions,
+              resultObjectDimensions,
+              resultIsAddress: resultObjectDimensions.length > 0
+            };
+          }
+        }
+      }
+    }
+  }
+
   const primaryExpression = firstNonterminal(node, 'primaryExpression');
   const indexExpressions = getIndexExpressionsFromPostfix(node);
   if (indexExpressions.length === 0) {
@@ -4149,8 +4256,10 @@ function resolvePostfixMemberAccess(baseName, memberAccessPath, context) {
     baseSymbol,
     field: currentField,
     addressInstructions,
-    watType: currentField ? (currentField.watType || currentField.baseWatType || 'i32') : (baseSymbol.watType || 'i32'),
+    watType: currentField ? getStorageTypeForSymbol(currentField) : getStorageTypeForSymbol(baseSymbol),
+    baseWatType: currentField ? (currentField.baseWatType || currentField.watType || 'i32') : (baseSymbol.baseWatType || baseSymbol.watType || 'i32'),
     pointerDepth: currentField ? (currentField.pointerDepth || 0) : 0,
+    pointeeArrayDimensions: currentField ? (currentField.pointeeArrayDimensions || []) : [],
     isArray: !!(currentField && (currentField.isArray || currentField.declaredAsArray)),
     arrayDimensions: currentField ? getSymbolArrayDimensions(currentField) : [],
     isStruct: !!(currentField && currentField.isStruct),
@@ -4412,7 +4521,7 @@ function resolveLValue(node, context) {
     return {
       kind: 'symbol',
       name: simpleIdentifier,
-      watType: symbol.watType || 'i32'
+      watType: getStorageTypeForSymbol(symbol)
     };
   }
 
@@ -4477,6 +4586,27 @@ function compileAssignmentExpression(node, context, options = {}) {
   const leftNode = nestedChildren[0];
   const rightNode = nestedChildren[nestedChildren.length - 1];
   const lvalue = resolveLValue(leftNode, context);
+  if (lvalue.kind === 'symbol') {
+    const targetSymbol = resolveSymbol(lvalue.name, context);
+    if (targetSymbol && targetSymbol.isStruct && targetSymbol.structLayout) {
+      const operatorTerminal = firstTerminal(assignmentOperator);
+      const operatorValue = operatorTerminal ? operatorTerminal.value : '=';
+      if (operatorValue !== '=') {
+        throw new CompilationError(`Unsupported assignment operator '${operatorValue}' for struct values`, getNodeName(node));
+      }
+      const byteSize = targetSymbol.structLayout.size || 0;
+      if (byteSize <= 0) {
+        throw new CompilationError(`Invalid struct size for assignment target '${lvalue.name}'`, getNodeName(node));
+      }
+      return emitStructAssignmentInstructions(
+        emitAddressOfSymbol(lvalue.name, context),
+        compileExpression(rightNode, context, { keepValue: true }),
+        byteSize,
+        context,
+        keepValue
+      );
+    }
+  }
   const lvalueType = lvalue.watType || 'i32';
   const rhsType = inferExpressionType(rightNode, context) || lvalueType;
   const operatorTerminal = firstTerminal(assignmentOperator);
@@ -4507,6 +4637,50 @@ function compileAssignmentExpression(node, context, options = {}) {
   }
 
   return emitStoreToAddress(lvalue.addressInstructions, rhsInstructions, lvalueType, context, keepValue);
+}
+
+function emitStructAssignmentInstructions(destAddressInstructions, srcAddressInstructions, byteSize, context, keepValue) {
+  const dstTemp = ensureInternalLocal(context, '__tmp_struct_dst', 'i32');
+  const srcTemp = ensureInternalLocal(context, '__tmp_struct_src', 'i32');
+  const instructions = [
+    ...destAddressInstructions,
+    `local.set $${dstTemp.name}`,
+    ...srcAddressInstructions,
+    `local.set $${srcTemp.name}`
+  ];
+
+  const wordBytes = byteSize - (byteSize % 4);
+  for (let offset = 0; offset < wordBytes; offset += 4) {
+    instructions.push(
+      `local.get $${dstTemp.name}`,
+      `i32.const ${offset}`,
+      'i32.add',
+      `local.get $${srcTemp.name}`,
+      `i32.const ${offset}`,
+      'i32.add',
+      'i32.load',
+      'i32.store'
+    );
+  }
+
+  for (let offset = wordBytes; offset < byteSize; offset += 1) {
+    instructions.push(
+      `local.get $${dstTemp.name}`,
+      `i32.const ${offset}`,
+      'i32.add',
+      `local.get $${srcTemp.name}`,
+      `i32.const ${offset}`,
+      'i32.add',
+      'i32.load8_u',
+      'i32.store8'
+    );
+  }
+
+  if (keepValue) {
+    instructions.push(`local.get $${dstTemp.name}`);
+  }
+
+  return instructions;
 }
 
 function isPointerLikeNode(node, context) {
@@ -5023,13 +5197,30 @@ function compilePostfixExpression(node, context, keepValue) {
   }
 
   if (postfixOperator) {
-    const targetName = extractIdentifierFromNode(primaryExpression);
-    const delta = postfixOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
-    if (targetName) {
-      return emitUpdateInstructions(targetName, delta, context, { prefix: false, keepValue });
+    const derefOperand = getDereferencedOperandFromPrimaryExpression(primaryExpression);
+    if (derefOperand) {
+      const delta = postfixOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
+      const pointeeType = inferPointerPointeeType(derefOperand, context) || 'i32';
+      return emitUpdateLValueInstructions({
+        kind: 'indirect',
+        addressInstructions: compileExpression(derefOperand, context, { keepValue: true }),
+        watType: pointeeType
+      }, delta, context, { prefix: false, keepValue });
     }
-    const lvalue = resolveLValue(node, context);
-    return emitUpdateLValueInstructions(lvalue, delta, context, { prefix: false, keepValue });
+  }
+
+  if (postfixOperator) {
+    const delta = postfixOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
+    try {
+      const lvalue = resolveLValue(primaryExpression || node, context);
+      return emitUpdateLValueInstructions(lvalue, delta, context, { prefix: false, keepValue });
+    } catch (error) {
+      const targetName = extractIdentifierFromNode(primaryExpression);
+      if (targetName) {
+        return emitUpdateInstructions(targetName, delta, context, { prefix: false, keepValue });
+      }
+      throw error;
+    }
   }
 
   const calleeName = extractIdentifierFromNode(primaryExpression);
@@ -5346,7 +5537,22 @@ function compilePostfixExpression(node, context, keepValue) {
       return instructions;
     }
 
-    if (!calleeSymbol || (calleeSymbol.pointerDepth || 0) <= 0) {
+    const calleeIsFunctionPointerLike = !!(
+      calleeSymbol
+      && (calleeSymbol.watType || 'i32') === 'i32'
+      && (
+        // Canonical pointer metadata
+        (calleeSymbol.pointerDepth || 0) > 0
+        // Function-pointer declarators may be tagged as isFunctionDeclaration
+        // in local declarations (e.g., int (*fn)(int,int);), but are still
+        // frame-backed values that should lower to call_indirect.
+        || (calleeSymbol.stackOffset != null && calleeSymbol.isFunctionDeclaration)
+        // Keep compatibility with declarators that carry parameter metadata.
+        || (Array.isArray(calleeSymbol.params) && (calleeSymbol.params.length > 0 || calleeSymbol.isVariadic))
+      )
+    );
+
+    if (!calleeSymbol || !calleeIsFunctionPointerLike) {
       for (let index = 0; index < argumentsToCompile.length; index += 1) {
         instructions.push('drop');
       }
@@ -5472,7 +5678,7 @@ function emitLoadInstruction(name, context) {
   if (symbol.stackOffset != null) {
     return [
       ...emitAddressOfSymbol(name, context),
-      getLoadOpcodeForType(symbol.watType || 'i32')
+      getLoadOpcodeForType(getStorageTypeForSymbol(symbol))
     ];
   }
 
@@ -5512,17 +5718,23 @@ function emitUpdateInstructions(name, delta, context, options = {}) {
     throw new CompilationError(`Unknown update target '${name}'`, context.function.sourceName);
   }
 
-  const watType = memberAccess ? (memberAccess.watType || 'i32') : (symbol.watType || 'i32');
+  const watType = memberAccess ? (memberAccess.watType || 'i32') : getStorageTypeForSymbol(symbol);
   const magnitude = Math.abs(delta);
+  const pointerStep = memberAccess
+    ? ((memberAccess.pointerDepth || 0) > 0
+      ? getStrideForAccess(memberAccess.baseWatType || 'i32', memberAccess.pointeeArrayDimensions || [])
+      : 1)
+    : getPointerStepForSymbol(symbol);
+  const scaledMagnitude = magnitude * pointerStep;
   const addressInstructions = memberAccess
     ? memberAccess.addressInstructions
     : (symbol.stackOffset != null ? emitAddressOfSymbol(name, context) : null);
 
-  let constInstruction = `i32.const ${magnitude}`;
+  let constInstruction = `i32.const ${scaledMagnitude}`;
   let arithmeticInstruction = delta >= 0 ? 'i32.add' : 'i32.sub';
 
   if (watType === 'i64') {
-    constInstruction = `i64.const ${magnitude}`;
+    constInstruction = `i64.const ${scaledMagnitude}`;
     arithmeticInstruction = delta >= 0 ? 'i64.add' : 'i64.sub';
   }
 
@@ -5678,7 +5890,7 @@ function emitStoreInstructions(name, rhsInstructions, context, keepValue) {
     return emitStoreToAddress(
       emitAddressOfSymbol(name, context),
       rhsInstructions,
-      symbol.watType || 'i32',
+      getStorageTypeForSymbol(symbol),
       context,
       keepValue
     );

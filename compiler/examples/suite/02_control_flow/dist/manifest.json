@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:18.714Z",
+  "generatedAt": "2026-04-30T19:00:13.220Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/02_control_flow/control_flow.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/02_control_flow/dist",
   "appName": "control_flow",

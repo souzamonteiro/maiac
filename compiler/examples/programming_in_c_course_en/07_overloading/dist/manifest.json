@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-04-30T13:16:02.234Z",
-  "input": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/programming_in_c_course_en/07_overloading/vector.c",
-  "outDir": "/Volumes/External_SSD/Documentos/Projects/maiac/compiler/examples/programming_in_c_course_en/07_overloading/dist",
+  "generatedAt": "2026-04-30T19:01:46.790Z",
+  "input": "/home/roberto/projects/maiac/compiler/examples/programming_in_c_course_en/07_overloading/vector.c",
+  "outDir": "/home/roberto/projects/maiac/compiler/examples/programming_in_c_course_en/07_overloading/dist",
   "appName": "vector",
   "artifacts": {
     "wasm": "vector.wasm",

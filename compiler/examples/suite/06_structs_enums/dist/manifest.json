@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:20.880Z",
+  "generatedAt": "2026-04-30T19:00:15.489Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/06_structs_enums/structs_enums.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/06_structs_enums/dist",
   "appName": "structs_enums",

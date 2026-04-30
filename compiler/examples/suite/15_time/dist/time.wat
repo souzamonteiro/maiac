@@ -133,7 +133,7 @@
     i32.eqz
     if (result i32)
       local.get $__frame
-      i32.const 56
+      i32.const 52
       i32.add
       i32.const 32
       i32.const 36

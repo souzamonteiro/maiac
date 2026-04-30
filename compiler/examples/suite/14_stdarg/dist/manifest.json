@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:46.912Z",
+  "generatedAt": "2026-04-30T19:00:41.236Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/14_stdarg/stdarg.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/14_stdarg/dist",
   "appName": "stdarg",

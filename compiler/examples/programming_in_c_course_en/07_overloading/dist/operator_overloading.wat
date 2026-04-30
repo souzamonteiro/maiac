@@ -149,6 +149,8 @@
     (local $b i32)
     (local $c i32)
     (local $__tmp_i32 i32)
+    (local $__tmp_struct_dst i32)
+    (local $__tmp_struct_src i32)
     (local $__parent_frame i32)
     global.get $__frame_ptr
     local.set $__parent_frame
@@ -207,6 +209,7 @@
     local.get $__frame
     i32.const 16
     i32.add
+    local.set $__tmp_struct_dst
     local.get $__frame
     i32.const 0
     i32.add
@@ -214,10 +217,24 @@
     i32.const 8
     i32.add
     call $vector_add
-    local.set $__tmp_i32
-    local.get $__tmp_i32
+    local.set $__tmp_struct_src
+    local.get $__tmp_struct_dst
+    i32.const 0
+    i32.add
+    local.get $__tmp_struct_src
+    i32.const 0
+    i32.add
+    i32.load
     i32.store
-    local.get $__tmp_i32
+    local.get $__tmp_struct_dst
+    i32.const 4
+    i32.add
+    local.get $__tmp_struct_src
+    i32.const 4
+    i32.add
+    i32.load
+    i32.store
+    local.get $__tmp_struct_dst
     drop
     i32.const 16
     f64.convert_i32_s

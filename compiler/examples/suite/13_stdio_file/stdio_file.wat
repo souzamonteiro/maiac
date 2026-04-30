@@ -52,7 +52,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 24
+    i32.const 16
     i32.add
     global.set $__stack_ptr
     local.get $__frame
@@ -101,10 +101,10 @@
     call $imp_fseek
     drop
     local.get $__frame
-    i32.const 16
+    i32.const 12
     i32.add
     local.get $__frame
-    i32.const 8
+    i32.const 4
     i32.add
     i32.const 1
     i32.const 3
@@ -125,7 +125,7 @@
     call $imp_fclose
     drop
     local.get $__frame
-    i32.const 16
+    i32.const 12
     i32.add
     i32.load
     i32.const 3
@@ -134,7 +134,7 @@
     i32.eqz
     if (result i32)
       local.get $__frame
-      i32.const 8
+      i32.const 4
       i32.add
       i32.const 0
       i32.const 1
@@ -150,7 +150,7 @@
     end
     if (result i32)
       local.get $__frame
-      i32.const 8
+      i32.const 4
       i32.add
       i32.const 2
       i32.const 1

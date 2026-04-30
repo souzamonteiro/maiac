@@ -17,6 +17,7 @@ TIMEOUT_SECONDS=2
 normalize_output() {
     LC_ALL=C sed '/^\[node-runner\] program returned:/d' |
         LC_ALL=C sed '/^$/N;/^\n$/D' |
+    LC_ALL=C awk '{ line=$0; if (tolower(line) ~ /address/) gsub(/0x[0-9a-fA-F]+/, "0xADDR", line); print line }' |
         LC_ALL=C awk '{print}' |
         LC_ALL=C sed -e '${/^[[:space:]]*$/d;}'
 }

@@ -50,7 +50,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 48
+    i32.const 40
     i32.add
     global.set $__stack_ptr
     local.get $__frame
@@ -64,19 +64,19 @@
     i32.const 255
     i32.store
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 4
     i32.store
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 4
     i32.add
     i32.const 5
     i32.store
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 8
     i32.add
@@ -122,7 +122,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     local.get $__frame
     i32.const 0
@@ -135,7 +135,7 @@
     i32.const 16
     f64.convert_i32_s
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     i32.load
@@ -151,7 +151,7 @@
     i32.const 44
     f64.convert_i32_s
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     f64.convert_i32_s
@@ -164,7 +164,7 @@
     call $imp_printf
     drop
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     local.get $__frame
     i32.const 4
@@ -177,7 +177,7 @@
     i32.const 16
     f64.convert_i32_s
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     i32.load
@@ -193,7 +193,7 @@
     i32.const 44
     f64.convert_i32_s
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     f64.convert_i32_s
@@ -206,10 +206,10 @@
     call $imp_printf
     drop
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     local.set $__tmp_i32
     local.get $__tmp_i32
@@ -219,7 +219,7 @@
     i32.const 16
     f64.convert_i32_s
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     i32.load
@@ -235,7 +235,7 @@
     i32.const 44
     f64.convert_i32_s
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     f64.convert_i32_s
@@ -248,12 +248,12 @@
     call $imp_printf
     drop
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     local.tee $__tmp_addr
     i32.load
     local.tee $__tmp_old_i32
-    i32.const 1
+    i32.const 4
     i32.add
     local.set $__tmp_i32
     local.get $__tmp_addr
@@ -264,7 +264,7 @@
     i32.const 16
     f64.convert_i32_s
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     i32.load
@@ -280,7 +280,7 @@
     i32.const 44
     f64.convert_i32_s
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     f64.convert_i32_s
@@ -293,7 +293,7 @@
     call $imp_printf
     drop
     local.get $__frame
-    i32.const 36
+    i32.const 32
     i32.add
     i32.load
     i32.const 7
@@ -303,7 +303,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 40
+    i32.const 36
     i32.add
     i32.const 0
     local.set $__tmp_i32
@@ -314,7 +314,7 @@
     block $main_for_exit_0
       loop $main_for_loop_2
         local.get $__frame
-        i32.const 40
+        i32.const 36
         i32.add
         i32.load
         i32.const 12
@@ -329,15 +329,15 @@
           i32.const 88
           f64.convert_i32_s
           local.get $__frame
-          i32.const 40
+          i32.const 36
           i32.add
           i32.load
           f64.convert_i32_s
           local.get $__frame
-          i32.const 24
+          i32.const 20
           i32.add
           local.get $__frame
-          i32.const 40
+          i32.const 36
           i32.add
           i32.load
           i32.const 4
@@ -354,7 +354,7 @@
           drop
         end
         local.get $__frame
-        i32.const 40
+        i32.const 36
         i32.add
         local.tee $__tmp_addr
         i32.load

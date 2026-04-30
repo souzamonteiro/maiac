@@ -368,13 +368,13 @@
     i32.const 0
     i32.add
     local.get $__frame
-    i32.const 256
+    i32.const 255
     i32.add
     call $to_uppercase
     i32.const 84
     f64.convert_i32_s
     local.get $__frame
-    i32.const 256
+    i32.const 255
     i32.add
     f64.convert_i32_s
     f64.const 0

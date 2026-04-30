@@ -689,6 +689,21 @@ function expandMacros(source, macros) {
   return text;
 }
 
+function previousIdentifierAt(text, index) {
+  let cursor = (index | 0) - 1;
+  while (cursor >= 0 && /\s/.test(text[cursor])) {
+    cursor -= 1;
+  }
+  if (cursor < 0 || !/[A-Za-z0-9_]/.test(text[cursor])) {
+    return '';
+  }
+  const end = cursor + 1;
+  while (cursor >= 0 && /[A-Za-z0-9_]/.test(text[cursor])) {
+    cursor -= 1;
+  }
+  return text.slice(cursor + 1, end);
+}
+
 function preprocessCSource(source, options = {}) {
   // This layer still performs source-to-source normalization before parsing.
   // It is intentionally more than a directive expander because the current
@@ -902,7 +917,18 @@ function preprocessCSource(source, options = {}) {
       if (allowTypedefSubstitution && strippedKeywords.has(identifier)) {
         result += ' '.repeat(identifier.length);
       } else if (allowTypedefSubstitution && typedefAliases.has(identifier)) {
-        result += typedefAliases.get(identifier);
+        const replacement = typedefAliases.get(identifier);
+        const previousIdentifier = previousIdentifierAt(text, index);
+        const beginsWithStruct = typeof replacement === 'string' && replacement.startsWith('struct ');
+        const beginsWithUnion = typeof replacement === 'string' && replacement.startsWith('union ');
+        const beginsWithEnum = typeof replacement === 'string' && replacement.startsWith('enum ');
+        if ((beginsWithStruct && previousIdentifier === 'struct') ||
+            (beginsWithUnion && previousIdentifier === 'union') ||
+            (beginsWithEnum && previousIdentifier === 'enum')) {
+          result += identifier;
+        } else {
+          result += replacement;
+        }
       } else {
         result += identifier;
       }

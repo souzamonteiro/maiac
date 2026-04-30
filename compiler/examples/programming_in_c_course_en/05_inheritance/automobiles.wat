@@ -48,6 +48,7 @@
     (local $__frame i32)
     (local $i i32)
     (local $__tmp_i32 i32)
+    (local $__tmp_i8 i32)
     (local $__tmp_addr i32)
     (local $__tmp_old_i32 i32)
     (local $__tmp_f32 f32)
@@ -59,7 +60,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 120
+    i32.const 112
     i32.add
     global.set $__stack_ptr
     local.get $__frame
@@ -68,32 +69,32 @@
     local.get $a
     i32.store
     local.get $__frame
-    i32.const 88
+    i32.const 80
     i32.add
     local.get $type
     i32.store
     local.get $__frame
-    i32.const 92
+    i32.const 84
     i32.add
     local.get $color
     i32.store
     local.get $__frame
-    i32.const 96
+    i32.const 88
     i32.add
     local.get $year
     i32.store
     local.get $__frame
-    i32.const 100
+    i32.const 92
     i32.add
     local.get $model
     i32.store
     local.get $__frame
-    i32.const 104
+    i32.const 96
     i32.add
     local.get $engine_size
     f32.store
     local.get $__frame
-    i32.const 108
+    i32.const 100
     i32.add
     local.get $price
     f32.store
@@ -104,7 +105,7 @@
     i32.const 0
     i32.add
     local.get $__frame
-    i32.const 88
+    i32.const 80
     i32.add
     i32.load
     local.set $__tmp_i32
@@ -113,7 +114,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 112
+    i32.const 104
     i32.add
     i32.const 0
     local.set $__tmp_i32
@@ -124,11 +125,11 @@
     block $automobile_init_for_exit_0
       loop $automobile_init_for_loop_2
         local.get $__frame
-        i32.const 92
+        i32.const 84
         i32.add
         i32.load
         local.get $__frame
-        i32.const 112
+        i32.const 104
         i32.add
         i32.load
         i32.const 1
@@ -139,7 +140,7 @@
         i32.eqz
         if (result i32)
           local.get $__frame
-          i32.const 112
+          i32.const 104
           i32.add
           i32.load
           i32.const 31
@@ -158,33 +159,35 @@
           i32.const 0
           i32.add
           i32.load
+          i32.const 4
+          i32.add
           local.get $__frame
-          i32.const 112
+          i32.const 104
           i32.add
           i32.load
-          i32.const 4
+          i32.const 1
           i32.mul
           i32.add
           local.get $__frame
-          i32.const 92
+          i32.const 84
           i32.add
           i32.load
           local.get $__frame
-          i32.const 112
+          i32.const 104
           i32.add
           i32.load
           i32.const 1
           i32.mul
           i32.add
           i32.load8_u
-          local.set $__tmp_i32
-          local.get $__tmp_i32
-          i32.store
-          local.get $__tmp_i32
+          local.set $__tmp_i8
+          local.get $__tmp_i8
+          i32.store8
+          local.get $__tmp_i8
           drop
         end
         local.get $__frame
-        i32.const 112
+        i32.const 104
         i32.add
         local.tee $__tmp_addr
         i32.load
@@ -204,21 +207,23 @@
     i32.const 0
     i32.add
     i32.load
+    i32.const 4
+    i32.add
     local.get $__frame
-    i32.const 112
+    i32.const 104
     i32.add
     i32.load
-    i32.const 4
+    i32.const 1
     i32.mul
     i32.add
     i32.const 0
-    local.set $__tmp_i32
-    local.get $__tmp_i32
-    i32.store
-    local.get $__tmp_i32
+    local.set $__tmp_i8
+    local.get $__tmp_i8
+    i32.store8
+    local.get $__tmp_i8
     drop
     local.get $__frame
-    i32.const 112
+    i32.const 104
     i32.add
     i32.const 0
     local.set $__tmp_i32
@@ -229,11 +234,11 @@
     block $automobile_init_for_exit_3
       loop $automobile_init_for_loop_5
         local.get $__frame
-        i32.const 100
+        i32.const 92
         i32.add
         i32.load
         local.get $__frame
-        i32.const 112
+        i32.const 104
         i32.add
         i32.load
         i32.const 1
@@ -244,7 +249,7 @@
         i32.eqz
         if (result i32)
           local.get $__frame
-          i32.const 112
+          i32.const 104
           i32.add
           i32.load
           i32.const 31
@@ -263,33 +268,35 @@
           i32.const 0
           i32.add
           i32.load
+          i32.const 40
+          i32.add
           local.get $__frame
-          i32.const 112
+          i32.const 104
           i32.add
           i32.load
-          i32.const 4
+          i32.const 1
           i32.mul
           i32.add
           local.get $__frame
-          i32.const 100
+          i32.const 92
           i32.add
           i32.load
           local.get $__frame
-          i32.const 112
+          i32.const 104
           i32.add
           i32.load
           i32.const 1
           i32.mul
           i32.add
           i32.load8_u
-          local.set $__tmp_i32
-          local.get $__tmp_i32
-          i32.store
-          local.get $__tmp_i32
+          local.set $__tmp_i8
+          local.get $__tmp_i8
+          i32.store8
+          local.get $__tmp_i8
           drop
         end
         local.get $__frame
-        i32.const 112
+        i32.const 104
         i32.add
         local.tee $__tmp_addr
         i32.load
@@ -309,27 +316,29 @@
     i32.const 0
     i32.add
     i32.load
-    local.get $__frame
-    i32.const 112
-    i32.add
-    i32.load
-    i32.const 4
-    i32.mul
-    i32.add
-    i32.const 0
-    local.set $__tmp_i32
-    local.get $__tmp_i32
-    i32.store
-    local.get $__tmp_i32
-    drop
-    local.get $__frame
-    i32.const 0
-    i32.add
-    i32.load
     i32.const 40
     i32.add
     local.get $__frame
-    i32.const 96
+    i32.const 104
+    i32.add
+    i32.load
+    i32.const 1
+    i32.mul
+    i32.add
+    i32.const 0
+    local.set $__tmp_i8
+    local.get $__tmp_i8
+    i32.store8
+    local.get $__tmp_i8
+    drop
+    local.get $__frame
+    i32.const 0
+    i32.add
+    i32.load
+    i32.const 36
+    i32.add
+    local.get $__frame
+    i32.const 88
     i32.add
     i32.load
     local.set $__tmp_i32
@@ -341,10 +350,10 @@
     i32.const 0
     i32.add
     i32.load
-    i32.const 80
+    i32.const 72
     i32.add
     local.get $__frame
-    i32.const 104
+    i32.const 96
     i32.add
     f32.load
     local.set $__tmp_f32
@@ -356,10 +365,10 @@
     i32.const 0
     i32.add
     i32.load
-    i32.const 84
+    i32.const 76
     i32.add
     local.get $__frame
-    i32.const 108
+    i32.const 100
     i32.add
     f32.load
     local.set $__tmp_f32
@@ -383,7 +392,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 264
+    i32.const 240
     i32.add
     global.set $__stack_ptr
     local.get $__frame
@@ -397,7 +406,7 @@
     f32.const 50000
     call $automobile_init
     local.get $__frame
-    i32.const 88
+    i32.const 80
     i32.add
     global.get $VEHICLE_TRUCK
     i32.const 28
@@ -407,7 +416,7 @@
     f32.const 500000
     call $automobile_init
     local.get $__frame
-    i32.const 176
+    i32.const 160
     i32.add
     global.get $VEHICLE_TRACTOR
     i32.const 36
@@ -419,22 +428,22 @@
     i32.const 52
     f64.convert_i32_s
     local.get $__frame
-    i32.const 176
+    i32.const 160
     i32.add
-    i32.const 48
+    i32.const 40
     i32.add
     f64.convert_i32_s
     local.get $__frame
-    i32.const 176
+    i32.const 160
     i32.add
-    i32.const 40
+    i32.const 36
     i32.add
     i32.load
     f64.convert_i32_s
     local.get $__frame
-    i32.const 176
+    i32.const 160
     i32.add
-    i32.const 84
+    i32.const 76
     i32.add
     f32.load
     f64.promote_f32

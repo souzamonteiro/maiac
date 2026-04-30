@@ -48,6 +48,7 @@
     (local $__frame i32)
     (local $i i32)
     (local $__tmp_i32 i32)
+    (local $__tmp_i8 i32)
     (local $__tmp_addr i32)
     (local $__tmp_old_i32 i32)
     (local $__parent_frame i32)
@@ -67,12 +68,12 @@
     local.get $d
     i32.store
     local.get $__frame
-    i32.const 60
+    i32.const 56
     i32.add
     local.get $type
     i32.store
     local.get $__frame
-    i32.const 64
+    i32.const 60
     i32.add
     local.get $name
     i32.store
@@ -83,7 +84,7 @@
     i32.const 0
     i32.add
     local.get $__frame
-    i32.const 60
+    i32.const 56
     i32.add
     i32.load
     local.set $__tmp_i32
@@ -92,7 +93,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 68
+    i32.const 64
     i32.add
     i32.const 0
     local.set $__tmp_i32
@@ -103,11 +104,11 @@
     block $dinosaur_init_for_exit_0
       loop $dinosaur_init_for_loop_2
         local.get $__frame
-        i32.const 64
+        i32.const 60
         i32.add
         i32.load
         local.get $__frame
-        i32.const 68
+        i32.const 64
         i32.add
         i32.load
         i32.const 1
@@ -118,7 +119,7 @@
         i32.eqz
         if (result i32)
           local.get $__frame
-          i32.const 68
+          i32.const 64
           i32.add
           i32.load
           i32.const 49
@@ -137,33 +138,35 @@
           i32.const 0
           i32.add
           i32.load
-          local.get $__frame
-          i32.const 68
-          i32.add
-          i32.load
           i32.const 4
-          i32.mul
           i32.add
           local.get $__frame
           i32.const 64
           i32.add
           i32.load
+          i32.const 1
+          i32.mul
+          i32.add
           local.get $__frame
-          i32.const 68
+          i32.const 60
+          i32.add
+          i32.load
+          local.get $__frame
+          i32.const 64
           i32.add
           i32.load
           i32.const 1
           i32.mul
           i32.add
           i32.load8_u
-          local.set $__tmp_i32
-          local.get $__tmp_i32
-          i32.store
-          local.get $__tmp_i32
+          local.set $__tmp_i8
+          local.get $__tmp_i8
+          i32.store8
+          local.get $__tmp_i8
           drop
         end
         local.get $__frame
-        i32.const 68
+        i32.const 64
         i32.add
         local.tee $__tmp_addr
         i32.load
@@ -183,18 +186,20 @@
     i32.const 0
     i32.add
     i32.load
+    i32.const 4
+    i32.add
     local.get $__frame
-    i32.const 68
+    i32.const 64
     i32.add
     i32.load
-    i32.const 4
+    i32.const 1
     i32.mul
     i32.add
     i32.const 0
-    local.set $__tmp_i32
-    local.get $__tmp_i32
-    i32.store
-    local.get $__tmp_i32
+    local.set $__tmp_i8
+    local.get $__tmp_i8
+    i32.store8
+    local.get $__tmp_i8
     drop
   )
 
@@ -209,7 +214,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 128
+    i32.const 112
     i32.add
     global.set $__stack_ptr
     local.get $__frame
@@ -218,7 +223,7 @@
     local.get $predator
     i32.store
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     local.get $prey
     i32.store
@@ -228,14 +233,14 @@
     i32.const 0
     i32.add
     i32.load
-    i32.const 8
+    i32.const 4
     i32.add
     f64.convert_i32_s
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     i32.load
-    i32.const 8
+    i32.const 4
     i32.add
     f64.convert_i32_s
     f64.const 0
@@ -261,7 +266,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 192
+    i32.const 168
     i32.add
     global.set $__stack_ptr
     local.get $__frame
@@ -271,13 +276,13 @@
     i32.const 28
     call $dinosaur_init
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     global.get $DINO_PTERODACTYL
     i32.const 36
     call $dinosaur_init
     local.get $__frame
-    i32.const 128
+    i32.const 112
     i32.add
     global.get $DINO_TYRANNOSAURUS
     i32.const 44
@@ -287,7 +292,7 @@
     local.get $__frame
     i32.const 0
     i32.add
-    i32.const 8
+    i32.const 4
     i32.add
     f64.convert_i32_s
     f64.const 0
@@ -301,9 +306,9 @@
     i32.const 84
     f64.convert_i32_s
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
-    i32.const 8
+    i32.const 4
     i32.add
     f64.convert_i32_s
     f64.const 0
@@ -317,9 +322,9 @@
     i32.const 120
     f64.convert_i32_s
     local.get $__frame
-    i32.const 128
+    i32.const 112
     i32.add
-    i32.const 8
+    i32.const 4
     i32.add
     f64.convert_i32_s
     f64.const 0
@@ -331,7 +336,7 @@
     call $imp_printf
     drop
     local.get $__frame
-    i32.const 128
+    i32.const 112
     i32.add
     local.get $__frame
     i32.const 0

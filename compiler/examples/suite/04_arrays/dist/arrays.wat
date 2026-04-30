@@ -395,7 +395,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 88
+    i32.const 80
     i32.add
     global.set $__stack_ptr
     local.get $__frame
@@ -486,7 +486,7 @@
       drop
     end
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 0
     i32.const 12
@@ -503,7 +503,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 0
     i32.const 12
@@ -520,7 +520,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 0
     i32.const 12
@@ -537,7 +537,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 1
     i32.const 12
@@ -554,7 +554,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 1
     i32.const 12
@@ -571,7 +571,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 1
     i32.const 12
@@ -588,7 +588,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 2
     i32.const 12
@@ -605,7 +605,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 2
     i32.const 12
@@ -622,7 +622,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 2
     i32.const 12
@@ -639,10 +639,10 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 84
+    i32.const 76
     i32.add
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 0
     i32.const 12
@@ -654,7 +654,7 @@
     i32.add
     i32.load
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 1
     i32.const 12
@@ -667,7 +667,7 @@
     i32.load
     i32.add
     local.get $__frame
-    i32.const 24
+    i32.const 20
     i32.add
     i32.const 2
     i32.const 12
@@ -685,7 +685,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 84
+    i32.const 76
     i32.add
     i32.load
     i32.const 15
@@ -706,7 +706,7 @@
       drop
     end
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     i32.const 0
     i32.const 4
@@ -719,7 +719,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     i32.const 1
     i32.const 4
@@ -732,7 +732,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     i32.const 2
     i32.const 4
@@ -745,7 +745,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     i32.const 3
     i32.const 4
@@ -758,7 +758,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     i32.const 4
     i32.const 4
@@ -771,12 +771,12 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     i32.const 5
     call $bubble_sort
     local.get $__frame
-    i32.const 64
+    i32.const 56
     i32.add
     i32.const 0
     i32.const 4
@@ -789,7 +789,7 @@
     i32.eqz
     if (result i32)
       local.get $__frame
-      i32.const 64
+      i32.const 56
       i32.add
       i32.const 4
       i32.const 4

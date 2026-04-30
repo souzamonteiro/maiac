@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:26.823Z",
+  "generatedAt": "2026-04-30T19:00:21.439Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/10_stdlib_math/stdlib_math.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/10_stdlib_math/dist",
   "appName": "stdlib_math",

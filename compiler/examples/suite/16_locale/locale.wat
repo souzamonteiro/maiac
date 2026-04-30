@@ -62,7 +62,7 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 8
+    i32.const 4
     i32.add
     call $imp_localeconv
     local.set $__tmp_i32
@@ -90,14 +90,14 @@
       drop
     end
     local.get $__frame
-    i32.const 8
+    i32.const 4
     i32.add
     i32.load
     i32.eqz
     i32.eqz
     if (result i32)
       local.get $__frame
-      i32.const 8
+      i32.const 4
       i32.add
       i32.load
       i32.const 0

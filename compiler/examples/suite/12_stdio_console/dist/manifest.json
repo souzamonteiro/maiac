@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:27.225Z",
+  "generatedAt": "2026-04-30T19:00:21.827Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/12_stdio_console/stdio_console.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/12_stdio_console/dist",
   "appName": "stdio_console",

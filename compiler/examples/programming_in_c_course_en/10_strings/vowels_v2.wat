@@ -50,7 +50,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 272
+    i32.const 264
     i32.add
     global.set $__stack_ptr
     i32.const 16
@@ -66,7 +66,7 @@
     drop
     i32.const 36
     local.get $__frame
-    i32.const 8
+    i32.const 4
     i32.add
     i32.const 0
     i32.const 0
@@ -88,7 +88,7 @@
     call $imp_printf
     drop
     local.get $__frame
-    i32.const 264
+    i32.const 260
     i32.add
     i32.const 0
     local.set $__tmp_i32
@@ -112,7 +112,7 @@
         i32.add
         i32.load
         local.get $__frame
-        i32.const 8
+        i32.const 4
         i32.add
         call $imp_strlen
         i32.lt_s
@@ -122,7 +122,7 @@
         br_if $main_for_exit_0
         block $main_for_continue_1
           local.get $__frame
-          i32.const 8
+          i32.const 4
           i32.add
           local.get $__frame
           i32.const 0
@@ -140,7 +140,7 @@
             i32.const 1
           else
             local.get $__frame
-            i32.const 8
+            i32.const 4
             i32.add
             local.get $__frame
             i32.const 0
@@ -159,7 +159,7 @@
             i32.const 1
           else
             local.get $__frame
-            i32.const 8
+            i32.const 4
             i32.add
             local.get $__frame
             i32.const 0
@@ -178,7 +178,7 @@
             i32.const 1
           else
             local.get $__frame
-            i32.const 8
+            i32.const 4
             i32.add
             local.get $__frame
             i32.const 0
@@ -197,7 +197,7 @@
             i32.const 1
           else
             local.get $__frame
-            i32.const 8
+            i32.const 4
             i32.add
             local.get $__frame
             i32.const 0
@@ -216,7 +216,7 @@
           i32.eqz
           if
             local.get $__frame
-            i32.const 264
+            i32.const 260
             i32.add
             local.tee $__tmp_addr
             i32.load
@@ -251,7 +251,7 @@
     i32.const 48
     f64.convert_i32_s
     local.get $__frame
-    i32.const 264
+    i32.const 260
     i32.add
     i32.load
     f64.convert_i32_s

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:26.969Z",
+  "generatedAt": "2026-04-30T19:00:21.578Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/11_host_extern/host_extern.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/11_host_extern/dist",
   "appName": "host_extern",

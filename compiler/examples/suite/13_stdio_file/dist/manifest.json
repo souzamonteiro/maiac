@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:27.621Z",
+  "generatedAt": "2026-04-30T19:00:22.213Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/13_stdio_file/stdio_file.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/13_stdio_file/dist",
   "appName": "stdio_file",

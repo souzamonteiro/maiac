@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-04-30T19:01:45.014Z",
+  "input": "/home/roberto/projects/maiac/compiler/examples/programming_in_c_course_en/06_polymorphism/polymorphism.c",
+  "outDir": "/home/roberto/projects/maiac/compiler/examples/programming_in_c_course_en/06_polymorphism/dist",
+  "appName": "polymorphism",
+  "artifacts": {
+    "wasm": "polymorphism.wasm",
+    "wrapper": "polymorphism.js",
+    "wat": "polymorphism.wat",
+    "browserRunner": "browser-runner.html",
+    "browserMemoryFileStore": "browser-memory-file-store.js",
+    "nodeRunner": "node-runner.js",
+    "nodeRunnerShell": "node-runner.sh"
+  },
+  "linkedLibraries": [
+    "stdio"
+  ],
+  "copiedLibraries": [],
+  "runtimeProvidedHeaders": [
+    "stdio"
+  ],
+  "missingLibraries": [],
+  "sourceBytes": 902
+}

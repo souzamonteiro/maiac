@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:20.471Z",
+  "generatedAt": "2026-04-30T19:00:15.064Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/05_pointers/pointers.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/05_pointers/dist",
   "appName": "pointers",

@@ -42,6 +42,7 @@
     (local $__tmp_i32 i32)
     (local $__tmp_f32 f32)
     (local $__tmp_f64 f64)
+    (local $__tmp_i8 i32)
     (local $__parent_frame i32)
     global.get $__frame_ptr
     local.set $__parent_frame
@@ -50,86 +51,86 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 40
+    i32.const 32
     i32.add
     global.set $__stack_ptr
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 72
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 1
     i32.add
     i32.const 101
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 2
     i32.add
     i32.const 108
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 3
     i32.add
     i32.const 108
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 4
     i32.add
     i32.const 111
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 5
     i32.add
     i32.const 32
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 6
     i32.add
     i32.const 87
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 7
     i32.add
     i32.const 111
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 8
     i32.add
     i32.const 114
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 9
     i32.add
     i32.const 108
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 10
     i32.add
     i32.const 100
     i32.store8
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     i32.const 11
     i32.add
@@ -168,10 +169,10 @@
     i32.const 16
     i32.add
     i32.const 65
-    local.set $__tmp_i32
-    local.get $__tmp_i32
-    i32.store
-    local.get $__tmp_i32
+    local.set $__tmp_i8
+    local.get $__tmp_i8
+    i32.store8
+    local.get $__tmp_i8
     drop
     i32.const 16
     f64.convert_i32_s
@@ -222,7 +223,7 @@
     local.get $__frame
     i32.const 16
     i32.add
-    i32.load
+    i32.load8_u
     f64.convert_i32_s
     f64.const 0
     f64.const 0
@@ -235,7 +236,7 @@
     i32.const 28
     f64.convert_i32_s
     local.get $__frame
-    i32.const 24
+    i32.const 17
     i32.add
     f64.convert_i32_s
     f64.const 0

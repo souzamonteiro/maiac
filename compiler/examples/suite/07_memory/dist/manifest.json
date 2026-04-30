@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T17:15:21.318Z",
+  "generatedAt": "2026-04-30T19:00:15.949Z",
   "input": "/home/roberto/projects/maiac/compiler/examples/suite/07_memory/memory.c",
   "outDir": "/home/roberto/projects/maiac/compiler/examples/suite/07_memory/dist",
   "appName": "memory",
