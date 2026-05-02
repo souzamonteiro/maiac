@@ -4,6 +4,7 @@
 
 - [ ] Publish a supported C89 feature matrix in docs (implemented vs partial vs unsupported).
 - [ ] Add a dedicated "Known Limitations" section with concrete examples and expected behavior.
+- [ ] Document and investigate escaped-quote/backslash behavior in string literals (for example, `\"`) with MaiaCC parser generation. Keep MaiaC grammar stable and prioritize a generator-level fix before any new grammar workaround.
 - [ ] Add a browser smoke test workflow that validates loading and running a compiled WASM module via the web runner path.
 - [ ] Add a CI guard for submodule consistency (`maiacc` alignment across MaiaC and MaiaWASM).
 - [ ] Add golden-output assertions for key float/double formatting paths to prevent regressions in host `printf` behavior.

@@ -207,7 +207,7 @@
         local.get $__frame
         i32.const 8
         i32.add
-        i32.load
+        i32.load8_u
         local.set $main___switch_value_3
         i32.const 0
         local.set $main___switch_matched_4
