@@ -4,6 +4,7 @@
 
 (module
   (import "env" "printf" (func $imp_printf (param f64 f64 f64 f64 f64 f64 f64 f64) (result i32)))
+  (import "env" "strcmp" (func $imp_strcmp (param i32 i32) (result i32)))
 
   (memory $mem 1)
 
@@ -134,9 +135,7 @@
     end
     i32.const 104
     i32.const 104
-    drop
-    drop
-    i32.const 0
+    call $imp_strcmp
     i32.const 0
     i32.eq
     i32.eqz

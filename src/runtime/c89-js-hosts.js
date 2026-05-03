@@ -1630,6 +1630,166 @@ function createStringHosts(getMemory) {
     strlen: (ptr) => {
       const text = mem.readCString(ptr);
       return text.length | 0;
+    },
+    strcmp: (p1, p2) => {
+      const s1 = mem.readCString(p1);
+      const s2 = mem.readCString(p2);
+      for (let i = 0; i <= s1.length || i <= s2.length; i++) {
+        const a = s1.charCodeAt(i) || 0;
+        const b = s2.charCodeAt(i) || 0;
+        if (a !== b) return a > b ? 1 : -1;
+        if (a === 0) break;
+      }
+      return 0;
+    },
+    strncmp: (p1, p2, n) => {
+      const s1 = mem.readCString(p1);
+      const s2 = mem.readCString(p2);
+      const len = n >>> 0;
+      for (let i = 0; i < len; i++) {
+        const a = s1.charCodeAt(i) || 0;
+        const b = s2.charCodeAt(i) || 0;
+        if (a !== b) return a > b ? 1 : -1;
+        if (a === 0) break;
+      }
+      return 0;
+    },
+    strcpy: (dst, src) => {
+      const text = mem.readCString(src);
+      mem.writeCString(dst, text);
+      return dst | 0;
+    },
+    strncpy: (dst, src, n) => {
+      const len = n >>> 0;
+      const text = mem.readCString(src).slice(0, len);
+      const bytes = new Uint8Array(getMemory().buffer);
+      for (let i = 0; i < len; i++) {
+        bytes[(dst >>> 0) + i] = i < text.length ? text.charCodeAt(i) : 0;
+      }
+      return dst | 0;
+    },
+    strcat: (dst, src) => {
+      const dstStr = mem.readCString(dst);
+      const srcStr = mem.readCString(src);
+      mem.writeCString(dst, dstStr + srcStr);
+      return dst | 0;
+    },
+    strncat: (dst, src, n) => {
+      const dstStr = mem.readCString(dst);
+      const srcStr = mem.readCString(src).slice(0, n >>> 0);
+      mem.writeCString(dst, dstStr + srcStr);
+      return dst | 0;
+    },
+    strstr: (haystack, needle) => {
+      const h = mem.readCString(haystack);
+      const n = mem.readCString(needle);
+      if (n.length === 0) return haystack | 0;
+      const idx = h.indexOf(n);
+      if (idx < 0) return 0;
+      return (haystack + idx) | 0;
+    },
+    strchr: (s, c) => {
+      const str = mem.readCString(s);
+      const ch = String.fromCharCode(c & 0xff);
+      const idx = str.indexOf(ch);
+      if (idx < 0) {
+        /* check null terminator */
+        return (c & 0xff) === 0 ? (s + str.length) | 0 : 0;
+      }
+      return (s + idx) | 0;
+    },
+    strrchr: (s, c) => {
+      const str = mem.readCString(s);
+      const ch = String.fromCharCode(c & 0xff);
+      const idx = str.lastIndexOf(ch);
+      if (idx < 0) {
+        return (c & 0xff) === 0 ? (s + str.length) | 0 : 0;
+      }
+      return (s + idx) | 0;
+    },
+    strspn: (s, accept) => {
+      const str = mem.readCString(s);
+      const acc = mem.readCString(accept);
+      let i = 0;
+      while (i < str.length && acc.includes(str[i])) i++;
+      return i | 0;
+    },
+    strcspn: (s, reject) => {
+      const str = mem.readCString(s);
+      const rej = mem.readCString(reject);
+      let i = 0;
+      while (i < str.length && !rej.includes(str[i])) i++;
+      return i | 0;
+    },
+    strtok: (() => {
+      let savedPtr = 0;
+      let savedStr = '';
+      let savedOffset = 0;
+      return (s, delim) => {
+        const delimStr = mem.readCString(delim);
+        if ((s >>> 0) !== 0) {
+          savedPtr = s >>> 0;
+          savedStr = mem.readCString(savedPtr);
+          savedOffset = 0;
+        }
+        if (savedOffset >= savedStr.length) return 0;
+        /* skip leading delimiters */
+        while (savedOffset < savedStr.length && delimStr.includes(savedStr[savedOffset])) savedOffset++;
+        if (savedOffset >= savedStr.length) return 0;
+        const start = savedOffset;
+        while (savedOffset < savedStr.length && !delimStr.includes(savedStr[savedOffset])) savedOffset++;
+        const token = savedStr.slice(start, savedOffset);
+        mem.writeCString(savedPtr + start, token);
+        const bytes = new Uint8Array(getMemory().buffer);
+        bytes[(savedPtr + savedOffset) >>> 0] = 0;
+        savedOffset++;
+        return (savedPtr + start) | 0;
+      };
+    })(),
+    memcmp: (p1, p2, n) => {
+      const bytes = new Uint8Array(getMemory().buffer);
+      const len = n >>> 0;
+      for (let i = 0; i < len; i++) {
+        const a = bytes[(p1 >>> 0) + i];
+        const b = bytes[(p2 >>> 0) + i];
+        if (a !== b) return a > b ? 1 : -1;
+      }
+      return 0;
+    },
+    memcpy: (dst, src, n) => {
+      const bytes = new Uint8Array(getMemory().buffer);
+      const len = n >>> 0;
+      const d = dst >>> 0;
+      const s = src >>> 0;
+      for (let i = 0; i < len; i++) bytes[d + i] = bytes[s + i];
+      return dst | 0;
+    },
+    memmove: (dst, src, n) => {
+      const bytes = new Uint8Array(getMemory().buffer);
+      const len = n >>> 0;
+      const d = dst >>> 0;
+      const s = src >>> 0;
+      const tmp = bytes.slice(s, s + len);
+      for (let i = 0; i < len; i++) bytes[d + i] = tmp[i];
+      return dst | 0;
+    },
+    memset: (ptr, c, n) => {
+      const bytes = new Uint8Array(getMemory().buffer);
+      const len = n >>> 0;
+      const p = ptr >>> 0;
+      const val = c & 0xff;
+      for (let i = 0; i < len; i++) bytes[p + i] = val;
+      return ptr | 0;
+    },
+    memchr: (ptr, c, n) => {
+      const bytes = new Uint8Array(getMemory().buffer);
+      const len = n >>> 0;
+      const p = ptr >>> 0;
+      const val = c & 0xff;
+      for (let i = 0; i < len; i++) {
+        if (bytes[p + i] === val) return (p + i) | 0;
+      }
+      return 0;
     }
   };
 }

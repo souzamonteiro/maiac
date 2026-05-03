@@ -5,6 +5,9 @@
 (module
   (import "env" "strlen" (func $imp_strlen (param i32) (result i32)))
   (import "env" "printf" (func $imp_printf (param f64 f64 f64 f64 f64 f64 f64 f64) (result i32)))
+  (import "env" "strcmp" (func $imp_strcmp (param i32 i32) (result i32)))
+  (import "env" "strcpy" (func $imp_strcpy (param i32 i32) (result i32)))
+  (import "env" "strcat" (func $imp_strcat (param i32 i32) (result i32)))
 
   (memory $mem 1)
 
@@ -317,9 +320,7 @@
     end
     i32.const 64
     i32.const 64
-    drop
-    drop
-    i32.const 0
+    call $imp_strcmp
     i32.const 0
     i32.eq
     i32.eqz
@@ -341,25 +342,19 @@
     i32.const 12
     i32.add
     i32.const 84
-    drop
-    drop
-    i32.const 0
+    call $imp_strcpy
     drop
     local.get $__frame
     i32.const 12
     i32.add
     i32.const 88
-    drop
-    drop
-    i32.const 0
+    call $imp_strcat
     drop
     local.get $__frame
     i32.const 12
     i32.add
     i32.const 92
-    drop
-    drop
-    i32.const 0
+    call $imp_strcmp
     i32.const 0
     i32.eq
     i32.eqz
