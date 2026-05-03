@@ -77,8 +77,8 @@ directDeclaratorSuffix ::= '[' constantExpression? ']'
                          | '(' parameterTypeList ')'
                          | '(' identifierList? ')'
                    
-pointer ::= '*' typeQualifierList?
-          | '*' typeQualifierList? pointer
+pointer ::= '*' typeQualifierList? pointer
+          | '*' typeQualifierList?
           
 typeQualifierList ::= typeQualifier+
                     

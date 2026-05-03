@@ -183,7 +183,12 @@ function getStorageTypeForSymbol(symbol) {
 
 function getPointerStepForSymbol(symbol) {
   if (!symbol || (symbol.pointerDepth || 0) <= 0) return 1;
-  return getStrideForAccess(symbol.baseWatType || 'i32', symbol.pointeeArrayDimensions || []);
+  // Pointer arithmetic scales by the pointee size.
+  // For pointer-to-pointer (char **, int **, etc.) the pointee is itself
+  // an address, so stride must be 4 bytes regardless of base scalar type.
+  const pointerDepth = symbol.pointerDepth || 0;
+  const pointeeWatType = pointerDepth > 1 ? 'i32' : (symbol.baseWatType || 'i32');
+  return getStrideForAccess(pointeeWatType, symbol.pointeeArrayDimensions || []);
 }
 
 function resolveDirectSymbol(name, context) {
@@ -1070,6 +1075,7 @@ function extractParameters(parameterListNode, moduleModel = null) {
         structLayout: typeInfo.structLayout || null,
         isStruct,
         pointerDepth,
+        rawPointerDepth,
         pointeeArrayDimensions,
         declaredAsArray,
         arrayLength: declaredAsArray ? (arrayDimensions[0] ?? null) : null,
@@ -4398,7 +4404,16 @@ function getIndexedAccessInfo(name, indexExpressions, context) {
   // are 1-byte chars (i8). For a char* param used with ptr[n], isArray is false and
   // baseWatType='i8' correctly drives stride-1 / load8_u indexing.
   const rawBaseType = symbol.baseWatType || symbol.watType || 'i32';
-  const watType = (symbol.isArray && (symbol.pointerDepth || 0) > 0) ? 'i32' : rawBaseType;
+  // Determine the element type for subscript access:
+  // - Non-param array of pointers (char *items[]): isArray=true, pointerDepth>0 → i32
+  // - Param array of pointers (char *argv[]): declaredAsArray=true, rawPointerDepth>0 → i32
+  // - Pointer-to-pointer param (char **env): pointerDepth>1 → i32
+  // - Plain char pointer (char *str or char str[]): → i8
+  const watType = (
+    (symbol.isArray && (symbol.pointerDepth || 0) > 0) ||
+    (symbol.declaredAsArray && (symbol.rawPointerDepth || 0) > 0) ||
+    (symbol.pointerDepth || 0) > 1
+  ) ? 'i32' : rawBaseType;
   let addressInstructions = symbol.isArray
     ? emitAddressOfSymbol(name, context)
     : compileExpression({ kind: 'terminal', token: 'Identifier', value: name }, context, { keepValue: true });

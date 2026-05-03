@@ -22,6 +22,19 @@ normalize_output() {
         LC_ALL=C sed -e '${/^[[:space:]]*$/d;}'
 }
 
+normalize_command_line_args_output() {
+    # Keep argv lines in original order and compare env as a set.
+    # Drop volatile env vars that are runner/wrapper specific.
+    local input_file="$1"
+    {
+        LC_ALL=C grep '^argv\[' "$input_file" || true
+        LC_ALL=C grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$input_file" \
+            | LC_ALL=C grep -v '^_=' \
+            | LC_ALL=C grep -v '^GIT_ASKPASS=' \
+            | LC_ALL=C sort || true
+    }
+}
+
 run_with_timeout() {
     local seconds="$1"
     shift
@@ -58,8 +71,16 @@ default_input_for() {
 is_known_runtime_hang_case() {
     local stem="$1"
     case "$stem" in
-        conditionals_with_loops) return 0 ;;
         *) return 1 ;;
+    esac
+}
+
+# Returns a non-empty skip reason when the test is a known comparison mismatch
+# due to platform-specific output (argv[0] path, env vars, etc.).
+known_output_mismatch_reason() {
+    local stem="$1"
+    case "$stem" in
+        *) echo "" ;;
     esac
 }
 
@@ -72,11 +93,11 @@ run_native() {
     gcc -std=c89 -Wall -Wextra "$src" -o "$bin" >/dev/null 2>&1
 
     if [[ -f "$input_file" ]]; then
-        run_with_timeout "$TIMEOUT_SECONDS" "$bin" < "$input_file"
+        run_with_timeout "$TIMEOUT_SECONDS" bash -c 'exec -a "$0" "$1"' "$stem" "$bin" < "$input_file"
     elif default_input_for "$stem" >/tmp/maiac_auto_input.txt 2>/dev/null; then
-        run_with_timeout "$TIMEOUT_SECONDS" "$bin" < /tmp/maiac_auto_input.txt
+        run_with_timeout "$TIMEOUT_SECONDS" bash -c 'exec -a "$0" "$1"' "$stem" "$bin" < /tmp/maiac_auto_input.txt
     else
-        run_with_timeout "$TIMEOUT_SECONDS" "$bin" < /dev/null
+        run_with_timeout "$TIMEOUT_SECONDS" bash -c 'exec -a "$0" "$1"' "$stem" "$bin" < /dev/null
     fi
 }
 
@@ -97,6 +118,14 @@ for test_dir in "$SCRIPT_DIR"/*/; do
 
         if is_known_runtime_hang_case "$stem"; then
             echo "    SKIP - known MaiaC runtime scanf(%c) loop issue for this test"
+            SKIP=$((SKIP + 1))
+            echo ""
+            continue
+        fi
+
+        _mismatch_reason="$(known_output_mismatch_reason "$stem")"
+        if [[ -n "$_mismatch_reason" ]]; then
+            echo "    SKIP - known output mismatch: $_mismatch_reason"
             SKIP=$((SKIP + 1))
             echo ""
             continue
@@ -143,6 +172,15 @@ for test_dir in "$SCRIPT_DIR"/*/; do
         fi
 
         normalize_output < "$maia_tmp" > "$maia_norm"
+
+        if [[ "$stem" == "command_line_args" ]]; then
+            native_cmdargs_norm="$(mktemp)"
+            maia_cmdargs_norm="$(mktemp)"
+            normalize_command_line_args_output "$native_norm" > "$native_cmdargs_norm"
+            normalize_command_line_args_output "$maia_norm" > "$maia_cmdargs_norm"
+            mv "$native_cmdargs_norm" "$native_norm"
+            mv "$maia_cmdargs_norm" "$maia_norm"
+        fi
 
         if diff -u "$native_norm" "$maia_norm" >/dev/null 2>&1; then
             echo "    PASS"

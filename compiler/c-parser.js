@@ -1680,6 +1680,7 @@ class Parser {
         this.restoreEventState(saveMark);
       }
     }
+    this.parsepointer();
         _matched = true;
       } catch (e) {
         this.position = _ruleStart;
@@ -1701,7 +1702,6 @@ class Parser {
         this.restoreEventState(saveMark);
       }
     }
-    this.parsepointer();
         _matched = true;
       } catch (e) {
         this.position = _ruleStart;
