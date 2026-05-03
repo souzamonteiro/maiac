@@ -4479,6 +4479,33 @@ function inferPointerPointeeType(node, context) {
   return symbol.baseWatType || symbol.watType || 'i32';
 }
 
+function inferStructPointeeLayout(node, context) {
+  const identifierName = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
+  const symbol = identifierName ? resolveSymbol(identifierName, context) : null;
+  if (!symbol || (symbol.pointerDepth || 0) <= 0 || !symbol.structName) {
+    return null;
+  }
+  return resolveStructLayout(symbol.structName, context.module, symbol.structLayout || null);
+}
+
+function getStructAssignmentSourceAddress(node, context) {
+  const unwrapped = unwrapSingleNonterminalChain(node) || node;
+
+  if (isNonterminal(unwrapped, 'unaryExpression')) {
+    const unaryOperatorNode = firstNonterminal(unwrapped, 'unaryOperator');
+    const operatorTerminal = unaryOperatorNode ? firstTerminal(unaryOperatorNode) : null;
+    const operandNode = nonterminalChildren(unwrapped).find((child) => child !== unaryOperatorNode);
+    if (operatorTerminal && operatorTerminal.token === 'TOKEN__2A_' && operandNode) {
+      const pointeeLayout = inferStructPointeeLayout(operandNode, context);
+      if (pointeeLayout) {
+        return compileExpression(operandNode, context, { keepValue: true });
+      }
+    }
+  }
+
+  return compileExpression(node, context, { keepValue: true });
+}
+
 function resolveLValue(node, context, options = {}) {
   const { allowAggregate = false } = options;
   if (isNonterminal(node, 'postfixExpression')) {
@@ -4508,7 +4535,10 @@ function resolveLValue(node, context, options = {}) {
       return {
         kind: 'indirect',
         addressInstructions: memberAccess.addressInstructions,
-        watType: memberAccess.watType
+        watType: memberAccess.watType,
+        aggregateByteSize: memberAccess.isStruct && memberAccess.structLayout
+          ? (memberAccess.structLayout.size || 0)
+          : 0
       };
     }
   }
@@ -4526,7 +4556,10 @@ function resolveLValue(node, context, options = {}) {
       return {
         kind: 'indirect',
         addressInstructions: memberAccess.addressInstructions,
-        watType: memberAccess.watType
+        watType: memberAccess.watType,
+        aggregateByteSize: memberAccess.isStruct && memberAccess.structLayout
+          ? (memberAccess.structLayout.size || 0)
+          : 0
       };
     }
 
@@ -4537,7 +4570,10 @@ function resolveLValue(node, context, options = {}) {
     return {
       kind: 'symbol',
       name: simpleIdentifier,
-      watType: getStorageTypeForSymbol(symbol)
+      watType: getStorageTypeForSymbol(symbol),
+      aggregateByteSize: symbol.isStruct && symbol.structLayout
+        ? (symbol.structLayout.size || 0)
+        : 0
     };
   }
 
@@ -4547,10 +4583,12 @@ function resolveLValue(node, context, options = {}) {
     const operandNode = nonterminalChildren(node).find((child) => child !== unaryOperatorNode);
 
     if (operatorTerminal && operatorTerminal.token === 'TOKEN__2A_') {
+      const pointeeLayout = allowAggregate ? inferStructPointeeLayout(operandNode, context) : null;
       return {
         kind: 'indirect',
         addressInstructions: compileExpression(operandNode, context, { keepValue: true }),
-        watType: inferPointerPointeeType(operandNode, context)
+        watType: inferPointerPointeeType(operandNode, context),
+        aggregateByteSize: pointeeLayout ? (pointeeLayout.size || 0) : 0
       };
     }
   }
@@ -4601,32 +4639,33 @@ function compileAssignmentExpression(node, context, options = {}) {
 
   const leftNode = nestedChildren[0];
   const rightNode = nestedChildren[nestedChildren.length - 1];
-  const lvalue = resolveLValue(leftNode, context);
-  if (lvalue.kind === 'symbol') {
-    const targetSymbol = resolveSymbol(lvalue.name, context);
-    if (targetSymbol && targetSymbol.isStruct && targetSymbol.structLayout) {
-      const operatorTerminal = firstTerminal(assignmentOperator);
-      const operatorValue = operatorTerminal ? operatorTerminal.value : '=';
-      if (operatorValue !== '=') {
-        throw new CompilationError(`Unsupported assignment operator '${operatorValue}' for struct values`, getNodeName(node));
-      }
-      const byteSize = targetSymbol.structLayout.size || 0;
-      if (byteSize <= 0) {
-        throw new CompilationError(`Invalid struct size for assignment target '${lvalue.name}'`, getNodeName(node));
-      }
-      return emitStructAssignmentInstructions(
-        emitAddressOfSymbol(lvalue.name, context),
-        compileExpression(rightNode, context, { keepValue: true }),
-        byteSize,
-        context,
-        keepValue
-      );
-    }
-  }
-  const lvalueType = lvalue.watType || 'i32';
-  const rhsType = inferExpressionType(rightNode, context) || lvalueType;
+  const lvalue = resolveLValue(leftNode, context, { allowAggregate: true });
   const operatorTerminal = firstTerminal(assignmentOperator);
   const operatorValue = operatorTerminal ? operatorTerminal.value : '=';
+
+  if ((lvalue.aggregateByteSize || 0) > 0) {
+    if (operatorValue !== '=') {
+      throw new CompilationError(`Unsupported assignment operator '${operatorValue}' for struct values`, getNodeName(node));
+    }
+    const byteSize = lvalue.aggregateByteSize || 0;
+    if (byteSize <= 0) {
+      throw new CompilationError('Invalid struct size for assignment target', getNodeName(node));
+    }
+    const destinationAddress = lvalue.kind === 'symbol'
+      ? emitAddressOfSymbol(lvalue.name, context)
+      : lvalue.addressInstructions;
+    const sourceAddress = getStructAssignmentSourceAddress(rightNode, context);
+    return emitStructAssignmentInstructions(
+      destinationAddress,
+      sourceAddress,
+      byteSize,
+      context,
+      keepValue
+    );
+  }
+
+  const lvalueType = lvalue.watType || 'i32';
+  const rhsType = inferExpressionType(rightNode, context) || lvalueType;
 
   let rhsInstructions = coerceInstructionsToType(
     compileExpression(rightNode, context, { keepValue: true }),
