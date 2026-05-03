@@ -183,7 +183,12 @@ function getStorageTypeForSymbol(symbol) {
 
 function getPointerStepForSymbol(symbol) {
   if (!symbol || (symbol.pointerDepth || 0) <= 0) return 1;
-  return getStrideForAccess(symbol.baseWatType || 'i32', symbol.pointeeArrayDimensions || []);
+  // Pointer arithmetic scales by the pointee size.
+  // For pointer-to-pointer (char **, int **, etc.) the pointee is itself
+  // an address, so stride must be 4 bytes regardless of base scalar type.
+  const pointerDepth = symbol.pointerDepth || 0;
+  const pointeeWatType = pointerDepth > 1 ? 'i32' : (symbol.baseWatType || 'i32');
+  return getStrideForAccess(pointeeWatType, symbol.pointeeArrayDimensions || []);
 }
 
 function resolveDirectSymbol(name, context) {
@@ -1070,6 +1075,7 @@ function extractParameters(parameterListNode, moduleModel = null) {
         structLayout: typeInfo.structLayout || null,
         isStruct,
         pointerDepth,
+        rawPointerDepth,
         pointeeArrayDimensions,
         declaredAsArray,
         arrayLength: declaredAsArray ? (arrayDimensions[0] ?? null) : null,
@@ -3877,7 +3883,7 @@ function compileUnaryExpression(node, context, keepValue) {
           ? [...compileExpression(operandNode, context, { keepValue: true }), 'i32.const -1', 'i32.xor']
           : [];
       case 'TOKEN__26_': {
-        const lvalue = resolveLValue(operandNode, context);
+        const lvalue = resolveLValue(operandNode, context, { allowAggregate: true });
         return lvalue.kind === 'symbol'
           ? emitAddressOfSymbol(lvalue.name, context)
           : lvalue.addressInstructions;
@@ -4398,7 +4404,16 @@ function getIndexedAccessInfo(name, indexExpressions, context) {
   // are 1-byte chars (i8). For a char* param used with ptr[n], isArray is false and
   // baseWatType='i8' correctly drives stride-1 / load8_u indexing.
   const rawBaseType = symbol.baseWatType || symbol.watType || 'i32';
-  const watType = (symbol.isArray && (symbol.pointerDepth || 0) > 0) ? 'i32' : rawBaseType;
+  // Determine the element type for subscript access:
+  // - Non-param array of pointers (char *items[]): isArray=true, pointerDepth>0 → i32
+  // - Param array of pointers (char *argv[]): declaredAsArray=true, rawPointerDepth>0 → i32
+  // - Pointer-to-pointer param (char **env): pointerDepth>1 → i32
+  // - Plain char pointer (char *str or char str[]): → i8
+  const watType = (
+    (symbol.isArray && (symbol.pointerDepth || 0) > 0) ||
+    (symbol.declaredAsArray && (symbol.rawPointerDepth || 0) > 0) ||
+    (symbol.pointerDepth || 0) > 1
+  ) ? 'i32' : rawBaseType;
   let addressInstructions = symbol.isArray
     ? emitAddressOfSymbol(name, context)
     : compileExpression({ kind: 'terminal', token: 'Identifier', value: name }, context, { keepValue: true });
@@ -4464,7 +4479,8 @@ function inferPointerPointeeType(node, context) {
   return symbol.baseWatType || symbol.watType || 'i32';
 }
 
-function resolveLValue(node, context) {
+function resolveLValue(node, context, options = {}) {
+  const { allowAggregate = false } = options;
   if (isNonterminal(node, 'postfixExpression')) {
     const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
     if (accessInfo) {
@@ -4486,7 +4502,7 @@ function resolveLValue(node, context) {
       if (!memberAccess) {
         throw new CompilationError(`Unknown assignment target '${baseName}'`, context.function.sourceName);
       }
-      if (memberAccess.isStruct) {
+      if (memberAccess.isStruct && !allowAggregate) {
         throw new CompilationError('Assignment to a whole struct field object is not supported right now', context.function.sourceName);
       }
       return {
@@ -4504,7 +4520,7 @@ function resolveLValue(node, context) {
       if (!memberAccess) {
         throw new CompilationError(`Unknown assignment target '${simpleIdentifier}'`, context.function.sourceName);
       }
-      if (memberAccess.isStruct) {
+      if (memberAccess.isStruct && !allowAggregate) {
         throw new CompilationError('Assignment to a whole struct field object is not supported right now', context.function.sourceName);
       }
       return {
@@ -4541,7 +4557,7 @@ function resolveLValue(node, context) {
 
   const nestedChildren = nonterminalChildren(node);
   if (nestedChildren.length === 1 && terminalChildren(node).length === 0) {
-    return resolveLValue(nestedChildren[0], context);
+    return resolveLValue(nestedChildren[0], context, options);
   }
 
   throw new CompilationError('Unsupported assignment target', getNodeName(node));
@@ -5234,6 +5250,23 @@ function compilePostfixExpression(node, context, keepValue) {
     __malloc: { paramTypes: ['i32'], resultType: 'i32' },
     __free: { paramTypes: ['i32'], resultType: null },
     strlen: { paramTypes: ['i32'], resultType: 'i32' },
+    strcmp: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    strncmp: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    strcpy: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    strncpy: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    strcat: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    strncat: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    strstr: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    strchr: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    strrchr: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    strspn: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    strcspn: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    strtok: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
+    memcmp: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    memcpy: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    memmove: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    memset: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
+    memchr: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
     fopen: { paramTypes: ['i32', 'i32'], resultType: 'i32' },
     freopen: { paramTypes: ['i32', 'i32', 'i32'], resultType: 'i32' },
     fclose: { paramTypes: ['i32'], resultType: 'i32' },
@@ -5486,8 +5519,34 @@ function compilePostfixExpression(node, context, keepValue) {
     return instructions;
   }
 
-  for (const argumentNode of argumentsToCompile) {
-    instructions.push(...compileExpression(argumentNode, context, { keepValue: true }));
+  if (fn && !fn.isVariadic) {
+    const paramTypes = Array.isArray(fn.params)
+      ? fn.params.map((param) => toWatType(param.watType || 'i32'))
+      : [];
+
+    const fixedParamCount = paramTypes.length;
+
+    for (let i = 0; i < fixedParamCount; i += 1) {
+      const targetType = paramTypes[i] || 'i32';
+      if (i < argumentsToCompile.length) {
+        const argNode = argumentsToCompile[i];
+        const argType = inferExpressionType(argNode, context) || 'i32';
+        const argInstr = compileExpression(argNode, context, { keepValue: true });
+        instructions.push(...coerceInstructionsToType(argInstr, argType, targetType, context));
+      } else {
+        instructions.push(`${targetType}.const 0`);
+      }
+    }
+
+    // Preserve side-effects from extra args while keeping stack balanced.
+    for (let i = fixedParamCount; i < argumentsToCompile.length; i += 1) {
+      instructions.push(...compileExpression(argumentsToCompile[i], context, { keepValue: true }));
+      instructions.push('drop');
+    }
+  } else {
+    for (const argumentNode of argumentsToCompile) {
+      instructions.push(...compileExpression(argumentNode, context, { keepValue: true }));
+    }
   }
 
   if (!fn) {
