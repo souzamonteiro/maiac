@@ -908,8 +908,23 @@ function evaluateConstantExpression(node, constants = new Map()) {
   const nestedChildren = nonterminalChildren(node);
   const pieces = childNodes(node).filter((child) => child.kind === 'nonterminal' || child.kind === 'terminal');
 
-  if (['constant', 'primaryExpression', 'expression', 'assignmentExpression'].includes(nodeName) && nestedChildren.length > 0) {
+  if (['expression', 'assignmentExpression'].includes(nodeName) && nestedChildren.length > 0) {
     return evaluateConstantExpression(nestedChildren[nestedChildren.length - 1], constants);
+  }
+
+  if (['constant', 'primaryExpression'].includes(nodeName)) {
+    if (nestedChildren.length > 0) {
+      return evaluateConstantExpression(nestedChildren[nestedChildren.length - 1], constants);
+    }
+    // A bare terminal child (e.g. an identifier used as an enum constant inside a designator)
+    const valueTerminal = childNodes(node).find(
+      (child) => child.kind === 'terminal' &&
+        ['Identifier', 'IntegerConstant', 'CharacterConstant'].includes(child.token)
+    );
+    if (valueTerminal) {
+      return evaluateConstantExpression(valueTerminal, constants);
+    }
+    return 0;
   }
 
   if (nodeName === 'conditionalExpression') {

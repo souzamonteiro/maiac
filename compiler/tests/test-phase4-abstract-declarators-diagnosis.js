@@ -157,6 +157,74 @@ const phase4Cases = [
       }
     `,
     expectedReturn: 40
+  },
+  {
+    id: 'typedef-struct-ptr-param',
+    name: 'Typedef struct pointer as function parameter',
+    code: `
+      typedef struct { int x; int y; } Point;
+
+      int sum_coords(Point *p) {
+        return p->x + p->y;
+      }
+
+      int test_entry() {
+        Point pt;
+        pt.x = 6;
+        pt.y = 7;
+        return sum_coords(&pt);
+      }
+    `,
+    expectedReturn: 13
+  },
+  {
+    id: 'funcptr-in-struct',
+    name: 'Function pointer stored in struct field',
+    code: `
+      typedef int (*op_t)(int, int);
+
+      typedef struct { op_t fn; int a; int b; } Op;
+
+      int mul(int a, int b) { return a * b; }
+
+      int test_entry() {
+        Op o;
+        o.fn = mul;
+        o.a = 6;
+        o.b = 7;
+        return o.fn(o.a, o.b);
+      }
+    `,
+    expectedReturn: 42
+  },
+  {
+    id: 'ptr-to-arr-in-struct',
+    name: 'Pointer-to-array member in struct',
+    code: `
+      int test_entry() {
+        int a[3];
+        a[0] = 1;
+        a[1] = 2;
+        a[2] = 2;
+        int (*p)[3] = &a;
+        return (*p)[0] + (*p)[1] + (*p)[2];
+      }
+    `,
+    expectedReturn: 5
+  },
+  {
+    id: 'triple-pointer-chain',
+    name: 'Triple-pointer chain: int ***p3 = &p2',
+    code: `
+      int test_entry() {
+        int x = 7;
+        int *p1 = &x;
+        int **p2 = &p1;
+        int ***p3 = &p2;
+        return ***p3;
+      }
+    `,
+    expectedReturn: 7
   }
 ];
 

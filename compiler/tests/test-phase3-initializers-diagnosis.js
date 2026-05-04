@@ -104,6 +104,34 @@ const phase3Cases = [
     expectedReturn: 9
   },
   {
+    id: 'multilevel-nested-struct-init',
+    name: 'Three-level nested struct aggregate initializer',
+    code: `
+      struct A { int x; int y; };
+      struct B { struct A a; int z; };
+      struct C { struct B b; int w; };
+
+      int test_entry() {
+        struct C c = {{{3, 4}, 5}, 6};
+        return c.b.a.x + c.b.a.y + c.b.z + c.w;
+      }
+    `,
+    expectedReturn: 18
+  },
+  {
+    id: 'designated-array-enum-index',
+    name: 'Array designated initializer with enum-based index',
+    code: `
+      enum Idx { IDX_A = 1, IDX_B = 3 };
+
+      int test_entry() {
+        int arr[5] = {[IDX_A] = 10, [IDX_B] = 30};
+        return arr[0] + arr[1] + arr[2] + arr[3] + arr[4];
+      }
+    `,
+    expectedReturn: 40
+  },
+  {
     id: 'designated-array-index-out-of-bounds',
     name: 'Designated initializer rejects out-of-bounds array index',
     code: `

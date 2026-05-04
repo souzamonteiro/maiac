@@ -715,17 +715,7 @@ function preprocessCSource(source, options = {}) {
 
   const typedefAliases = collectTypedefAliases(text);
   const functionPointerAliases = new Map();
-  const pointerAliases = new Map();
   const strippedKeywords = new Set(['static', 'register', 'extern', 'auto']);
-
-  text = text.replace(
-    /([A-Za-z_][\w\s*]*?)\*\*\s*([A-Za-z_]\w*)\s*=\s*&\s*([A-Za-z_]\w*)\s*;/g,
-    (_match, baseType, aliasName, targetName) => {
-      pointerAliases.set(aliasName, targetName);
-      const normalizedType = String(baseType || 'int').trim().replace(/\s+/g, ' ');
-      return `${normalizedType} *${aliasName} = ${targetName};`;
-    }
-  );
 
   text = text.replace(
     /([A-Za-z_][\w\s*]*?)\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\(([^;{}]*)\)\s*=\s*&\s*([A-Za-z_]\w*)\s*;/g,
@@ -739,10 +729,6 @@ function preprocessCSource(source, options = {}) {
   for (const [aliasName, targetName] of functionPointerAliases.entries()) {
     text = text.replace(new RegExp(`\\(\\s*\\*\\s*${escapeRegex(aliasName)}\\s*\\)\\s*\\(`, 'g'), `${targetName}(`);
     text = text.replace(new RegExp(`\\b${escapeRegex(aliasName)}\\s*\\(`, 'g'), `${targetName}(`);
-  }
-
-  for (const aliasName of pointerAliases.keys()) {
-    text = text.replace(new RegExp(`\\*\\*\\s*${escapeRegex(aliasName)}\\b`, 'g'), `*${aliasName}`);
   }
 
   let result = '';
