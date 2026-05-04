@@ -846,6 +846,18 @@ function extractTypeInfoFromTypeName(typeNameNode) {
   };
 }
 
+function getCTypeSizeForSizeof(cType) {
+  const normalized = String(cType || 'int').replace(/\s+/g, ' ').trim();
+  if (normalized === 'char' || normalized === 'unsigned char' || normalized === 'signed char') return 1;
+  if (normalized === 'short' || normalized === 'unsigned short' || normalized === 'short int' || normalized === 'unsigned short int' || normalized === 'signed short' || normalized === 'signed short int') return 2;
+  if (normalized === 'long' || normalized === 'unsigned long' || normalized === 'long int' || normalized === 'unsigned long int' || normalized === 'signed long' || normalized === 'signed long int') return 4;
+  if (normalized === 'long long' || normalized === 'unsigned long long' || normalized === 'long long int') return 8;
+  if (normalized === 'float') return 4;
+  if (normalized === 'double') return 8;
+  if (normalized === 'long double') return 8;
+  return 4;
+}
+
 function getSizeFromTypeInfo(typeInfo, context = null) {
   if (!typeInfo) {
     return 4;
@@ -862,11 +874,34 @@ function getSizeFromTypeInfo(typeInfo, context = null) {
     return (structLayout && structLayout.size) || 4;
   }
 
+  // Use C89-standard sizes, not WAT type sizes
+  if (typeInfo.cType) {
+    return getCTypeSizeForSizeof(typeInfo.cType);
+  }
+
   return getTypeSize(typeInfo.baseWatType || typeInfo.watType || 'i32');
 }
 
+function extractTypeInfoFromTypeNameWithContext(typeNameNode, context) {
+  const moduleModel = context ? context.module : null;
+  const specifierQualifierList = firstNonterminal(typeNameNode, 'specifierQualifierList') || typeNameNode;
+  const typeInfo = extractDeclarationTypeInfo(specifierQualifierList, moduleModel);
+  const pointerDepth = countPointerDepthInDeclarator(typeNameNode);
+  const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
+  const baseWatType = typeInfo.baseWatType || 'i32';
+  const watType = toWatType((pointerDepth > 0 || isStruct) ? 'i32' : baseWatType);
+
+  return {
+    ...typeInfo,
+    pointerDepth,
+    isStruct,
+    baseWatType,
+    watType
+  };
+}
+
 function getSizeOfTypeNameNode(typeNameNode, context) {
-  return getSizeFromTypeInfo(extractTypeInfoFromTypeName(typeNameNode), context);
+  return getSizeFromTypeInfo(extractTypeInfoFromTypeNameWithContext(typeNameNode, context), context);
 }
 
 function getSizeOfExpressionNode(node, context) {
@@ -2032,6 +2067,16 @@ function compileCompoundStatement(compoundNode, context) {
 
 function compileLocalDeclaration(declarationNode, context) {
   const instructions = [];
+
+  // Register struct type-only declarations (e.g., `struct S { int a; };` without a variable)
+  const declarationSpecifiers = firstNonterminal(declarationNode, 'declarationSpecifiers');
+  const initDeclaratorList = firstNonterminal(declarationNode, 'initDeclaratorList');
+  if (!initDeclaratorList && declarationSpecifiers) {
+    const localTypeInfo = extractDeclarationTypeInfo(declarationSpecifiers, context.module);
+    if (localTypeInfo.typeKind === 'struct' && localTypeInfo.structLayout) {
+      resolveStructLayout(localTypeInfo.structName || null, context.module, localTypeInfo.structLayout);
+    }
+  }
 
   for (const localDef of extractDeclarationItems(declarationNode, context.module)) {
     const structLayout = localDef.typeKind === 'struct'
@@ -3723,7 +3768,21 @@ function compileExpression(node, context, options = {}) {
     case 'expression': {
       const expressions = nonterminalChildren(node);
       if (expressions.length === 0) return [];
-      return compileExpression(expressions[expressions.length - 1], context, { keepValue });
+      if (expressions.length === 1) {
+        return compileExpression(expressions[0], context, { keepValue });
+      }
+      // Comma expression: evaluate each sub-expression for side effects,
+      // discarding intermediate values; only keep the last.
+      const instructions = [];
+      for (let commaIdx = 0; commaIdx < expressions.length - 1; commaIdx++) {
+        const sub = expressions[commaIdx];
+        instructions.push(...compileExpression(sub, context, { keepValue: true }));
+        if (expressionProducesValue(sub, context)) {
+          instructions.push('drop');
+        }
+      }
+      instructions.push(...compileExpression(expressions[expressions.length - 1], context, { keepValue }));
+      return instructions;
     }
 
     case 'assignmentExpression':
