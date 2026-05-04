@@ -1,6 +1,6 @@
 # MaiaC C89 Conformance Matrix
 
-Date: 2026-05-03
+Date: 2026-05-04
 
 Scope:
 - Grammar source: grammar/C.ebnf
@@ -22,9 +22,9 @@ Tier legend:
 
 - Full test bundle: PASS (19 sub-scripts, 0 failures)
 - Phase 2 declarators diagnostics: 10/10 PASS
-- Phase 3 initializers diagnostics: 10/10 PASS
-- Phase 4 abstract declarators diagnostics: 9/9 PASS
-- Phase 5 preprocessor edge cases: 5/5 PASS
+- Phase 3 initializers diagnostics: 12/12 PASS
+- Phase 4 abstract declarators diagnostics: 13/13 PASS
+- Phase 5 preprocessor edge cases: 10/10 PASS
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
 - Project target remains practical C89 subset, not full-language completeness claim.
@@ -63,19 +63,15 @@ Representative limitations currently present in compiler/c-compiler.js:
 - Unsupported assignment target
 - Unsupported jump statement
 
-Note: Some bitwise operations are marked as unsupported in error messages but are in fact implemented. These false signals will be removed in a subsequent pass.
-
-These signals are consistent with partial status in multiple matrix families.
+Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemented and validated. No false-positive error signals remain for bitwise operators.
 
 ## Priority backlog derived from matrix
 
 1. Close remaining unsupported statement/expression branches (highest impact).
 2. Broaden assignment targets and compound-assignment support.
 3. Expand function-call forms beyond current named-call restrictions.
-4. Expand preprocessor: conditional expressions in #if, multi-file include nesting.
-5. Remove false-positive bitwise unsupported error messages.
-6. Add negative diagnostics for designated initializer error paths (Phase 3 coverage expansion).
-7. Expand Phase 4 multi-level declarator nesting and pointer-to-array chains.
+4. Add negative diagnostics for designated initializer error paths (Phase 3 coverage expansion).
+5. Expand Phase 4 multi-level declarator nesting and pointer-to-array chains.
 
 ## Exit criteria for 100 percent claim
 

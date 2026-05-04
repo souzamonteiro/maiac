@@ -109,6 +109,79 @@ const cases = [
       assert.ok(!pre.includes('__arrow__'));
       assert.strictEqual(runEntryFromSource(source), 12);
     }
+  },
+  {
+    name: '#if with relational and equality operators',
+    fn: () => {
+      const source = [
+        '#define VERSION 3',
+        '#if VERSION >= 3',
+        'int test_entry(void) { return 1; }',
+        '#else',
+        'int test_entry(void) { return 0; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 1);
+    }
+  },
+  {
+    name: '#if with logical NOT and comparison',
+    fn: () => {
+      const source = [
+        '#define DEBUG 0',
+        '#if !DEBUG',
+        'int test_entry(void) { return 5; }',
+        '#else',
+        'int test_entry(void) { return 0; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 5);
+    }
+  },
+  {
+    name: '#if with shift and bitwise expression',
+    fn: () => {
+      const source = [
+        '#define FLAGS 0x04',
+        '#if (FLAGS >> 1) == 2',
+        'int test_entry(void) { return 77; }',
+        '#else',
+        'int test_entry(void) { return 0; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 77);
+    }
+  },
+  {
+    name: 'multi-level include nesting: feature.h -> nested/math.h',
+    fn: () => {
+      const source = [
+        `#include "feature.h"`,
+        'int test_entry(void) { return DOUBLE(FEATURE_VAL); }'
+      ].join('\n');
+
+      const pre = preprocessCSource(source, { sourcePath });
+      assert.ok(!pre.includes('#include'), 'includes should be expanded');
+      assert.strictEqual(runEntryFromSource(source), 14);
+    }
+  },
+  {
+    name: 'include with constants.h macros in #if guard',
+    fn: () => {
+      const source = [
+        `#include "constants.h"`,
+        '#if BASE == 10',
+        'int test_entry(void) { return INC(BASE); }',
+        '#else',
+        'int test_entry(void) { return 0; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 11);
+    }
   }
 ];
 
