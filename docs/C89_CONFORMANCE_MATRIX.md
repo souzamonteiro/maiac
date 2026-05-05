@@ -22,9 +22,9 @@ Tier legend:
 
 - Full test bundle: PASS (19 sub-scripts, 0 failures)
 - Phase 2 declarators diagnostics: 10/10 PASS
-- Phase 3 initializers diagnostics: 12/12 PASS
-- Phase 4 abstract declarators diagnostics: 13/13 PASS
-- Phase 5 preprocessor edge cases: 10/10 PASS
+- Phase 3 initializers diagnostics: 18/18 PASS
+- Phase 4 abstract declarators diagnostics: 23/23 PASS
+- Phase 5 preprocessor edge cases: 16/16 PASS
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
 - Project target remains practical C89 subset, not full-language completeness claim.
@@ -51,7 +51,7 @@ Tier legend:
 | Unary and postfix | unaryExpression, unaryOperator, postfixExpression, postfixSuffix | done | partial | partial | partial | Tier 2 | Includes explicit restrictions on some unary/index/call forms. |
 | Primary/constants | primaryExpression, constant, IntegerConstant, FloatingConstant, CharacterConstant, StringLiteral | done | done | done | done | Tier 1 | Broadly exercised in suites. |
 | Function calls | postfixSuffix with call, argumentExpressionList | done | done | done | done | Tier 1 | Named calls, fn-ptr calls ((*fp)(args), fp(args)), chained calls (getOp()(args)), fn-ptr in struct (o.op(args)), array-of-fn-ptrs (ops[i](args)), fn returning fn-ptr without typedef all validated. |
-| Preprocessor directives | PreprocessingDirective and Pp* rules | done | partial | partial | partial | Tier 2 | Core directives, stringification (#), and token pasting (##) covered by Phase 5 diagnostics; conditional expressions in #if and multi-file include nesting still need expansion. |
+| Preprocessor directives | PreprocessingDirective and Pp* rules | done | partial | partial | partial | Tier 2 | Core directives plus #elif, #undef, #ifdef/#ifndef, defined with/without parentheses, and recursive include guards covered by Phase 5 diagnostics; macro-expanded expressions in #if and some token-pasting compositions still need expansion. |
 | Comments/whitespace/tokens | Ignore, WhiteSpace, Comment, lexical token rules | done | done | done | done | Tier 1 | Stable in parser and test execution. |
 
 ## Known compiler-side restriction signals (evidence)
@@ -73,9 +73,10 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 1. ~~Close remaining unsupported statement/expression branches~~ — compound assignment and fn-call forms completed 2026-05-05.
 2. ~~Broaden assignment targets and compound-assignment support~~ — completed 2026-05-05.
 3. ~~Expand function-call forms beyond current named-call restrictions~~ — completed 2026-05-05.
-4. Add negative diagnostics for designated initializer error paths (Phase 3 coverage expansion).
-5. Expand Phase 4 multi-level declarator nesting and pointer-to-array chains.
-6. Fix `sizeof` for `short` (2), `long` (4), and local struct declarations — completed 2026-05-05.
+4. ~~Add negative diagnostics for designated initializer error paths (Phase 3 coverage expansion).~~ — completed 2026-05-05.
+5. ~~Expand Phase 4 multi-level declarator nesting and pointer-to-array chains.~~ — completed 2026-05-05.
+6. ~~Fix `sizeof` for `short` (2), `long` (4), and local struct declarations.~~ — completed 2026-05-05.
+7. ~~Expand Phase 5 preprocessor edge cases (#elif/#undef/#ifdef/#ifndef + recursive includes).~~ — completed 2026-05-05.
 
 ## Exit criteria for 100 percent claim
 

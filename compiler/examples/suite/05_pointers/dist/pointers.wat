@@ -80,7 +80,6 @@
     local.get $__frame
     i32.const 8
     i32.add
-    i32.load
     i32.store
     local.get $__frame
     i32.const 16
@@ -163,6 +162,7 @@
     local.get $__frame
     i32.const 12
     i32.add
+    i32.load
     i32.load
     i32.const 12
     local.set $__tmp_i32

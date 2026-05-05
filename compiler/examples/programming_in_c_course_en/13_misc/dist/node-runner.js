@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const app = require('./time.js');
+const app = require('./command_line_args.js');
 
 function createMachineAwareBridgeResolver(runtimeBridgeEntries, availableBridgeSymbols) {
   const pointerToBridge = new Map();
@@ -69,7 +69,7 @@ async function main() {
 
   const wasmPath = process.argv[2]
     ? path.resolve(process.argv[2])
-    : path.join(__dirname, 'time.wasm');
+    : path.join(__dirname, 'command_line_args.wasm');
   // Args after the wasm path are forwarded to the C program as argv[1+].
   const _progName  = path.basename(wasmPath, '.wasm');
   const _extraArgs = process.argv.slice(3);

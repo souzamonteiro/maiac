@@ -182,6 +182,103 @@ const cases = [
 
       assert.strictEqual(runEntryFromSource(source), 11);
     }
+  },
+  {
+    name: '#elif chooses middle branch correctly',
+    fn: () => {
+      const source = [
+        '#define MODE 2',
+        '#if MODE == 1',
+        'int test_entry(void) { return 11; }',
+        '#elif MODE == 2',
+        'int test_entry(void) { return 22; }',
+        '#else',
+        'int test_entry(void) { return 33; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 22);
+    }
+  },
+  {
+    name: '#undef removes macro from defined() checks',
+    fn: () => {
+      const source = [
+        '#define FLAG 1',
+        '#undef FLAG',
+        '#if defined(FLAG)',
+        'int test_entry(void) { return 0; }',
+        '#else',
+        'int test_entry(void) { return 5; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 5);
+    }
+  },
+  {
+    name: '#ifdef and #ifndef both resolve active branch',
+    fn: () => {
+      const source = [
+        '#define FOO 1',
+        '#ifdef FOO',
+        '#ifndef BAR',
+        'int test_entry(void) { return 17; }',
+        '#else',
+        'int test_entry(void) { return 0; }',
+        '#endif',
+        '#else',
+        'int test_entry(void) { return 0; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 17);
+    }
+  },
+  {
+    name: 'defined macro without parentheses in #if',
+    fn: () => {
+      const source = [
+        '#define Q 1',
+        '#if defined Q',
+        'int test_entry(void) { return 4; }',
+        '#else',
+        'int test_entry(void) { return 0; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 4);
+    }
+  },
+  {
+    name: 'recursive include guards expose both macro sets',
+    fn: () => {
+      const source = [
+        '#include "recursive_a.h"',
+        'int test_entry(void) { return A_VAL + B_VAL; }'
+      ].join('\n');
+
+      const pre = preprocessCSource(source, { sourcePath });
+      assert.ok(!pre.includes('#include'), 'recursive include chain should be expanded');
+      assert.strictEqual(runEntryFromSource(source), 33);
+    }
+  },
+  {
+    name: '#elif fallback path hits #else when no branch matches',
+    fn: () => {
+      const source = [
+        '#define MODE 9',
+        '#if MODE == 1',
+        'int test_entry(void) { return 1; }',
+        '#elif MODE == 2',
+        'int test_entry(void) { return 2; }',
+        '#else',
+        'int test_entry(void) { return 30; }',
+        '#endif'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 30);
+    }
   }
 ];
 

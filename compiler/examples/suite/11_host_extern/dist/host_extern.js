@@ -2410,7 +2410,66 @@ function createImports(getMemory, opts = {}) {
  * @param {string} wasmPath  – path to the .wasm file
  * @returns {Promise<number>} – exit code returned by main()
  */
-async function run(wasmPath) {
+// Write argc/argv/env into WASM linear memory and return { argc, argvPtr, envPtr }.
+// Strings are packed at the top of linear memory. The buffer grows when needed
+// so large host environments do not overflow a fixed-size region.
+function _buildArgvInMemory(memory, argv, env) {
+  const MIN_SAFE_BASE = 32768;
+
+  function alignedStrBytes(s) {
+    const raw = String(s).length + 1;
+    return (raw + 3) & ~3;
+  }
+
+  const argvStrings = argv.map(String);
+  const envStrings = env.map(String);
+  const stringsBytes = argvStrings.reduce((n, s) => n + alignedStrBytes(s), 0)
+    + envStrings.reduce((n, s) => n + alignedStrBytes(s), 0);
+  const ptrBytes = (argvStrings.length + 1 + envStrings.length + 1) * 4;
+  const totalBytes = stringsBytes + ptrBytes + 8;
+
+  while ((memory.buffer.byteLength - totalBytes) < MIN_SAFE_BASE) {
+    memory.grow(1);
+  }
+
+  const mem8  = new Uint8Array(memory.buffer);
+  const memSz = memory.buffer.byteLength;
+  let ptr = (memSz - totalBytes) & ~3;
+
+  function writeStr(s) {
+    const start = ptr;
+    for (let i = 0; i < s.length; i++) { mem8[ptr++] = s.charCodeAt(i) & 0xFF; }
+    mem8[ptr++] = 0;
+    // Align to 4 bytes.
+    while (ptr & 3) { mem8[ptr++] = 0; }
+    return start;
+  }
+
+  function writeI32(v) {
+    const start = ptr;
+    mem8[ptr++] = v & 0xFF; mem8[ptr++] = (v >>> 8) & 0xFF;
+    mem8[ptr++] = (v >>> 16) & 0xFF; mem8[ptr++] = (v >>> 24) & 0xFF;
+    return start;
+  }
+
+  // Write string data first.
+  const argPtrs = argvStrings.map(writeStr);
+  const envPtrs = envStrings.map(writeStr);
+
+  // Write argv[] pointer array (null-terminated).
+  const argvPtr = ptr;
+  argPtrs.forEach(writeI32);
+  writeI32(0);
+
+  // Write env[] pointer array (null-terminated).
+  const envPtr = ptr;
+  envPtrs.forEach(writeI32);
+  writeI32(0);
+
+  return { argc: argvStrings.length, argvPtr, envPtr };
+}
+
+async function run(wasmPath, opts) {
   const fs   = require('fs');
   const path = require('path');
   const bytes = fs.readFileSync(wasmPath);
@@ -2424,6 +2483,38 @@ async function run(wasmPath) {
   memoryRef = instance.exports.memory || null;
   const entry = instance.exports.main || instance.exports.test_entry;
   if (typeof entry !== 'function') throw new Error('No main() export found');
+
+  // If main() accepts argc/argv/env, populate them based on environment.
+  if (entry.length >= 2 && memoryRef) {
+    let argv, env;
+    if (typeof process !== 'undefined' && process.argv) {
+      // Node.js: derive argv from process.argv / process.env.
+      // opts.argv can override (e.g. node-runner passes its own argv).
+      if (opts && Array.isArray(opts.argv)) {
+        argv = opts.argv.map(String);
+        env  = Array.isArray(opts.env) ? opts.env.map(String) : [];
+      } else {
+        // Standalone execution: [node, script.js, wasm-path?, arg1, arg2, ...]
+        const _pathMod = require('path');
+        const progName = _pathMod.basename(wasmPath, '.wasm');
+        argv = [progName].concat(process.argv.slice(3));
+        env  = Object.keys(process.env).map(function(k) { return k + '=' + process.env[k]; });
+      }
+    } else {
+      // Browser: no access to process — pass empty argc/argv/env.
+      argv = [];
+      env  = [];
+    }
+    if (argv.length > 0) {
+      const { argc, argvPtr, envPtr } = _buildArgvInMemory(memoryRef, argv, env);
+      const boundEntry = () => entry(argc, argvPtr, envPtr);
+      return _runEntrypointWithLongjmpResume(boundEntry);
+    }
+    // Browser with empty argv: call with explicit zeros so WASM doesn't read garbage.
+    const boundEntry = () => entry(0, 0, 0);
+    return _runEntrypointWithLongjmpResume(boundEntry);
+  }
+
   return _runEntrypointWithLongjmpResume(entry);
 }
 
@@ -2431,7 +2522,7 @@ if (typeof module !== 'undefined') {
   module.exports = { createImports, run };
 }
 
-// When executed directly (node <file>.js [wasm-path]), run main() immediately.
+// When executed directly (node <file>.js [wasm-path] [args...]), run main().
 if (typeof require !== 'undefined' && require.main === module) {
   const _path  = require('path');
   const _wasm  = process.argv[2]
