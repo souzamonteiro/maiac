@@ -225,6 +225,114 @@ const phase4Cases = [
       }
     `,
     expectedReturn: 7
+  },
+  {
+    id: 'ptr-to-array-param',
+    name: 'Pointer-to-array as function parameter (pass by ref)',
+    code: `
+      int sumArr(int (*p)[3]) { return (*p)[0]+(*p)[1]+(*p)[2]; }
+      int test_entry() { int a[3]={4,5,6}; return sumArr(&a); }
+    `,
+    expectedReturn: 15
+  },
+  {
+    id: 'ptr-ptr-read-write',
+    name: 'Double pointer: int **pp dereferenced',
+    code: `
+      int test_entry() { int x=42; int *p=&x; int **pp=&p; return **pp; }
+    `,
+    expectedReturn: 42
+  },
+  {
+    id: 'arr-of-fnptrs-no-typedef',
+    name: 'Array of function pointers without typedef',
+    code: `
+      int mul(int a, int b) { return a*b; }
+      int add(int a, int b) { return a+b; }
+      int test_entry() {
+        int (*ops[2])(int,int);
+        ops[0]=add; ops[1]=mul;
+        return ops[1](3,4);
+      }
+    `,
+    expectedReturn: 12
+  },
+  {
+    id: 'fnptr-param-no-typedef',
+    name: 'Function pointer as parameter without typedef',
+    code: `
+      int apply(int (*f)(int,int), int a, int b) { return f(a,b); }
+      int add(int a, int b) { return a+b; }
+      int test_entry() { return apply(add,3,4); }
+    `,
+    expectedReturn: 7
+  },
+  {
+    id: 'typedef-fnptr-as-arg',
+    name: 'Typedef function pointer passed as argument',
+    code: `
+      typedef int (*BinOp)(int,int);
+      int mul(int a, int b) { return a*b; }
+      int apply(BinOp f, int a, int b) { return f(a,b); }
+      int test_entry() { return apply(mul,3,4); }
+    `,
+    expectedReturn: 12
+  },
+  {
+    id: 'typedef-struct-ptr-chain',
+    name: 'Typedef struct with pointer field access',
+    code: `
+      typedef struct S { int x; int y; } S;
+      int test_entry() { S s; S *p=&s; p->x=2; p->y=4; return p->x+p->y; }
+    `,
+    expectedReturn: 6
+  },
+  {
+    id: 'arr-of-struct-ptrs',
+    name: 'Array of pointers to struct',
+    code: `
+      struct P { int val; };
+      int test_entry() {
+        struct P a={5}, b={10};
+        struct P *ptrs[2]={&a,&b};
+        return ptrs[0]->val+ptrs[1]->val;
+      }
+    `,
+    expectedReturn: 15
+  },
+  {
+    id: 'struct-field-ptr-to-array',
+    name: 'Struct field that is a pointer-to-array',
+    code: `
+      struct S { int (*buf)[3]; };
+      int test_entry() {
+        int a[3]={2,3,4};
+        struct S s;
+        s.buf=&a;
+        return (*s.buf)[0]+(*s.buf)[1]+(*s.buf)[2];
+      }
+    `,
+    expectedReturn: 9
+  },
+  {
+    id: 'typedef-chain',
+    name: 'Typedef chain: typedef of typedef',
+    code: `
+      typedef int MyInt;
+      typedef MyInt Count;
+      int test_entry() { Count c=7; return c; }
+    `,
+    expectedReturn: 7
+  },
+  {
+    id: 'address-of-global-limitation',
+    name: 'Address-of global variable is unsupported (negative)',
+    code: `
+      int g=99;
+      int *getGlobal() { return &g; }
+      int test_entry() { return *getGlobal(); }
+    `,
+    expectedError: 'Address-of is currently supported only for frame-backed locals'
   }
 ];
 
