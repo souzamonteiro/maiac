@@ -6,7 +6,7 @@ Scope:
 - Grammar source: grammar/C.ebnf
 - Compiler implementation: compiler/c-compiler.js
 - Runtime evidence: compiler/tests/test-all.js
-- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
+- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-phase8-unary-postfix-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
 
 Status legend:
 - done: implemented and validated in current flow
@@ -20,13 +20,14 @@ Tier legend:
 
 ## Current global evidence
 
-- Full test bundle: PASS (21 sub-scripts, 0 failures)
+- Full test bundle: PASS (19 sub-scripts, 0 failures)
 - Phase 2 declarators diagnostics: 10/10 PASS
 - Phase 3 initializers diagnostics: 18/18 PASS
 - Phase 4 abstract declarators diagnostics: 23/23 PASS
 - Phase 5 preprocessor edge cases: 16/16 PASS
 - Phase 6 selection statements diagnostics: 20/20 PASS
 - Phase 7 iteration statements diagnostics: 13/13 PASS
+- Phase 8 unary/postfix diagnostics: 22/22 PASS
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
 - Project target remains practical C89 subset, not full-language completeness claim.
@@ -50,7 +51,7 @@ Tier legend:
 | Jump statements | jumpStatement | done | done | done | done | Tier 1 | Unrestricted goto path is implemented and validated in diagnostic suites. |
 | Expression hierarchy | expression through multiplicativeExpression | done | done | done | done | Tier 1 | Pointer subtraction and key declarator-driven expression paths validated in current suite set. |
 | Assignment operators | assignmentExpression, assignmentOperator | done | done | done | done | Tier 1 | All 10 compound operators (+=,-=,*=,/=,%=,&=,|=,^=,<<=,>>=) validated on scalars, struct fields (.x, ->x), array elements (arr[i]) and pointer dereferences (*p). Comma operator in expressions validated. |
-| Unary and postfix | unaryExpression, unaryOperator, postfixExpression, postfixSuffix | done | partial | partial | partial | Tier 2 | Includes explicit restrictions on some unary/index/call forms. |
+| Unary and postfix | unaryExpression, unaryOperator, postfixExpression, postfixSuffix | done | partial | partial | partial | Tier 2 | Broad unary/postfix coverage validated in Phase 8 (++, --, !, ~, &, *, sizeof, index/call/dot/arrow); known restriction remains for address-of global variables in current lowering. |
 | Primary/constants | primaryExpression, constant, IntegerConstant, FloatingConstant, CharacterConstant, StringLiteral | done | done | done | done | Tier 1 | Broadly exercised in suites. |
 | Function calls | postfixSuffix with call, argumentExpressionList | done | done | done | done | Tier 1 | Named calls, fn-ptr calls ((*fp)(args), fp(args)), chained calls (getOp()(args)), fn-ptr in struct (o.op(args)), array-of-fn-ptrs (ops[i](args)), fn returning fn-ptr without typedef all validated. |
 | Preprocessor directives | PreprocessingDirective and Pp* rules | done | partial | partial | partial | Tier 2 | Core directives plus #elif, #undef, #ifdef/#ifndef, defined with/without parentheses, and recursive include guards covered by Phase 5 diagnostics; macro-expanded expressions in #if and some token-pasting compositions still need expansion. |
@@ -81,6 +82,7 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 7. ~~Expand Phase 5 preprocessor edge cases (#elif/#undef/#ifdef/#ifndef + recursive includes).~~ — completed 2026-05-05.
 8. ~~Expand Phase 6 selection statement coverage (if/else-if/switch/ternary/error cases).~~ — completed 2026-05-05.
 9. ~~Expand Phase 7 iteration statement coverage (while/do-while/for/nested/break-continue).~~ — completed 2026-05-05.
+10. ~~Expand Phase 8 unary/postfix coverage (++/--, dereference/address-of local, indexing, sizeof, dot/arrow, negatives).~~ — completed 2026-05-05.
 
 ## Exit criteria for 100 percent claim
 
