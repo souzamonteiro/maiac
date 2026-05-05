@@ -1,6 +1,6 @@
 # MaiaC C89 Conformance Matrix
 
-Date: 2026-05-04
+Date: 2026-05-05
 
 Scope:
 - Grammar source: grammar/C.ebnf
@@ -47,31 +47,35 @@ Tier legend:
 | Iteration statements | iterationStatement | done | partial | partial | partial | Tier 2 | while/do/for supported in subset; malformed/edge combinations guarded by errors. |
 | Jump statements | jumpStatement | done | done | done | done | Tier 1 | Unrestricted goto path is implemented and validated in diagnostic suites. |
 | Expression hierarchy | expression through multiplicativeExpression | done | done | done | done | Tier 1 | Pointer subtraction and key declarator-driven expression paths validated in current suite set. |
-| Assignment operators | assignmentExpression, assignmentOperator | done | partial | partial | partial | Tier 2 | Simple and struct-copy assignments validated (direct, field, pointer-dereference forms); compound assignment operators and some complex targets remain constrained. |
+| Assignment operators | assignmentExpression, assignmentOperator | done | done | done | done | Tier 1 | All 10 compound operators (+=,-=,*=,/=,%=,&=,|=,^=,<<=,>>=) validated on scalars, struct fields (.x, ->x), array elements (arr[i]) and pointer dereferences (*p). Comma operator in expressions validated. |
 | Unary and postfix | unaryExpression, unaryOperator, postfixExpression, postfixSuffix | done | partial | partial | partial | Tier 2 | Includes explicit restrictions on some unary/index/call forms. |
 | Primary/constants | primaryExpression, constant, IntegerConstant, FloatingConstant, CharacterConstant, StringLiteral | done | done | done | done | Tier 1 | Broadly exercised in suites. |
-| Function calls | postfixSuffix with call, argumentExpressionList | done | partial | partial | partial | Tier 2 | Current implementation restricts to named function calls in some paths. |
+| Function calls | postfixSuffix with call, argumentExpressionList | done | done | done | done | Tier 1 | Named calls, fn-ptr calls ((*fp)(args), fp(args)), chained calls (getOp()(args)), fn-ptr in struct (o.op(args)), array-of-fn-ptrs (ops[i](args)), fn returning fn-ptr without typedef all validated. |
 | Preprocessor directives | PreprocessingDirective and Pp* rules | done | partial | partial | partial | Tier 2 | Core directives, stringification (#), and token pasting (##) covered by Phase 5 diagnostics; conditional expressions in #if and multi-file include nesting still need expansion. |
 | Comments/whitespace/tokens | Ignore, WhiteSpace, Comment, lexical token rules | done | done | done | done | Tier 1 | Stable in parser and test execution. |
 
 ## Known compiler-side restriction signals (evidence)
 
 Representative limitations currently present in compiler/c-compiler.js:
-- Unsupported statement type
-- Unsupported expression node
-- Only named function calls are supported right now
-- Unsupported assignment target
-- Unsupported jump statement
+- Unsupported statement type (unreachable grammar alternatives)
+- Unsupported expression node (unreachable grammar alternatives)
+- Unsupported assignment target (complex lvalue forms not yet lowered)
+- Unsupported jump statement (unreachable grammar alternatives)
+
+Resolved signals (removed from active concern):
+- ~~Only named function calls are supported right now~~ — fn-ptr and chained calls now work
+- ~~Compound assignment operators remain constrained~~ — all 10 operators validated on all target forms
 
 Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemented and validated. No false-positive error signals remain for bitwise operators.
 
 ## Priority backlog derived from matrix
 
-1. Close remaining unsupported statement/expression branches (highest impact).
-2. Broaden assignment targets and compound-assignment support.
-3. Expand function-call forms beyond current named-call restrictions.
+1. ~~Close remaining unsupported statement/expression branches~~ — compound assignment and fn-call forms completed 2026-05-05.
+2. ~~Broaden assignment targets and compound-assignment support~~ — completed 2026-05-05.
+3. ~~Expand function-call forms beyond current named-call restrictions~~ — completed 2026-05-05.
 4. Add negative diagnostics for designated initializer error paths (Phase 3 coverage expansion).
 5. Expand Phase 4 multi-level declarator nesting and pointer-to-array chains.
+6. Fix `sizeof` for `short` (2), `long` (4), and local struct declarations — completed 2026-05-05.
 
 ## Exit criteria for 100 percent claim
 
