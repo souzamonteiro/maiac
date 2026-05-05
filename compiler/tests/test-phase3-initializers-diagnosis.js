@@ -168,6 +168,78 @@ const phase3Cases = [
       }
     `,
     expectedError: 'Unknown field'
+  },
+  {
+    id: 'zero-fill-remaining',
+    name: 'Remaining elements are zero-filled after sparse designated init',
+    code: `
+      int test_entry() {
+        int a[5] = {[2] = 3};
+        return a[0] + a[1] + a[2] + a[3] + a[4];
+      }
+    `,
+    expectedReturn: 3
+  },
+  {
+    id: 'init-constant-expr',
+    name: 'Array initializer with constant expressions',
+    code: `
+      int test_entry() {
+        int a[3] = {1 + 2, 3 + 4, 10 - 7};
+        return a[0] + a[1] + a[2];
+      }
+    `,
+    expectedReturn: 13
+  },
+  {
+    id: 'struct-array-of-structs',
+    name: 'Struct containing array-of-structs aggregate init',
+    code: `
+      struct P { int x; };
+      struct S { struct P pts[2]; };
+
+      int test_entry() {
+        struct S s = {{{1}, {2}}};
+        return s.pts[0].x + s.pts[1].x;
+      }
+    `,
+    expectedReturn: 3
+  },
+  {
+    id: 'array-2d-designated',
+    name: '2D array with designated initializer ([row][col] = val)',
+    code: `
+      int test_entry() {
+        int m[3][2] = {[1][0] = 3, [1][1] = 4};
+        return m[1][0] + m[1][1];
+      }
+    `,
+    expectedReturn: 7
+  },
+  {
+    id: 'union-basic-init',
+    name: 'Union basic field assignment and read',
+    code: `
+      union U { int i; char c; };
+
+      int test_entry() {
+        union U u;
+        u.i = 3;
+        return u.i;
+      }
+    `,
+    expectedReturn: 3
+  },
+  {
+    id: 'array-init-too-many-elements',
+    name: 'Array initializer rejects excess elements',
+    code: `
+      int test_entry() {
+        int a[2] = {5, 9, 99};
+        return a[0];
+      }
+    `,
+    expectedError: 'Too many initializer'
   }
 ];
 
