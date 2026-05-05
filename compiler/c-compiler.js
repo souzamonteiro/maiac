@@ -1170,8 +1170,18 @@ function extractDeclaratorInfo(declaratorNode, moduleModel = null) {
     throw new CompilationError('Could not find an identifier inside the declarator', getNodeName(directDeclarator));
   }
 
-  const parameterList = findFirstNonterminal(directDeclarator, 'parameterList');
-  const parameterTypeList = findFirstNonterminal(directDeclarator, 'parameterTypeList');
+  // Use identifier-scoped suffixes to find the parameter list that belongs to
+  // the function being declared (not a nested fn-ptr return type's params).
+  // e.g. for `int (*getOp())(int,int)`, the identifier-scoped suffix is `()`
+  // not `(int,int)` which belongs to the return-type's fn-ptr signature.
+  const identifierScopedSuffixes = getIdentifierScopedDeclaratorSuffixes(declaratorNode);
+  const identifierScopedFnSuffix = identifierScopedSuffixes.find((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
+  const parameterList = identifierScopedFnSuffix
+    ? (firstNonterminal(identifierScopedFnSuffix, 'parameterList') || findFirstNonterminal(identifierScopedFnSuffix, 'parameterList'))
+    : findFirstNonterminal(directDeclarator, 'parameterList');
+  const parameterTypeList = identifierScopedFnSuffix
+    ? findFirstNonterminal(identifierScopedFnSuffix, 'parameterTypeList')
+    : findFirstNonterminal(directDeclarator, 'parameterTypeList');
   const isVariadic = !!(parameterTypeList && findFirstTerminal(parameterTypeList, 'TOKEN__2E__2E__2E_'));
 
   return {
@@ -5182,12 +5192,34 @@ function compileTerminalExpression(node, context, options = {}) {
 function compilePostfixExpression(node, context, keepValue) {
   const primaryExpression = firstNonterminal(node, 'primaryExpression');
   const postfixSuffixes = nonterminalChildren(node, 'postfixSuffix');
-  const callSuffix = postfixSuffixes.find((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
+  const allCallSuffixes = postfixSuffixes.filter((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
+  const callSuffix = allCallSuffixes[0] || null;
+  const chainedCallSuffixes = allCallSuffixes.slice(1);
   const postfixOperator = postfixSuffixes
     .flatMap((suffix) => childNodes(suffix))
     .find((child) => child.kind === 'terminal' && ['TOKEN__2B__2B_', 'TOKEN__2D__2D_'].includes(child.token));
   const argumentList = callSuffix ? findFirstNonterminal(callSuffix, 'argumentExpressionList') : null;
   const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
+
+  // Helper: apply a chained call suffix `(args)` to a fn ptr already on the stack.
+  // Saves the fn ptr to a temp local, compiles the args, then does call_indirect.
+  const applyChainedCallSuffix = (currentInstructions, suffix) => {
+    const chainedArgList = findFirstNonterminal(suffix, 'argumentExpressionList');
+    const chainedArgs = chainedArgList ? nonterminalChildren(chainedArgList, 'assignmentExpression') : [];
+    const tmpLocal = ensureInternalLocal(context, '__chained_fn_ptr', 'i32');
+    const result = [...currentInstructions, `local.set $${tmpLocal.name}`];
+    for (const argNode of chainedArgs) {
+      result.push(...compileExpression(argNode, context, { keepValue: true }));
+    }
+    result.push(`local.get $${tmpLocal.name}`);
+    const typeIndex = ensureFunctionType(
+      context.module,
+      chainedArgs.map(() => 'i32'),
+      'i32'
+    );
+    result.push(`call_indirect (type ${typeIndex})`);
+    return result;
+  };
 
   if (postfixSuffixes.length === 0) {
     return primaryExpression ? compileExpression(primaryExpression, context, { keepValue }) : [];
@@ -5753,6 +5785,18 @@ function compilePostfixExpression(node, context, keepValue) {
   }
 
   instructions.push(`call $${sanitizeIdentifier(calleeName)}`);
+
+  // Apply any chained call suffixes: e.g., getOp()(3,4) where getOp() returns a fn ptr.
+  if (chainedCallSuffixes.length > 0) {
+    let chained = instructions;
+    for (const suffix of chainedCallSuffixes) {
+      chained = applyChainedCallSuffix(chained, suffix);
+    }
+    if (!keepValue) {
+      chained.push('drop');
+    }
+    return chained;
+  }
 
   if (!keepValue && fn.resultType !== null) {
     instructions.push('drop');
