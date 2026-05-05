@@ -6,7 +6,7 @@ Scope:
 - Grammar source: grammar/C.ebnf
 - Compiler implementation: compiler/c-compiler.js
 - Runtime evidence: compiler/tests/test-all.js
-- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
+- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
 
 Status legend:
 - done: implemented and validated in current flow
@@ -20,11 +20,12 @@ Tier legend:
 
 ## Current global evidence
 
-- Full test bundle: PASS (19 sub-scripts, 0 failures)
+- Full test bundle: PASS (20 sub-scripts, 0 failures)
 - Phase 2 declarators diagnostics: 10/10 PASS
 - Phase 3 initializers diagnostics: 18/18 PASS
 - Phase 4 abstract declarators diagnostics: 23/23 PASS
 - Phase 5 preprocessor edge cases: 16/16 PASS
+- Phase 6 selection statements diagnostics: 20/20 PASS
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
 - Project target remains practical C89 subset, not full-language completeness claim.
@@ -43,7 +44,7 @@ Tier legend:
 | Declarator system | declarator, directDeclaratorBase, directDeclaratorSuffix, pointer, parameterTypeList, abstractDeclarator | done | done | done | done | Tier 1 | Phase2 diagnostics validate covered advanced forms in current practical subset. |
 | Initializers | initializer, initializerList | done | done | done | done | Tier 1 | Nested aggregates and designated initializers (.field, [index], nested designated paths) validated by phase3 diagnostics. |
 | Compound blocks | compoundStatement, blockItem, statementList | done | done | done | done | Tier 1 | Strongly covered by mini-suite and large E2E. |
-| Selection statements | selectionStatement, labeledStatement | done | partial | partial | partial | Tier 2 | if/switch available; some statement forms still hit unsupported branches. |
+| Selection statements | selectionStatement, labeledStatement | done | done | done | done | Tier 1 | if/else, if-else-if chains, switch with fall-through/break/default, ternary operator, and complex logical conditions all validated by Phase 6 diagnostics. |
 | Iteration statements | iterationStatement | done | partial | partial | partial | Tier 2 | while/do/for supported in subset; malformed/edge combinations guarded by errors. |
 | Jump statements | jumpStatement | done | done | done | done | Tier 1 | Unrestricted goto path is implemented and validated in diagnostic suites. |
 | Expression hierarchy | expression through multiplicativeExpression | done | done | done | done | Tier 1 | Pointer subtraction and key declarator-driven expression paths validated in current suite set. |
@@ -77,6 +78,7 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 5. ~~Expand Phase 4 multi-level declarator nesting and pointer-to-array chains.~~ — completed 2026-05-05.
 6. ~~Fix `sizeof` for `short` (2), `long` (4), and local struct declarations.~~ — completed 2026-05-05.
 7. ~~Expand Phase 5 preprocessor edge cases (#elif/#undef/#ifdef/#ifndef + recursive includes).~~ — completed 2026-05-05.
+8. ~~Expand Phase 6 selection statement coverage (if/else-if/switch/ternary/error cases).~~ — completed 2026-05-05.
 
 ## Exit criteria for 100 percent claim
 
