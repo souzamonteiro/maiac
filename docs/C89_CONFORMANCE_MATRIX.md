@@ -6,7 +6,7 @@ Scope:
 - Grammar source: grammar/C.ebnf
 - Compiler implementation: compiler/c-compiler.js
 - Runtime evidence: compiler/tests/test-all.js
-- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
+- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
 
 Status legend:
 - done: implemented and validated in current flow
@@ -20,12 +20,13 @@ Tier legend:
 
 ## Current global evidence
 
-- Full test bundle: PASS (20 sub-scripts, 0 failures)
+- Full test bundle: PASS (21 sub-scripts, 0 failures)
 - Phase 2 declarators diagnostics: 10/10 PASS
 - Phase 3 initializers diagnostics: 18/18 PASS
 - Phase 4 abstract declarators diagnostics: 23/23 PASS
 - Phase 5 preprocessor edge cases: 16/16 PASS
 - Phase 6 selection statements diagnostics: 20/20 PASS
+- Phase 7 iteration statements diagnostics: 13/13 PASS
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
 - Project target remains practical C89 subset, not full-language completeness claim.
@@ -45,7 +46,7 @@ Tier legend:
 | Initializers | initializer, initializerList | done | done | done | done | Tier 1 | Nested aggregates and designated initializers (.field, [index], nested designated paths) validated by phase3 diagnostics. |
 | Compound blocks | compoundStatement, blockItem, statementList | done | done | done | done | Tier 1 | Strongly covered by mini-suite and large E2E. |
 | Selection statements | selectionStatement, labeledStatement | done | done | done | done | Tier 1 | if/else, if-else-if chains, switch with fall-through/break/default, ternary operator, and complex logical conditions all validated by Phase 6 diagnostics. |
-| Iteration statements | iterationStatement | done | partial | partial | partial | Tier 2 | while/do/for supported in subset; malformed/edge combinations guarded by errors. |
+| Iteration statements | iterationStatement | done | done | done | done | Tier 1 | while, do-while, for loops with all common patterns validated; nested loops, loop control (break/continue), and appropriate error rejection all covered by Phase 7 diagnostics. |
 | Jump statements | jumpStatement | done | done | done | done | Tier 1 | Unrestricted goto path is implemented and validated in diagnostic suites. |
 | Expression hierarchy | expression through multiplicativeExpression | done | done | done | done | Tier 1 | Pointer subtraction and key declarator-driven expression paths validated in current suite set. |
 | Assignment operators | assignmentExpression, assignmentOperator | done | done | done | done | Tier 1 | All 10 compound operators (+=,-=,*=,/=,%=,&=,|=,^=,<<=,>>=) validated on scalars, struct fields (.x, ->x), array elements (arr[i]) and pointer dereferences (*p). Comma operator in expressions validated. |
@@ -79,6 +80,7 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 6. ~~Fix `sizeof` for `short` (2), `long` (4), and local struct declarations.~~ — completed 2026-05-05.
 7. ~~Expand Phase 5 preprocessor edge cases (#elif/#undef/#ifdef/#ifndef + recursive includes).~~ — completed 2026-05-05.
 8. ~~Expand Phase 6 selection statement coverage (if/else-if/switch/ternary/error cases).~~ — completed 2026-05-05.
+9. ~~Expand Phase 7 iteration statement coverage (while/do-while/for/nested/break-continue).~~ — completed 2026-05-05.
 
 ## Exit criteria for 100 percent claim
 
