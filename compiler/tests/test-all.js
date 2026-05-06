@@ -19,6 +19,7 @@ const scripts = [
   'test-phase9-preprocessor-advanced-diagnosis.js',
   'test-phase10-function-definitions-diagnosis.js',
   'test-phase11-struct-union-edgepaths-diagnosis.js',
+  'test-phase12-storage-type-qualifiers-diagnosis.js',
   'test-member-access-negative-diagnosis.js',
   'test-runtime-js-hosts.js',
   'test-runtime-stdio-edgecases.js',
