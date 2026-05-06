@@ -17,6 +17,7 @@ const scripts = [
   'test-phase7-iteration-statements-diagnosis.js',
   'test-phase8-unary-postfix-diagnosis.js',
   'test-phase9-preprocessor-advanced-diagnosis.js',
+  'test-phase10-function-definitions-diagnosis.js',
   'test-member-access-negative-diagnosis.js',
   'test-runtime-js-hosts.js',
   'test-runtime-stdio-edgecases.js',

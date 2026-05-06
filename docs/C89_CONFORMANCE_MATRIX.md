@@ -1,12 +1,12 @@
 # MaiaC C89 Conformance Matrix
 
-Date: 2026-05-05
+Date: 2026-05-06
 
 Scope:
 - Grammar source: grammar/C.ebnf
 - Compiler implementation: compiler/c-compiler.js
 - Runtime evidence: compiler/tests/test-all.js
-- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-phase8-unary-postfix-diagnosis.js, compiler/tests/test-phase9-preprocessor-advanced-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
+- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-phase8-unary-postfix-diagnosis.js, compiler/tests/test-phase9-preprocessor-advanced-diagnosis.js, compiler/tests/test-phase10-function-definitions-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
 
 Status legend:
 - done: implemented and validated in current flow
@@ -29,6 +29,7 @@ Tier legend:
 - Phase 7 iteration statements diagnostics: 13/13 PASS
 - Phase 8 unary/postfix diagnostics: 22/22 PASS
 - Phase 9 preprocessor advanced diagnostics: 9/9 PASS
+- Phase 10 function definitions diagnostics: 12/12 PASS
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
 - Project target remains practical C89 subset, not full-language completeness claim.
@@ -38,7 +39,7 @@ Tier legend:
 | Family | Grammar rules (C.ebnf) | Parse | Semantic | Codegen | Runtime | Tier | Notes |
 |---|---|---|---|---|---|---|---|
 | Translation unit | translationUnit, translationUnitItem, externalDeclaration | done | done | done | done | Tier 1 | Core pipeline validated by test-all. |
-| Function definitions | functionDefinition, declarationList | done | partial | partial | partial | Tier 2 | Works for covered subset; some constructs still rejected downstream. |
+| Function definitions | functionDefinition, declarationList | done | partial | partial | partial | Tier 2 | ANSI-style definitions are strongly covered (including recursion, forward declarations, array-style params and fn-ptr returns) via Phase 10; K&R declaration-list lowering and cross-declaration signature diagnostics remain partial. |
 | Declarations | declaration, declarationSpecifiers, initDeclaratorList, initDeclarator | done | done | done | done | Tier 1 | Advanced declarators validated by phase2 diagnostics (arrays of pointers, function pointers, pointer chains, multidimensional arrays). |
 | Storage/type qualifiers | storageClassSpecifier, typeQualifier | done | partial | partial | partial | Tier 2 | Qualifiers parse, but semantic enforcement is limited in backend behavior. |
 | Builtin and named types | builtinTypeSpecifier, namedTypeSpecifier, typedefName | done | partial | partial | partial | Tier 2 | Typedef and named-type scenarios supported in subset; edge cases remain. |
