@@ -20,7 +20,7 @@ Tier legend:
 
 ## Current global evidence
 
-- Full test bundle: PASS (23 sub-scripts, 0 failures)
+- Full test bundle: PASS (24 sub-scripts, 0 failures)
 - Phase 2 declarators diagnostics: 10/10 PASS
 - Phase 3 initializers diagnostics: 18/18 PASS
 - Phase 4 abstract declarators diagnostics: 23/23 PASS
