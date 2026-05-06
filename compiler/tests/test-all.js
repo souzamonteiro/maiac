@@ -18,6 +18,7 @@ const scripts = [
   'test-phase8-unary-postfix-diagnosis.js',
   'test-phase9-preprocessor-advanced-diagnosis.js',
   'test-phase10-function-definitions-diagnosis.js',
+  'test-phase11-struct-union-edgepaths-diagnosis.js',
   'test-member-access-negative-diagnosis.js',
   'test-runtime-js-hosts.js',
   'test-runtime-stdio-edgecases.js',
