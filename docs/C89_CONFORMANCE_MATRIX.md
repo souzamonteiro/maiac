@@ -1,12 +1,12 @@
 # MaiaC C89 Conformance Matrix
 
-Date: 2026-05-06
+Date: 2026-05-07
 
 Scope:
 - Grammar source: grammar/C.ebnf
 - Compiler implementation: compiler/c-compiler.js
 - Runtime evidence: compiler/tests/test-all.js
-- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-phase8-unary-postfix-diagnosis.js, compiler/tests/test-phase9-preprocessor-advanced-diagnosis.js, compiler/tests/test-phase10-function-definitions-diagnosis.js, compiler/tests/test-phase11-struct-union-edgepaths-diagnosis.js, compiler/tests/test-phase12-storage-type-qualifiers-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
+- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-phase8-unary-postfix-diagnosis.js, compiler/tests/test-phase9-preprocessor-advanced-diagnosis.js, compiler/tests/test-phase10-function-definitions-diagnosis.js, compiler/tests/test-phase11-struct-union-edgepaths-diagnosis.js, compiler/tests/test-phase12-storage-type-qualifiers-diagnosis.js, compiler/tests/test-phase13-builtin-named-types-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
 
 Status legend:
 - done: implemented and validated in current flow
@@ -20,7 +20,7 @@ Tier legend:
 
 ## Current global evidence
 
-- Full test bundle: PASS (26 sub-scripts, 0 failures)
+- Full test bundle: PASS (27 sub-scripts, 0 failures)
 - Phase 2 declarators diagnostics: 10/10 PASS
 - Phase 3 initializers diagnostics: 18/18 PASS
 - Phase 4 abstract declarators diagnostics: 23/23 PASS
@@ -32,6 +32,7 @@ Tier legend:
 - Phase 10 function definitions diagnostics: 12/12 PASS
 - Phase 11 struct/union edge-path diagnostics: 12/12 PASS
 - Phase 12 storage/type qualifiers diagnostics: 13/13 PASS
+- Phase 13 builtin/named types diagnostics: 14/14 PASS
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
 - Project target remains practical C89 subset, not full-language completeness claim.
@@ -44,7 +45,7 @@ Tier legend:
 | Function definitions | functionDefinition, declarationList | done | partial | partial | partial | Tier 2 | ANSI-style definitions are strongly covered (including recursion, forward declarations, array-style params and fn-ptr returns) via Phase 10; K&R declaration-list lowering and cross-declaration signature diagnostics remain partial. |
 | Declarations | declaration, declarationSpecifiers, initDeclaratorList, initDeclarator | done | done | done | done | Tier 1 | Advanced declarators validated by phase2 diagnostics (arrays of pointers, function pointers, pointer chains, multidimensional arrays). |
 | Storage/type qualifiers | storageClassSpecifier, typeQualifier | done | partial | partial | partial | Tier 2 | Phase 12 validates runtime behavior for const/volatile/register/auto/static and typedef-with-qualifier forms; semantic enforcement remains partial (const writes and some extern semantics are not fully diagnosed). |
-| Builtin and named types | builtinTypeSpecifier, namedTypeSpecifier, typedefName | done | partial | partial | partial | Tier 2 | Typedef and named-type scenarios supported in subset; edge cases remain. |
+| Builtin and named types | builtinTypeSpecifier, namedTypeSpecifier, typedefName | done | partial | partial | partial | Tier 2 | Phase 13 validates char/short/long/float/double/signed/unsigned basics, typedef chains, enum/struct named-type paths, and forward struct tags; numeric signedness and invalid-void local diagnostics remain partial. |
 | Struct/union declarations | structOrUnionSpecifier, structDeclarationList, structDeclaratorList | done | partial | partial | partial | Tier 2 | Layout/access and struct copy assignment by value validated (b=a, b.field=a.field, *pb=*pa); Phase 11 expands nested dot/arrow and union-field coverage, but complex lvalue paths on struct arrays/pointer-array member writes remain partial. |
 | Enum declarations | enumSpecifier, enumeratorList | done | partial | partial | partial | Tier 2 | Mini-suite covers practical enum cases. |
 | Declarator system | declarator, directDeclaratorBase, directDeclaratorSuffix, pointer, parameterTypeList, abstractDeclarator | done | done | done | done | Tier 1 | Phase2 diagnostics validate covered advanced forms in current practical subset. |
@@ -91,6 +92,7 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 12. ~~Expand Phase 10 function definition coverage (forward declarations, recursion, pointer returns, K&R diagnostics).~~ — completed 2026-05-06.
 13. ~~Expand Phase 11 struct/union edge paths (nested member chains, union fields, composed lvalue diagnostics).~~ — completed 2026-05-06.
 14. ~~Expand Phase 12 storage/type qualifier coverage (const/volatile/static/extern/register/auto + limitation diagnostics).~~ — completed 2026-05-06.
+15. ~~Expand Phase 13 builtin/named type coverage (builtin numeric families, typedef chains, enum/struct named paths + limitation diagnostics).~~ — completed 2026-05-07.
 
 ## Exit criteria for 100 percent claim
 
