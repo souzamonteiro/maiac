@@ -21,6 +21,7 @@ const scripts = [
   'test-phase11-struct-union-edgepaths-diagnosis.js',
   'test-phase12-storage-type-qualifiers-diagnosis.js',
   'test-phase13-builtin-named-types-diagnosis.js',
+  'test-phase14-enum-declarations-diagnosis.js',
   'test-member-access-negative-diagnosis.js',
   'test-runtime-js-hosts.js',
   'test-runtime-stdio-edgecases.js',
