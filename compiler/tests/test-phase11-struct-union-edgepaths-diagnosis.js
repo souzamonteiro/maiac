@@ -178,7 +178,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: second field in struct-array element is not persisted',
+    name: 'second field in struct-array element is written/read correctly',
     fn: () => {
       const source = [
         'struct S { int x; int y; };',
@@ -189,8 +189,7 @@ const cases = [
         '}'
       ].join('\n');
 
-      // Current behavior: assignment through this path does not persist expected value.
-      assert.strictEqual(runEntryFromSource(source), 0);
+      assert.strictEqual(runEntryFromSource(source), 8);
     }
   },
   {
@@ -209,7 +208,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: pointer-array element arrow write does not update target',
+    name: 'pointer-array element arrow write updates target correctly',
     fn: () => {
       const source = [
         'struct S { int x; };',
@@ -222,8 +221,7 @@ const cases = [
         '}'
       ].join('\n');
 
-      // Current behavior: write through ptrs[index]->field is silently ineffective.
-      assert.strictEqual(runEntryFromSource(source), 0);
+      assert.strictEqual(runEntryFromSource(source), 77);
     }
   }
 ];

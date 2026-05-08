@@ -4359,6 +4359,88 @@ function resolvePostfixMemberAccess(baseName, memberAccessPath, context) {
   };
 }
 
+function resolveMemberAccessFromAddress(memberAccessPath, baseAccessInfo, context) {
+  if (!Array.isArray(memberAccessPath) || memberAccessPath.length === 0) {
+    return null;
+  }
+
+  let currentStructLayout = null;
+  const baseSymbol = baseAccessInfo ? baseAccessInfo.symbol : null;
+
+  if (baseSymbol) {
+    if (baseSymbol.structName) {
+      currentStructLayout = resolveStructLayout(baseSymbol.structName, context.module, baseSymbol.structLayout || null);
+    } else if (baseSymbol.structLayout) {
+      currentStructLayout = baseSymbol.structLayout;
+    }
+  }
+
+  if (!currentStructLayout) {
+    throw new CompilationError('Cannot apply member access to non-struct type', 'member-access');
+  }
+
+  const addressInstructions = [];
+  let currentField = null;
+
+  for (let i = 0; i < memberAccessPath.length; i += 1) {
+    const accessStep = memberAccessPath[i];
+
+    if (!currentStructLayout) {
+      throw new CompilationError('Cannot apply member access to non-struct type', 'member-access');
+    }
+
+    currentField = currentStructLayout.fieldsByName.get(accessStep.fieldName);
+    if (!currentField) {
+      throw new CompilationError(`Unknown struct field '${accessStep.fieldName}' in struct`, 'member-access');
+    }
+
+    if (accessStep.isArrow) {
+      addressInstructions.push('i32.load');
+    }
+
+    if (currentField.offset > 0) {
+      addressInstructions.push(`i32.const ${currentField.offset}`, 'i32.add');
+    }
+
+    const nextStep = memberAccessPath[i + 1] || null;
+    if (!nextStep) {
+      continue;
+    }
+
+    if (nextStep.isArrow) {
+      if ((currentField.pointerDepth || 0) <= 0 || !currentField.structName) {
+        throw new CompilationError(
+          `Field '${currentField.sourceName}' is not a pointer-to-struct and cannot use '->'`,
+          'member-access'
+        );
+      }
+      currentStructLayout = resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null);
+      continue;
+    }
+
+    if (!currentField.isStruct) {
+      throw new CompilationError(
+        `Field '${currentField.sourceName}' is not a nested struct`,
+        'member-access'
+      );
+    }
+    currentStructLayout = resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null);
+  }
+
+  const finalStructLayout = currentField && currentField.isStruct
+    ? resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null)
+    : null;
+
+  return {
+    addressInstructions,
+    field: currentField,
+    watType: currentField ? getStorageTypeForSymbol(currentField) : 'i32',
+    isStruct: !!(currentField && currentField.isStruct),
+    structLayout: finalStructLayout,
+    isArray: !!(currentField && (currentField.isArray || currentField.declaredAsArray))
+  };
+}
+
 /**
  * Compile member access when base address is already on stack.
  * Used for cases like ptrs[0]->field where [0] produces an address,
@@ -4371,97 +4453,16 @@ function compileMemberAccessFromAddress(memberAccessPath, baseAccessInfo, contex
     return [];
   }
 
-  let instructions = [];
-  let currentStructLayout = null;
-  let lastFieldIsStruct = false;
-  let lastFieldType = null;
-
-  // Get the struct layout from the symbol returned by getIndexedAccessInfo
-  if (baseAccessInfo && baseAccessInfo.symbol) {
-    const symbol = baseAccessInfo.symbol;
-    
-    // For array of pointers like 'struct Node *ptrs[2]'
-    // after indexing, baseAccessInfo.watType is 'i32' (the element type, which is a pointer)
-    // The symbol's structName points to the struct that the pointer targets
-    // (because pointerDepth > 0 means it's a pointer-to-struct)
-    
-    if (symbol.structName) {
-      // The symbol directly tells us about the struct type
-      currentStructLayout = resolveStructLayout(symbol.structName, context.module);
-    } else if (symbol.structLayout) {
-      currentStructLayout = symbol.structLayout;
-    }
+  const resolved = resolveMemberAccessFromAddress(memberAccessPath, baseAccessInfo, context);
+  if (!resolved) {
+    return [];
   }
 
-  for (let i = 0; i < memberAccessPath.length; i++) {
-    const accessStep = memberAccessPath[i];
-    
-    if (!currentStructLayout) {
-      throw new CompilationError(
-        `Cannot apply member access to non-struct type`,
-        'member-access'
-      );
-    }
-
-    const field = currentStructLayout.fieldsByName.get(accessStep.fieldName);
-    if (!field) {
-      throw new CompilationError(
-        `Unknown struct field '${accessStep.fieldName}' in struct`,
-        'member-access'
-      );
-    }
-
-    // For arrow access: the address on stack points to a pointer that we need to dereference
-    if (accessStep.isArrow) {
-      // Address on stack points to storage containing a pointer value
-      // The pointer itself is at offset 0 (we're directly on it after indexing)
-      
-      // Load the pointer value (i32) from the current address
-      instructions.push('i32.load');
-      
-      // Now add the offset of the field in the struct being pointed to
-      if (field.offset > 0) {
-        instructions.push(`i32.const ${field.offset}`);
-        instructions.push('i32.add');
-      }
-      
-      // Track if this field is a struct (for final result determination)
-      lastFieldIsStruct = field.isStruct || false;
-      lastFieldType = field.watType;
-      
-      // The pointer now points to the struct, update layout for next step
-      if (field.structName) {
-        currentStructLayout = resolveStructLayout(field.structName, context.module);
-      } else {
-        currentStructLayout = null;
-      }
-    } else {
-      // Dot access: add offset and optionally load if it's the last step
-      if (field.offset > 0) {
-        instructions.push(`i32.const ${field.offset}`);
-        instructions.push('i32.add');
-      }
-      
-      // Track if this field is a struct
-      lastFieldIsStruct = field.isStruct || false;
-      lastFieldType = field.watType;
-      
-      // Update layout for potential next steps
-      if (i < memberAccessPath.length - 1) {
-        if (field.structName) {
-          currentStructLayout = resolveStructLayout(field.structName, context.module);
-        }
-      }
-    }
+  if (resolved.isStruct || resolved.isArray) {
+    return resolved.addressInstructions;
   }
 
-  // If the final field is not a struct, we need to load its value
-  // (If it is a struct, we return just the address per C semantics)
-  if (!lastFieldIsStruct && memberAccessPath.length > 0) {
-    instructions.push(getLoadOpcodeForType(lastFieldType || 'i32'));
-  }
-
-  return instructions;
+  return resolved.addressInstructions.concat(getLoadOpcodeForType(resolved.watType || 'i32'));
 }
 
 function getDecayDimensionsForSymbol(symbol) {
@@ -4595,6 +4596,25 @@ function resolveLValue(node, context, options = {}) {
   if (isNonterminal(node, 'postfixExpression')) {
     const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
     if (accessInfo) {
+      const memberAccessPath = getMemberAccessPathFromPostfix(node);
+      if (memberAccessPath.length > 0) {
+        const memberAccess = resolveMemberAccessFromAddress(memberAccessPath, accessInfo, context);
+        if (!memberAccess) {
+          throw new CompilationError('Unsupported assignment target', getNodeName(node));
+        }
+        if (memberAccess.isStruct && !allowAggregate) {
+          throw new CompilationError('Assignment to a whole struct field object is not supported right now', context.function.sourceName);
+        }
+        return {
+          kind: 'indirect',
+          addressInstructions: accessInfo.addressInstructions.concat(memberAccess.addressInstructions),
+          watType: memberAccess.watType || 'i32',
+          aggregateByteSize: memberAccess.isStruct && memberAccess.structLayout
+            ? (memberAccess.structLayout.size || 0)
+            : 0
+        };
+      }
+
       if (accessInfo.resultIsAddress) {
         throw new CompilationError('Assignment to a subarray is not supported right now', getNodeName(node));
       }
