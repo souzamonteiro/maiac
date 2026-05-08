@@ -15,6 +15,13 @@ function runEntryFromSource(source) {
   return entry();
 }
 
+function expectCompileError(source, messagePattern) {
+  assert.throws(
+    () => compileSource(source, { validate: true, printWat: false }),
+    (error) => messagePattern.test(String(error && error.message ? error.message : error))
+  );
+}
+
 function runCase(name, fn) {
   try {
     fn();
@@ -55,7 +62,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: return type mismatch across prototype and definition is not diagnosed',
+    name: 'return type mismatch across prototype and definition is diagnosed',
     fn: () => {
       const source = [
         'int f(int a);',
@@ -63,11 +70,11 @@ const cases = [
         'int test_entry(void) { return f(3); }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 4);
+      expectCompileError(source, /Conflicting return type/);
     }
   },
   {
-    name: 'known limitation: parameter type mismatch across prototype and definition is not diagnosed',
+    name: 'parameter type mismatch across prototype and definition is diagnosed',
     fn: () => {
       const source = [
         'int f(int a);',
@@ -75,44 +82,44 @@ const cases = [
         'int test_entry(void) { return f(5); }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 5);
+      expectCompileError(source, /Conflicting parameter type/);
     }
   },
   {
-    name: 'known limitation: call with too many arguments is accepted',
+    name: 'call with too many arguments is rejected',
     fn: () => {
       const source = [
         'int add(int a, int b) { return a + b; }',
         'int test_entry(void) { return add(1, 2, 3); }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 3);
+      expectCompileError(source, /expects 2 arguments but got 3/);
     }
   },
   {
-    name: 'known limitation: call with too few arguments is accepted',
+    name: 'call with too few arguments is rejected',
     fn: () => {
       const source = [
         'int add(int a, int b) { return a + b; }',
         'int test_entry(void) { return add(1); }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 1);
+      expectCompileError(source, /expects 2 arguments but got 1/);
     }
   },
   {
-    name: 'known limitation: void-parameter function can be called with arguments',
+    name: 'void-parameter function called with arguments is rejected',
     fn: () => {
       const source = [
         'int f(void) { return 9; }',
         'int test_entry(void) { return f(1); }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 9);
+      expectCompileError(source, /does not take arguments/);
     }
   },
   {
-    name: 'known limitation: void prototype then typed definition mismatch is tolerated',
+    name: 'void prototype then typed definition mismatch is diagnosed',
     fn: () => {
       const source = [
         'int f(void);',
@@ -120,7 +127,7 @@ const cases = [
         'int test_entry(void) { return f(4); }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 4);
+      expectCompileError(source, /Conflicting parameter list/);
     }
   },
   {
@@ -148,7 +155,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: K&R identifier-list definition without declaration list is accepted',
+    name: 'K&R-style definition keeps baseline behavior',
     fn: () => {
       const source = [
         'int add(a, b) { return 1; }',
@@ -159,7 +166,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: function returning struct produces invalid runtime result',
+    name: 'function returning struct by value supports member access result',
     fn: () => {
       const source = [
         'struct P { int x; };',
@@ -171,8 +178,7 @@ const cases = [
         'int test_entry(void) { return mk(7).x; }'
       ].join('\n');
 
-      // Current behavior returns an incorrect value in this path.
-      assert.strictEqual(runEntryFromSource(source), 1028);
+      assert.strictEqual(runEntryFromSource(source), 7);
     }
   }
 ];

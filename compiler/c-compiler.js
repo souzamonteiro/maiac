@@ -1100,11 +1100,13 @@ function extractParameters(parameterListNode, moduleModel = null) {
     .map((parameterNode, index) => {
       const declarationSpecifiers = firstNonterminal(parameterNode, 'declarationSpecifiers');
       const declaratorNode = firstNonterminal(parameterNode, 'declarator');
+      const abstractDeclaratorNode = firstNonterminal(parameterNode, 'abstractDeclarator');
+      const declaratorForType = declaratorNode || abstractDeclaratorNode;
       const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
-      const rawPointerDepth = declaratorNode ? countPointerDepthInDeclarator(declaratorNode) : 0;
+      const rawPointerDepth = declaratorForType ? countPointerDepthInDeclarator(declaratorForType) : 0;
       const declaredAsArray = declaratorNode ? hasArrayDeclaratorSuffix(declaratorNode) : false;
       const arrayDimensions = declaratorNode ? extractArrayDimensionsFromDeclarator(declaratorNode) : [];
-      const pointeeArrayDimensions = declaratorNode ? extractPointerPointeeArrayDimensionsFromDeclarator(declaratorNode) : [];
+      const pointeeArrayDimensions = declaratorForType ? extractPointerPointeeArrayDimensionsFromDeclarator(declaratorForType) : [];
       const pointerDepth = declaredAsArray ? Math.max(1, rawPointerDepth) : rawPointerDepth;
       const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
       const baseWatType = typeInfo.baseWatType || 'i32';
@@ -1157,6 +1159,28 @@ function countLeadingPointerDepthInDeclarator(declaratorNode) {
   return 0;
 }
 
+function isExplicitVoidParameterList(parameterListNode) {
+  if (!parameterListNode) {
+    return false;
+  }
+
+  const declarations = nonterminalChildren(parameterListNode, 'parameterDeclaration');
+  if (declarations.length !== 1) {
+    return false;
+  }
+
+  const parameterDeclaration = declarations[0];
+  const declarationSpecifiers = firstNonterminal(parameterDeclaration, 'declarationSpecifiers');
+  const declaratorNode = firstNonterminal(parameterDeclaration, 'declarator');
+  const abstractDeclaratorNode = firstNonterminal(parameterDeclaration, 'abstractDeclarator');
+  if (declaratorNode || abstractDeclaratorNode) {
+    return false;
+  }
+
+  const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers, null);
+  return typeInfo && typeInfo.baseWatType === null && (typeInfo.cType || '').trim() === 'void';
+}
+
 function extractDeclaratorInfo(declaratorNode, moduleModel = null) {
   const directDeclarator = firstNonterminal(declaratorNode, 'directDeclarator')
     || findFirstNonterminal(declaratorNode, 'directDeclarator');
@@ -1182,14 +1206,23 @@ function extractDeclaratorInfo(declaratorNode, moduleModel = null) {
   const parameterTypeList = identifierScopedFnSuffix
     ? findFirstNonterminal(identifierScopedFnSuffix, 'parameterTypeList')
     : findFirstNonterminal(directDeclarator, 'parameterTypeList');
+  const identifierList = identifierScopedFnSuffix
+    ? findFirstNonterminal(identifierScopedFnSuffix, 'identifierList')
+    : findFirstNonterminal(directDeclarator, 'identifierList');
   const isVariadic = !!(parameterTypeList && findFirstTerminal(parameterTypeList, 'TOKEN__2E__2E__2E_'));
+  const hasParameterTypeList = !!parameterTypeList;
+  const hasIdentifierList = !!identifierList;
+  const isVoidParameterList = hasParameterTypeList && isExplicitVoidParameterList(parameterList);
 
   return {
     sourceName: identifier.value,
     name: sanitizeIdentifier(identifier.value),
     pointerDepth: countLeadingPointerDepthInDeclarator(declaratorNode),
     params: extractParameters(parameterList, moduleModel),
-    isVariadic
+    isVariadic,
+    hasParameterTypeList,
+    hasIdentifierList,
+    isVoidParameterList
   };
 }
 
@@ -1392,6 +1425,9 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
       isFunctionDeclaration,
       params: declaratorInfo.params || [],
       isVariadic: !!declaratorInfo.isVariadic,
+      hasParameterTypeList: !!declaratorInfo.hasParameterTypeList,
+      hasIdentifierList: !!declaratorInfo.hasIdentifierList,
+      isVoidParameterList: !!declaratorInfo.isVoidParameterList,
       arrayLength: isArray ? (normalizedArrayDimensions[0] ?? null) : null,
       arrayDimensions: normalizedArrayDimensions,
       initializer: initializerNode
@@ -1429,6 +1465,154 @@ function parseCSource(source, options = {}) {
 
 function declarationHasTypedefSpecifier(specifierNode) {
   return !!findFirst(specifierNode, (candidate) => isTerminal(candidate, 'TOKEN_typedef'));
+}
+
+function declarationHasStorageClassSpecifier(specifierNode, token) {
+  return !!findFirst(specifierNode, (candidate) => isTerminal(candidate, token));
+}
+
+function normalizeCTypeForSignature(cType) {
+  return String(cType || 'int').replace(/\s+/g, ' ').trim();
+}
+
+function buildFunctionReturnSignature(typeInfo, pointerDepth = 0) {
+  const returnTypeInfo = typeInfo || {};
+  return {
+    cType: normalizeCTypeForSignature(returnTypeInfo.cType || 'int'),
+    pointerDepth: pointerDepth || 0,
+    typeKind: returnTypeInfo.typeKind || null,
+    structName: returnTypeInfo.structName || null
+  };
+}
+
+function buildFunctionParamSignature(param) {
+  const sourceParam = param || {};
+  return {
+    cType: normalizeCTypeForSignature(sourceParam.cType || 'int'),
+    pointerDepth: sourceParam.pointerDepth || 0,
+    typeKind: sourceParam.typeKind || null,
+    structName: sourceParam.structName || null,
+    declaredAsArray: !!sourceParam.declaredAsArray
+  };
+}
+
+function areFunctionReturnTypesCompatible(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+
+  return left.cType === right.cType
+    && left.pointerDepth === right.pointerDepth
+    && left.typeKind === right.typeKind
+    && left.structName === right.structName;
+}
+
+function areFunctionParamsCompatible(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+
+  return left.cType === right.cType
+    && left.pointerDepth === right.pointerDepth
+    && left.typeKind === right.typeKind
+    && left.structName === right.structName
+    && left.declaredAsArray === right.declaredAsArray;
+}
+
+function assertFunctionSignaturesCompatible(existingSignature, currentSignature, contextName) {
+  if (!existingSignature || !currentSignature) {
+    return;
+  }
+
+  if (!areFunctionReturnTypesCompatible(existingSignature.returnSignature, currentSignature.returnSignature)) {
+    throw new CompilationError(
+      `Conflicting return type for function '${currentSignature.sourceName}'`,
+      contextName || currentSignature.sourceName
+    );
+  }
+
+  if (existingSignature.linkage && currentSignature.linkage && existingSignature.linkage !== currentSignature.linkage) {
+    throw new CompilationError(
+      `Conflicting linkage for function '${currentSignature.sourceName}'`,
+      contextName || currentSignature.sourceName
+    );
+  }
+
+  if (existingSignature.hasIdentifierList || currentSignature.hasIdentifierList) {
+    throw new CompilationError(
+      `K&R-style identifier list declarations are not supported for function '${currentSignature.sourceName}'`,
+      contextName || currentSignature.sourceName
+    );
+  }
+
+  const existingHasPrototype = existingSignature.hasParameterTypeList || existingSignature.isVoidParameterList;
+  const currentHasPrototype = currentSignature.hasParameterTypeList || currentSignature.isVoidParameterList;
+  if (!existingHasPrototype || !currentHasPrototype) {
+    return;
+  }
+
+  if (existingSignature.isVariadic !== currentSignature.isVariadic) {
+    throw new CompilationError(
+      `Conflicting variadic signature for function '${currentSignature.sourceName}'`,
+      contextName || currentSignature.sourceName
+    );
+  }
+
+  if (existingSignature.isVoidParameterList !== currentSignature.isVoidParameterList) {
+    throw new CompilationError(
+      `Conflicting parameter list for function '${currentSignature.sourceName}'`,
+      contextName || currentSignature.sourceName
+    );
+  }
+
+  const existingParams = existingSignature.parameterSignatures || [];
+  const currentParams = currentSignature.parameterSignatures || [];
+
+  if (existingParams.length !== currentParams.length) {
+    throw new CompilationError(
+      `Conflicting parameter count for function '${currentSignature.sourceName}'`,
+      contextName || currentSignature.sourceName
+    );
+  }
+
+  for (let index = 0; index < existingParams.length; index += 1) {
+    if (!areFunctionParamsCompatible(existingParams[index], currentParams[index])) {
+      throw new CompilationError(
+        `Conflicting parameter type at position ${index + 1} for function '${currentSignature.sourceName}'`,
+        contextName || currentSignature.sourceName
+      );
+    }
+  }
+}
+
+function computeFunctionResultType(typeInfo, pointerDepth = 0) {
+  const safeTypeInfo = typeInfo || {};
+  const isStructReturn = safeTypeInfo.typeKind === 'struct' && pointerDepth === 0;
+  const baseWatType = safeTypeInfo.baseWatType || 'i32';
+  const isVoidReturn = safeTypeInfo.baseWatType === null && pointerDepth === 0 && !isStructReturn;
+
+  if (isVoidReturn) {
+    return null;
+  }
+
+  return toWatType((pointerDepth > 0 || isStructReturn) ? 'i32' : baseWatType);
+}
+
+function buildFunctionSignature(typeInfo, declaratorInfo, linkage = 'external') {
+  const params = Array.isArray(declaratorInfo.params) ? declaratorInfo.params : [];
+  const parameterSignatures = params.map((param) => buildFunctionParamSignature(param));
+
+  return {
+    sourceName: declaratorInfo.sourceName,
+    returnSignature: buildFunctionReturnSignature(typeInfo, declaratorInfo.pointerDepth || 0),
+    parameterSignatures,
+    linkage,
+    isVariadic: !!declaratorInfo.isVariadic,
+    hasParameterTypeList: !!declaratorInfo.hasParameterTypeList,
+    hasIdentifierList: !!declaratorInfo.hasIdentifierList,
+    isVoidParameterList: !!declaratorInfo.isVoidParameterList,
+    resultType: computeFunctionResultType(typeInfo, declaratorInfo.pointerDepth || 0)
+  };
 }
 
 function functionRequiresLinearMemory(functionNode) {
@@ -1515,6 +1699,7 @@ function buildModuleModel(ast, options = {}) {
     usesLinearMemory: false,
     globalsByName: new Map(),
     functionsByName: new Map(),
+    functionSignaturesByName: new Map(),
     structsByName: new Map(),
     pendingStructLayouts: [],
     pendingAggregateTags: Array.isArray(options.aggregateTags) ? [...options.aggregateTags] : [],
@@ -1524,6 +1709,19 @@ function buildModuleModel(ast, options = {}) {
   };
 
   moduleModel.functionTypes = new Map();
+
+  const definedFunctionNames = new Set();
+  for (const item of translationItems) {
+    const externalDeclaration = firstNonterminal(item, 'externalDeclaration');
+    if (!externalDeclaration) continue;
+    const functionDefinition = firstNonterminal(externalDeclaration, 'functionDefinition');
+    if (!functionDefinition) continue;
+    const declaratorNode = firstNonterminal(functionDefinition, 'declarator');
+    const identifier = declaratorNode ? findFirstTerminal(declaratorNode, 'Identifier') : null;
+    if (identifier && identifier.value) {
+      definedFunctionNames.add(identifier.value);
+    }
+  }
 
   const functionBodies = [];
 
@@ -1537,15 +1735,27 @@ function buildModuleModel(ast, options = {}) {
       const declaratorNode = firstNonterminal(functionDefinition, 'declarator');
       const declaratorInfo = extractDeclaratorInfo(declaratorNode, moduleModel);
       const returnTypeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
-      const returnPointerDepth = declaratorInfo.pointerDepth || 0;
-      const returnIsStruct = returnTypeInfo.typeKind === 'struct' && returnPointerDepth === 0;
-      const baseResultType = returnTypeInfo.baseWatType === undefined
-        ? 'i32'
-        : returnTypeInfo.baseWatType;
-      const isPlainVoidReturn = baseResultType === null && returnPointerDepth === 0 && !returnIsStruct;
-      const resultType = isPlainVoidReturn
-        ? null
-        : toWatType((returnPointerDepth > 0 || returnIsStruct) ? 'i32' : (baseResultType || 'i32'));
+      const hasStaticSpecifier = declarationHasStorageClassSpecifier(declarationSpecifiers, 'TOKEN_static');
+      const functionLinkage = hasStaticSpecifier ? 'internal' : 'external';
+      const signature = buildFunctionSignature(returnTypeInfo, declaratorInfo, functionLinkage);
+      const resultType = signature.resultType;
+
+      if (declaratorInfo.hasIdentifierList) {
+        throw new CompilationError(
+          `K&R-style identifier list definitions are not supported for function '${declaratorInfo.sourceName}'`,
+          getNodeName(functionDefinition)
+        );
+      }
+
+      const existingSignature = moduleModel.functionSignaturesByName.get(declaratorInfo.sourceName);
+      if (existingSignature) {
+        assertFunctionSignaturesCompatible(existingSignature, signature, getNodeName(functionDefinition));
+      }
+
+      const existingFunction = moduleModel.functionsByName.get(declaratorInfo.sourceName);
+      if (existingFunction && !existingFunction.declaredOnly) {
+        throw new CompilationError(`Redefinition of function '${declaratorInfo.sourceName}'`, getNodeName(functionDefinition));
+      }
 
       const functionModel = {
         userParams: declaratorInfo.params,
@@ -1558,10 +1768,41 @@ function buildModuleModel(ast, options = {}) {
           ? [...declaratorInfo.params, createVariadicBaseParam()]
           : declaratorInfo.params,
         isVariadic: !!declaratorInfo.isVariadic,
+        hasParameterTypeList: !!declaratorInfo.hasParameterTypeList,
+        hasIdentifierList: !!declaratorInfo.hasIdentifierList,
+        isVoidParameterList: !!declaratorInfo.isVoidParameterList,
+        linkage: functionLinkage,
+        returnsStructByValue: returnTypeInfo.typeKind === 'struct' && (declaratorInfo.pointerDepth || 0) === 0,
+        structReturnLayout: returnTypeInfo.structLayout || null,
         locals: [],
         instructions: []
       };
 
+      if (functionModel.returnsStructByValue) {
+        functionModel.resultType = null;
+        const sretParam = {
+          sourceName: '__maiac_sret',
+          name: '__maiac_sret',
+          cType: 'int *',
+          typeKind: 'builtin',
+          structName: null,
+          structLayout: null,
+          isStruct: false,
+          pointerDepth: 1,
+          rawPointerDepth: 1,
+          pointeeArrayDimensions: [],
+          declaredAsArray: false,
+          arrayLength: null,
+          arrayDimensions: [],
+          baseWatType: 'i32',
+          watType: 'i32',
+          isInternalAbiParam: true
+        };
+        functionModel.structReturnParamName = sretParam.sourceName;
+        functionModel.params = [sretParam, ...functionModel.params];
+      }
+
+      moduleModel.functionSignaturesByName.set(functionModel.sourceName, signature);
       moduleModel.functions.push(functionModel);
       moduleModel.functionsByName.set(functionModel.sourceName, functionModel);
       functionBodies.push({ node: functionDefinition, model: functionModel });
@@ -1574,6 +1815,7 @@ function buildModuleModel(ast, options = {}) {
 
       const declarationSpecifiers = firstNonterminal(declaration, 'declarationSpecifiers');
       const isTypedefDeclaration = declarationHasTypedefSpecifier(declarationSpecifiers);
+      const hasStaticSpecifier = declarationHasStorageClassSpecifier(declarationSpecifiers, 'TOKEN_static');
       const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
       if (typeInfo.typeKind === 'struct') {
         registerStructLayout(typeInfo.structLayout, moduleModel, typeInfo.structName || null);
@@ -1585,10 +1827,49 @@ function buildModuleModel(ast, options = {}) {
 
       for (const itemDef of extractDeclarationItems(declaration, moduleModel)) {
         if (itemDef.isFunctionDeclaration) {
+          if ((itemDef.pointerDepth || 0) > 0) {
+            continue;
+          }
+
+          const declarationSignature = buildFunctionSignature(typeInfo, itemDef, hasStaticSpecifier ? 'internal' : 'external');
+          const existingSignature = moduleModel.functionSignaturesByName.get(itemDef.sourceName);
+          if (existingSignature) {
+            assertFunctionSignaturesCompatible(existingSignature, declarationSignature, getNodeName(declaration));
+          }
+          moduleModel.functionSignaturesByName.set(itemDef.sourceName, declarationSignature);
+
           // Functions whose names begin with '__' are host-provided imports.
           // Register them so call sites can emit the correct WAT call.
           if (parseHostExternName(itemDef.sourceName)) {
             registerHostExternImport(itemDef, moduleModel);
+            continue;
+          }
+
+          if (!definedFunctionNames.has(itemDef.sourceName)) {
+            continue;
+          }
+
+          const existingFunction = moduleModel.functionsByName.get(itemDef.sourceName);
+          if (!existingFunction) {
+            moduleModel.functionsByName.set(itemDef.sourceName, {
+              userParams: itemDef.params,
+              sourceName: itemDef.sourceName,
+              name: itemDef.name,
+              exportName: itemDef.sourceName,
+              cType: typeInfo.cType,
+              resultType: declarationSignature.resultType,
+              params: itemDef.isVariadic
+                ? [...itemDef.params, createVariadicBaseParam()]
+                : itemDef.params,
+              isVariadic: !!itemDef.isVariadic,
+              hasParameterTypeList: !!itemDef.hasParameterTypeList,
+              hasIdentifierList: !!itemDef.hasIdentifierList,
+              isVoidParameterList: !!itemDef.isVoidParameterList,
+              linkage: declarationSignature.linkage,
+              returnsStructByValue: typeInfo.typeKind === 'struct' && (itemDef.pointerDepth || 0) === 0,
+              structReturnLayout: typeInfo.structLayout || null,
+              declaredOnly: true
+            });
           }
           continue;
         }
@@ -1893,7 +2174,7 @@ function compileFunctionBody(functionNode, functionModel, moduleModel) {
     breakStack: [],
     gotoLabelStack: [],
     nextLabelId: 0,
-    usesLinearMemory: functionRequiresLinearMemory(functionNode),
+    usesLinearMemory: functionRequiresLinearMemory(functionNode) || !!functionModel.returnsStructByValue,
     frameSize: 0
   };
 
@@ -2930,6 +3211,34 @@ function compileJumpStatement(jumpNode, context) {
 
   if (jumpKeyword.token === 'TOKEN_return') {
     const expressionNode = firstNonterminal(jumpNode, 'expression');
+    if (context.function.returnsStructByValue) {
+      if (!expressionNode) {
+        return [
+          ...buildFunctionEpilogue(context),
+          'return'
+        ];
+      }
+
+      const sretParam = context.params.get(context.function.structReturnParamName || '__maiac_sret');
+      if (!sretParam) {
+        throw new CompilationError('Missing hidden struct return parameter', getNodeName(jumpNode));
+      }
+
+      const resolvedLayout = resolveStructLayout(
+        (context.function.structReturnLayout && context.function.structReturnLayout.name) || null,
+        context.module,
+        context.function.structReturnLayout || null
+      );
+      const structSize = (resolvedLayout && resolvedLayout.size) || 4;
+      const sourceAddressInstructions = compileExpression(expressionNode, context, { keepValue: true });
+
+      return [
+        ...emitCopyBytesFromAddress([`local.get $${sretParam.name}`], sourceAddressInstructions, structSize),
+        ...buildFunctionEpilogue(context),
+        'return'
+      ];
+    }
+
     if (!expressionNode) {
       return [
         ...buildFunctionEpilogue(context),
@@ -3428,7 +3737,7 @@ function expressionProducesValue(node, context) {
       const primaryExpression = firstNonterminal(postfixExpression, 'primaryExpression');
       const calleeName = extractIdentifierFromNode(primaryExpression);
       const fn = calleeName ? context.module.functionsByName.get(calleeName) : null;
-      return !fn || fn.resultType !== null;
+      return !fn || fn.resultType !== null || !!fn.returnsStructByValue;
     }
 
     return true;
@@ -3495,8 +3804,14 @@ function inferExpressionType(node, context) {
 
     const primaryExpression = firstNonterminal(node, 'primaryExpression');
     const memberAccessPath = getMemberAccessPathFromPostfix(node);
+    const postfixSuffixes = nonterminalChildren(node, 'postfixSuffix');
+    const firstCallSuffixIndex = postfixSuffixes.findIndex((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
+    const firstMemberSuffixIndex = postfixSuffixes.findIndex((suffix) => !!firstTerminal(suffix, 'TOKEN__2E_') || !!firstTerminal(suffix, 'TOKEN__2D__3E_'));
+    const memberAccessAfterCall = firstCallSuffixIndex >= 0
+      && firstMemberSuffixIndex >= 0
+      && firstCallSuffixIndex < firstMemberSuffixIndex;
     const baseName = getSimpleIdentifierName(primaryExpression);
-    if (baseName && memberAccessPath.length > 0) {
+    if (baseName && memberAccessPath.length > 0 && !memberAccessAfterCall) {
       const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
       if (memberAccess) {
         if (memberAccess.isStruct || memberAccess.isArray || memberAccess.pointerDepth > 0) {
@@ -3516,6 +3831,9 @@ function inferExpressionType(node, context) {
       const calleeName = extractIdentifierFromNode(primaryExpression);
       const fn = context.module.functionsByName.get(calleeName);
       if (fn) {
+        if (fn.returnsStructByValue) {
+          return 'i32';
+        }
         return fn.resultType;
       }
 
@@ -4260,9 +4578,7 @@ function getMemberAccessPathFromPostfix(node) {
       continue;
     }
 
-    if (accessPath.length === 0 && !firstTerminal(suffix, 'TOKEN__2E_') && !firstTerminal(suffix, 'TOKEN__2D__3E_')) {
-      break;
-    }
+    // Ignore non-member suffixes (calls, ++, --, etc.) until/around member steps.
   }
 
   return accessPath;
@@ -5330,6 +5646,40 @@ function compileTerminalExpression(node, context, options = {}) {
   return [];
 }
 
+function validateDirectFunctionCallArguments(calleeName, fn, argCount, contextNodeName) {
+  if (!fn) {
+    return;
+  }
+
+  const hasPrototypeInfo = !!fn.hasParameterTypeList || !!fn.isVoidParameterList;
+  if (!hasPrototypeInfo) {
+    return;
+  }
+
+  const fixedParamCount = Array.isArray(fn.userParams) ? fn.userParams.length : 0;
+
+  if (fn.isVoidParameterList && argCount > 0) {
+    throw new CompilationError(`Function '${calleeName}' does not take arguments`, contextNodeName);
+  }
+
+  if (fn.isVariadic) {
+    if (argCount < fixedParamCount) {
+      throw new CompilationError(
+        `Function '${calleeName}' expects at least ${fixedParamCount} arguments but got ${argCount}`,
+        contextNodeName
+      );
+    }
+    return;
+  }
+
+  if (argCount !== fixedParamCount) {
+    throw new CompilationError(
+      `Function '${calleeName}' expects ${fixedParamCount} arguments but got ${argCount}`,
+      contextNodeName
+    );
+  }
+}
+
 function compilePostfixExpression(node, context, keepValue) {
   const primaryExpression = firstNonterminal(node, 'primaryExpression');
   const postfixSuffixes = nonterminalChildren(node, 'postfixSuffix');
@@ -5341,6 +5691,11 @@ function compilePostfixExpression(node, context, keepValue) {
     .find((child) => child.kind === 'terminal' && ['TOKEN__2B__2B_', 'TOKEN__2D__2D_'].includes(child.token));
   const argumentList = callSuffix ? findFirstNonterminal(callSuffix, 'argumentExpressionList') : null;
   const argumentsToCompile = argumentList ? nonterminalChildren(argumentList, 'assignmentExpression') : [];
+  const firstCallSuffixIndex = postfixSuffixes.findIndex((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'));
+  const firstMemberSuffixIndex = postfixSuffixes.findIndex((suffix) => !!firstTerminal(suffix, 'TOKEN__2E_') || !!firstTerminal(suffix, 'TOKEN__2D__3E_'));
+  const memberAccessAfterCall = firstCallSuffixIndex >= 0
+    && firstMemberSuffixIndex >= 0
+    && firstCallSuffixIndex < firstMemberSuffixIndex;
 
   // Helper: apply a chained call suffix `(args)` to a fn ptr already on the stack.
   // Saves the fn ptr to a temp local, compiles the args, then does call_indirect.
@@ -5445,7 +5800,7 @@ function compilePostfixExpression(node, context, keepValue) {
   }
 
   // Direct member access (no indexing) on primary expression
-  if (memberAccessPath.length > 0) {
+  if (memberAccessPath.length > 0 && !memberAccessAfterCall) {
     const baseName = getSimpleIdentifierName(primaryExpression);
     if (baseName) {
       const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
@@ -5741,6 +6096,8 @@ function compilePostfixExpression(node, context, keepValue) {
 
   const fn = context.module.functionsByName.get(calleeName) || null;
 
+  validateDirectFunctionCallArguments(calleeName, fn, argumentsToCompile.length, getNodeName(node));
+
   if (fn && fn.isVariadic) {
     const paramTypes = Array.isArray(fn.params) ? fn.params.map((param) => toWatType(param.watType || 'i32')) : [];
     const fixedParamCount = Math.max(0, paramTypes.length - 1); // last param is __maiac_va_base
@@ -5749,14 +6106,10 @@ function compilePostfixExpression(node, context, keepValue) {
 
     for (let i = 0; i < fixedParamCount; i += 1) {
       const targetType = paramTypes[i] || 'i32';
-      if (i < fixedArgumentNodes.length) {
-        const argNode = fixedArgumentNodes[i];
-        const argType = inferExpressionType(argNode, context) || 'i32';
-        const argInstr = compileExpression(argNode, context, { keepValue: true });
-        instructions.push(...coerceInstructionsToType(argInstr, argType, targetType, context));
-      } else {
-        instructions.push(`${targetType}.const 0`);
-      }
+      const argNode = fixedArgumentNodes[i];
+      const argType = inferExpressionType(argNode, context) || 'i32';
+      const argInstr = compileExpression(argNode, context, { keepValue: true });
+      instructions.push(...coerceInstructionsToType(argInstr, argType, targetType, context));
     }
 
     if (variadicArgumentNodes.length === 0) {
@@ -5816,6 +6169,64 @@ function compilePostfixExpression(node, context, keepValue) {
     return instructions;
   }
 
+  if (fn && fn.returnsStructByValue) {
+    const structLayout = resolveStructLayout(
+      (fn.structReturnLayout && fn.structReturnLayout.name) || null,
+      context.module,
+      fn.structReturnLayout || null
+    );
+    const structSize = (structLayout && structLayout.size) || 4;
+
+    context.usesLinearMemory = true;
+
+    const sretLocal = ensureInternalLocal(context, '__maiac_sret_tmp', 'i32');
+    instructions.push(
+      'global.get $__stack_ptr',
+      `local.set $${sretLocal.name}`,
+      'global.get $__stack_ptr',
+      `i32.const ${structSize}`,
+      'i32.add',
+      'global.set $__stack_ptr',
+      `local.get $${sretLocal.name}`
+    );
+
+    const userParamTypes = Array.isArray(fn.userParams)
+      ? fn.userParams.map((param) => toWatType(param.watType || 'i32'))
+      : [];
+
+    for (let i = 0; i < userParamTypes.length; i += 1) {
+      const targetType = userParamTypes[i] || 'i32';
+      const argNode = argumentsToCompile[i];
+      const argType = inferExpressionType(argNode, context) || 'i32';
+      const argInstr = compileExpression(argNode, context, { keepValue: true });
+      instructions.push(...coerceInstructionsToType(argInstr, argType, targetType, context));
+    }
+
+    instructions.push(`call $${sanitizeIdentifier(calleeName)}`);
+
+    if (memberAccessPath.length > 0) {
+      const baseAccessInfo = {
+        symbol: {
+          structName: fn.structReturnLayout ? (fn.structReturnLayout.name || null) : null,
+          structLayout: fn.structReturnLayout || null
+        }
+      };
+      const memberInstructions = compileMemberAccessFromAddress(memberAccessPath, baseAccessInfo, context);
+      instructions.push(`local.get $${sretLocal.name}`);
+      instructions.push(...memberInstructions);
+      if (!keepValue) {
+        instructions.push('drop');
+      }
+      return instructions;
+    }
+
+    if (keepValue) {
+      instructions.push(`local.get $${sretLocal.name}`);
+    }
+
+    return instructions;
+  }
+
   if (fn && !fn.isVariadic) {
     const paramTypes = Array.isArray(fn.params)
       ? fn.params.map((param) => toWatType(param.watType || 'i32'))
@@ -5825,20 +6236,10 @@ function compilePostfixExpression(node, context, keepValue) {
 
     for (let i = 0; i < fixedParamCount; i += 1) {
       const targetType = paramTypes[i] || 'i32';
-      if (i < argumentsToCompile.length) {
-        const argNode = argumentsToCompile[i];
-        const argType = inferExpressionType(argNode, context) || 'i32';
-        const argInstr = compileExpression(argNode, context, { keepValue: true });
-        instructions.push(...coerceInstructionsToType(argInstr, argType, targetType, context));
-      } else {
-        instructions.push(`${targetType}.const 0`);
-      }
-    }
-
-    // Preserve side-effects from extra args while keeping stack balanced.
-    for (let i = fixedParamCount; i < argumentsToCompile.length; i += 1) {
-      instructions.push(...compileExpression(argumentsToCompile[i], context, { keepValue: true }));
-      instructions.push('drop');
+      const argNode = argumentsToCompile[i];
+      const argType = inferExpressionType(argNode, context) || 'i32';
+      const argInstr = compileExpression(argNode, context, { keepValue: true });
+      instructions.push(...coerceInstructionsToType(argInstr, argType, targetType, context));
     }
   } else {
     for (const argumentNode of argumentsToCompile) {
@@ -5989,6 +6390,124 @@ function getStoreOpcodeForType(watType = 'i32') {
   }
 }
 
+function isRuntimeInternalGlobalName(name) {
+  return ['__stack_ptr', '__frame_ptr'].includes(String(name || ''));
+}
+
+function isGlobalSymbol(symbol, context) {
+  if (!symbol || !context || !context.module || !context.module.globalsByName) {
+    return false;
+  }
+
+  const candidate = context.module.globalsByName.get(symbol.sourceName);
+  return candidate === symbol;
+}
+
+function parseNumericGlobalInitializerValue(initExpression, watType) {
+  const match = /^\((i32|i64|f32|f64)\.const\s+([^\)]+)\)$/.exec(String(initExpression || '').trim());
+  if (!match) {
+    return null;
+  }
+
+  const [, literalType, rawValue] = match;
+  const numericValue = Number(rawValue.trim());
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  if (watType === 'i64' || literalType === 'i64') {
+    return BigInt(Math.trunc(numericValue));
+  }
+
+  if (watType === 'f32' || watType === 'f64' || literalType === 'f32' || literalType === 'f64') {
+    return numericValue;
+  }
+
+  return Math.trunc(numericValue);
+}
+
+function encodeScalarInitializerBytes(value, watType = 'i32') {
+  const size = getTypeSize(watType);
+  const view = new DataView(new ArrayBuffer(size));
+
+  switch (watType) {
+    case 'i64':
+      view.setBigInt64(0, typeof value === 'bigint' ? value : BigInt(Math.trunc(Number(value) || 0)), true);
+      break;
+    case 'f32':
+      view.setFloat32(0, Number(value) || 0, true);
+      break;
+    case 'f64':
+      view.setFloat64(0, Number(value) || 0, true);
+      break;
+    case 'i8':
+      view.setUint8(0, Number(value) & 0xFF);
+      break;
+    default:
+      view.setInt32(0, Number(value) | 0, true);
+      break;
+  }
+
+  return Array.from(new Uint8Array(view.buffer));
+}
+
+function ensureGlobalMemorySlot(symbol, moduleModel) {
+  if (!symbol || !moduleModel) {
+    return null;
+  }
+
+  if (symbol.globalDataOffset != null) {
+    return symbol.globalDataOffset;
+  }
+
+  if (isRuntimeInternalGlobalName(symbol.sourceName)) {
+    return null;
+  }
+
+  const size = Math.max(1, getSymbolSize(symbol));
+  const alignment = Math.max(1, Math.min(8, getAlignmentForSymbol(symbol)));
+  const offset = alignTo(moduleModel.nextDataOffset || 0, alignment);
+  const bytes = new Array(size).fill(0);
+
+  if (!symbol.isArray && !symbol.isStruct) {
+    const storageType = getStorageTypeForSymbol(symbol);
+    const initialValue = parseNumericGlobalInitializerValue(symbol.initExpression, storageType);
+    if (initialValue != null) {
+      const initBytes = encodeScalarInitializerBytes(initialValue, storageType);
+      for (let i = 0; i < Math.min(bytes.length, initBytes.length); i += 1) {
+        bytes[i] = initBytes[i];
+      }
+    }
+  }
+
+  moduleModel.dataSegments.push({ offset, bytes });
+  moduleModel.nextDataOffset = offset + bytes.length;
+  moduleModel.usesLinearMemory = true;
+  symbol.globalDataOffset = offset;
+  return offset;
+}
+
+function getAddressableStorageInstructionsForSymbol(symbol, context) {
+  if (!symbol) {
+    return null;
+  }
+
+  if (symbol.stackOffset != null) {
+    return [
+      'local.get $__frame',
+      `i32.const ${symbol.stackOffset}`,
+      'i32.add'
+    ];
+  }
+
+  if (isGlobalSymbol(symbol, context)) {
+    const offset = ensureGlobalMemorySlot(symbol, context.module);
+    return offset != null ? [`i32.const ${offset}`] : null;
+  }
+
+  return null;
+}
+
 function emitAddressOfSymbol(name, context) {
   const symbol = resolveSymbol(name, context);
   if (!symbol) {
@@ -5999,12 +6518,9 @@ function emitAddressOfSymbol(name, context) {
     throw new CompilationError(`Unknown symbol '${name}'`, context.function.sourceName);
   }
 
-  if (symbol.stackOffset != null) {
-    return [
-      'local.get $__frame',
-      `i32.const ${symbol.stackOffset}`,
-      'i32.add'
-    ];
+  const addressInstructions = getAddressableStorageInstructionsForSymbol(symbol, context);
+  if (addressInstructions) {
+    return addressInstructions;
   }
 
   throw new CompilationError(`Address-of is currently supported only for frame-backed locals and parameters ('${name}')`, context.function.sourceName);
@@ -6043,9 +6559,10 @@ function emitLoadInstruction(name, context) {
     return emitAddressOfSymbol(name, context);
   }
 
-  if (symbol.stackOffset != null) {
+  const addressInstructions = getAddressableStorageInstructionsForSymbol(symbol, context);
+  if (addressInstructions) {
     return [
-      ...emitAddressOfSymbol(name, context),
+      ...addressInstructions,
       getLoadOpcodeForType(getStorageTypeForSymbol(symbol))
     ];
   }
@@ -6096,7 +6613,7 @@ function emitUpdateInstructions(name, delta, context, options = {}) {
   const scaledMagnitude = magnitude * pointerStep;
   const addressInstructions = memberAccess
     ? memberAccess.addressInstructions
-    : (symbol.stackOffset != null ? emitAddressOfSymbol(name, context) : null);
+    : getAddressableStorageInstructionsForSymbol(symbol, context);
 
   let constInstruction = `i32.const ${scaledMagnitude}`;
   let arithmeticInstruction = delta >= 0 ? 'i32.add' : 'i32.sub';
@@ -6254,9 +6771,10 @@ function emitStoreInstructions(name, rhsInstructions, context, keepValue) {
     throw new CompilationError(`Unknown assignment target '${name}'`, context.function.sourceName);
   }
 
-  if (symbol.stackOffset != null) {
+  const addressInstructions = getAddressableStorageInstructionsForSymbol(symbol, context);
+  if (addressInstructions) {
     return emitStoreToAddress(
-      emitAddressOfSymbol(name, context),
+      addressInstructions,
       rhsInstructions,
       getStorageTypeForSymbol(symbol),
       context,

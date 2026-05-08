@@ -173,7 +173,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: mismatched prototype/definition arity is not diagnosed',
+    name: 'mismatched prototype/definition arity is diagnosed',
     fn: () => {
       const source = [
         'int add(int a);',
@@ -181,8 +181,7 @@ const cases = [
         'int test_entry(void) { return add(1); }'
       ].join('\n');
 
-      // Current behavior: arity mismatch across declaration/definition is tolerated.
-      assert.strictEqual(runEntryFromSource(source), 1);
+      assert.throws(() => runEntryFromSource(source), /Conflicting parameter count/);
     }
   }
 ];

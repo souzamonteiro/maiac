@@ -36,8 +36,9 @@
   (data (i32.const 16) "PASS struct_point\0a\00")
   (data (i32.const 36) "PASS nested_struct\0a\00")
   (data (i32.const 56) "PASS union_int\0a\00")
-  (data (i32.const 72) "PASS enum_value\0a\00")
-  (data (i32.const 92) "ALL PASS\0a\00")
+  (data (i32.const 72) "\06\00\00\00")
+  (data (i32.const 76) "PASS enum_value\0a\00")
+  (data (i32.const 96) "ALL PASS\0a\00")
 
   (elem (table $fn_table) (i32.const 0) func $main)
 
@@ -253,7 +254,8 @@
     local.get $__frame
     i32.const 40
     i32.add
-    global.get $COLOR_BLUE
+    i32.const 72
+    i32.load
     local.set $__tmp_i32
     local.get $__tmp_i32
     i32.store
@@ -268,7 +270,7 @@
     i32.eqz
     i32.eqz
     if
-      i32.const 72
+      i32.const 76
       f64.convert_i32_s
       f64.const 0
       f64.const 0
@@ -280,7 +282,7 @@
       call $imp_printf
       drop
     end
-    i32.const 92
+    i32.const 96
     f64.convert_i32_s
     f64.const 0
     f64.const 0

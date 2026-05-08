@@ -173,13 +173,22 @@ const phase8Cases = [
     expectedReturn: 4
   },
   {
-    id: 'address-of-global-limitation',
-    name: 'Address-of global variable is currently unsupported (negative)',
+    id: 'address-of-global-supported',
+    name: 'Address-of global variable works',
     code: `
       int g = 7;
       int test_entry() { int *p = &g; return *p; }
     `,
-    expectedError: 'Address-of is currently supported only for frame-backed locals'
+    expectedReturn: 7
+  },
+  {
+    id: 'address-of-global-write-through-pointer',
+    name: 'Write-through pointer updates global variable',
+    code: `
+      int g = 7;
+      int test_entry() { int *p = &g; *p = 19; return g; }
+    `,
+    expectedReturn: 19
   },
   {
     id: 'prefix-increment-literal-invalid',

@@ -45,7 +45,7 @@ Tier legend:
 | Family | Grammar rules (C.ebnf) | Parse | Semantic | Codegen | Runtime | Tier | Notes |
 |---|---|---|---|---|---|---|---|
 | Translation unit | translationUnit, translationUnitItem, externalDeclaration | done | done | done | done | Tier 1 | Core pipeline validated by test-all. |
-| Function definitions | functionDefinition, declarationList | done | partial | partial | partial | Tier 2 | ANSI-style definitions are strongly covered (including recursion, forward declarations, array-style params and fn-ptr returns) via Phase 10; Phase 15 expands prototype/linkage/arity evidence and highlights remaining gaps in compatibility checks, K&R handling, and struct-return correctness. |
+| Function definitions | functionDefinition, declarationList | done | partial | partial | partial | Tier 2 | ANSI-style definitions are strongly covered (including recursion, forward declarations, array-style params and fn-ptr returns) via Phase 10; Phase 15 expands prototype/linkage/arity evidence; arity mismatch between prototype and definition is now diagnosed; struct return by value implemented via hidden sret ABI (`f(args).field` pattern works end-to-end); remaining gaps: K&R-style definition lowering and static/extern linkage conflict detection (parser limitation). |
 | Declarations | declaration, declarationSpecifiers, initDeclaratorList, initDeclarator | done | done | done | done | Tier 1 | Advanced declarators validated by phase2 diagnostics (arrays of pointers, function pointers, pointer chains, multidimensional arrays). |
 | Storage/type qualifiers | storageClassSpecifier, typeQualifier | done | partial | partial | partial | Tier 2 | Phase 12 validates runtime behavior for const/volatile/register/auto/static and typedef-with-qualifier forms; semantic enforcement remains partial (const writes and some extern semantics are not fully diagnosed). |
 | Builtin and named types | builtinTypeSpecifier, namedTypeSpecifier, typedefName | done | partial | partial | partial | Tier 2 | Phase 13 validates char/short/long/float/double/signed/unsigned basics, typedef chains, enum/struct named-type paths, and forward struct tags; numeric signedness and invalid-void local diagnostics remain partial. |
@@ -59,7 +59,7 @@ Tier legend:
 | Jump statements | jumpStatement | done | done | done | done | Tier 1 | Unrestricted goto path is implemented and validated in diagnostic suites. |
 | Expression hierarchy | expression through multiplicativeExpression | done | done | done | done | Tier 1 | Pointer subtraction and key declarator-driven expression paths validated in current suite set. |
 | Assignment operators | assignmentExpression, assignmentOperator | done | done | done | done | Tier 1 | All 10 compound operators (+=,-=,*=,/=,%=,&=,|=,^=,<<=,>>=) validated on scalars, struct fields (.x, ->x), array elements (arr[i]) and pointer dereferences (*p). Comma operator in expressions validated. |
-| Unary and postfix | unaryExpression, unaryOperator, postfixExpression, postfixSuffix | done | partial | partial | partial | Tier 2 | Broad unary/postfix coverage validated in Phase 8 (++, --, !, ~, &, *, sizeof, index/call/dot/arrow); known restriction remains for address-of global variables in current lowering. |
+| Unary and postfix | unaryExpression, unaryOperator, postfixExpression, postfixSuffix | done | partial | partial | partial | Tier 2 | Broad unary/postfix coverage validated in Phase 8 (++, --, !, ~, &, *, sizeof, index/call/dot/arrow), including address-of for globals and write-through pointer updates; remaining partial status is due to other edge lowering/semantic gaps outside this family core. |
 | Primary/constants | primaryExpression, constant, IntegerConstant, FloatingConstant, CharacterConstant, StringLiteral | done | done | done | done | Tier 1 | Broadly exercised in suites. |
 | Function calls | postfixSuffix with call, argumentExpressionList | done | done | done | done | Tier 1 | Named calls, fn-ptr calls ((*fp)(args), fp(args)), chained calls (getOp()(args)), fn-ptr in struct (o.op(args)), array-of-fn-ptrs (ops[i](args)), fn returning fn-ptr without typedef all validated. |
 | Preprocessor directives | PreprocessingDirective and Pp* rules | done | partial | partial | partial | Tier 2 | Core directives plus #elif, #undef, #ifdef/#ifndef, defined with/without parentheses, recursive include guards, and line-continuation macros covered by Phases 5 and 9; known gaps remain in macro-expanded #if expressions and composed token-pasting expansions. |
@@ -99,6 +99,18 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 16. ~~Expand Phase 14 enum declaration coverage (numbering variants, enum type paths, and limitation diagnostics).~~ — completed 2026-05-07.
 17. ~~Expand Phase 15 function prototype/linkage coverage (arity, type compatibility, linkage consistency, and struct-return diagnostics).~~ — completed 2026-05-07.
 18. ~~Fix indexed struct member lvalue writes for assignment paths (`a[i].y`, `ptrs[i]->x`, `(&a[i])->x`).~~ — completed 2026-05-08.
+19. ~~Implement struct return by value via hidden sret ABI; fix `f(args).field` member access after call expression.~~ — completed 2026-05-08.
+20. ~~Diagnose arity mismatch between prototype and function definition (`Conflicting parameter count`).~~ — completed 2026-05-08.
+21. ~~Support address-of on global variables (`&global`) with pointer read/write coherence.~~ — completed 2026-05-08.
+
+## Next priority candidates
+
+- `const` local assignment enforcement (writes to const locals not diagnosed)
+- `static` local state preservation across function calls (needs per-function global storage)
+- `extern` declaration semantics (declared-without-definition reads as zero; no diagnostic)
+- Indirect/function-pointer calls returning struct by value (sret ABI not yet validated for fn-ptr calls)
+- Negative enumerator values mis-evaluation (Phase 14 known limitation)
+- Duplicate enumerator names not rejected (Phase 14 known limitation)
 
 ## Exit criteria for 100 percent claim
 

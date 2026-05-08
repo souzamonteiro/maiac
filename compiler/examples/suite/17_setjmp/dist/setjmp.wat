@@ -29,8 +29,9 @@
   ;; global env
   (global $env (mut i32) (i32.const 0))
 
-  (data (i32.const 16) "PASS setjmp_longjmp\0a\00")
-  (data (i32.const 40) "ALL PASS\0a\00")
+  (data (i32.const 16) "\00\00\00\00")
+  (data (i32.const 20) "PASS setjmp_longjmp\0a\00")
+  (data (i32.const 44) "ALL PASS\0a\00")
 
   (elem (table $fn_table) (i32.const 0) func $dive $main)
 
@@ -42,7 +43,8 @@
     i32.eqz
     i32.eqz
     if
-      global.get $env
+      i32.const 16
+      i32.load
       i32.const 7
       call $imp_longjmp
       drop
@@ -59,7 +61,8 @@
   ;; function main
   (func $main (result i32)
     (local $rc i32)
-    global.get $env
+    i32.const 16
+    i32.load
     call $imp_setjmp
     local.tee $rc
     drop
@@ -79,7 +82,7 @@
       i32.eqz
       i32.eqz
       if
-        i32.const 16
+        i32.const 20
         f64.convert_i32_s
         f64.const 0
         f64.const 0
@@ -90,7 +93,7 @@
         f64.const 0
         call $imp_printf
         drop
-        i32.const 40
+        i32.const 44
         f64.convert_i32_s
         f64.const 0
         f64.const 0

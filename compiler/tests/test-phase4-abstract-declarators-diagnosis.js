@@ -325,14 +325,14 @@ const phase4Cases = [
     expectedReturn: 7
   },
   {
-    id: 'address-of-global-limitation',
-    name: 'Address-of global variable is unsupported (negative)',
+    id: 'address-of-global-supported',
+    name: 'Address-of global variable is supported',
     code: `
       int g=99;
       int *getGlobal() { return &g; }
       int test_entry() { return *getGlobal(); }
     `,
-    expectedError: 'Address-of is currently supported only for frame-backed locals'
+    expectedReturn: 99
   }
 ];
 
