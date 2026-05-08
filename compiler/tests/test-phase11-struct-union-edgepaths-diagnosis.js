@@ -193,7 +193,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: address-of indexed struct then arrow assignment is rejected',
+    name: 'address-of indexed struct then arrow assignment works',
     fn: () => {
       const source = [
         'struct S { int x; int y; };',
@@ -204,7 +204,7 @@ const cases = [
         '}'
       ].join('\n');
 
-      assert.throws(() => runEntryFromSource(source), /Unsupported assignment target/);
+      assert.strictEqual(runEntryFromSource(source), 4);
     }
   },
   {

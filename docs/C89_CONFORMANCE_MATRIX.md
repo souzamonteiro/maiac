@@ -35,7 +35,7 @@ Tier legend:
 - Phase 13 builtin/named types diagnostics: 14/14 PASS
 - Phase 14 enum declarations diagnostics: 14/14 PASS
 - Phase 15 function prototype/linkage diagnostics: 12/12 PASS
-- Struct lvalue corrections: PASS for `a[i].y` and `ptrs[i]->x` write/read paths
+- Struct lvalue corrections: PASS for `a[i].y`, `ptrs[i]->x`, and `(&a[i])->x` write/read paths
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
 - Project target remains practical C89 subset, not full-language completeness claim.
@@ -49,7 +49,7 @@ Tier legend:
 | Declarations | declaration, declarationSpecifiers, initDeclaratorList, initDeclarator | done | done | done | done | Tier 1 | Advanced declarators validated by phase2 diagnostics (arrays of pointers, function pointers, pointer chains, multidimensional arrays). |
 | Storage/type qualifiers | storageClassSpecifier, typeQualifier | done | partial | partial | partial | Tier 2 | Phase 12 validates runtime behavior for const/volatile/register/auto/static and typedef-with-qualifier forms; semantic enforcement remains partial (const writes and some extern semantics are not fully diagnosed). |
 | Builtin and named types | builtinTypeSpecifier, namedTypeSpecifier, typedefName | done | partial | partial | partial | Tier 2 | Phase 13 validates char/short/long/float/double/signed/unsigned basics, typedef chains, enum/struct named-type paths, and forward struct tags; numeric signedness and invalid-void local diagnostics remain partial. |
-| Struct/union declarations | structOrUnionSpecifier, structDeclarationList, structDeclaratorList | done | partial | partial | partial | Tier 2 | Layout/access and struct copy assignment by value validated (b=a, b.field=a.field, *pb=*pa); nested dot/arrow and union-field coverage are stable, and indexed struct-field writes (`a[i].y`, `ptrs[i]->x`) now pass; remaining partial path includes parenthesized address-of indexed arrow assignment (`(&a[i])->x`). |
+| Struct/union declarations | structOrUnionSpecifier, structDeclarationList, structDeclaratorList | done | partial | partial | partial | Tier 2 | Layout/access and struct copy assignment by value validated (b=a, b.field=a.field, *pb=*pa); nested dot/arrow, union-field coverage, and indexed struct-field writes (`a[i].y`, `ptrs[i]->x`, `(&a[i])->x`) are stable in diagnostics; broader semantic/codegen edge cases still keep the family partial. |
 | Enum declarations | enumSpecifier, enumeratorList | done | partial | partial | partial | Tier 2 | Phase 14 expands explicit/implicit numbering, char-based enumerators, forward tag + typedef enum paths, switch usage, and negative diagnostics; enumerator-folding/redeclaration/duplicate-name semantics remain partial. |
 | Declarator system | declarator, directDeclaratorBase, directDeclaratorSuffix, pointer, parameterTypeList, abstractDeclarator | done | done | done | done | Tier 1 | Phase2 diagnostics validate covered advanced forms in current practical subset. |
 | Initializers | initializer, initializerList | done | done | done | done | Tier 1 | Nested aggregates and designated initializers (.field, [index], nested designated paths) validated by phase3 diagnostics. |
@@ -98,7 +98,7 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 15. ~~Expand Phase 13 builtin/named type coverage (builtin numeric families, typedef chains, enum/struct named paths + limitation diagnostics).~~ — completed 2026-05-07.
 16. ~~Expand Phase 14 enum declaration coverage (numbering variants, enum type paths, and limitation diagnostics).~~ — completed 2026-05-07.
 17. ~~Expand Phase 15 function prototype/linkage coverage (arity, type compatibility, linkage consistency, and struct-return diagnostics).~~ — completed 2026-05-07.
-18. ~~Fix indexed struct member lvalue writes for assignment paths (`a[i].y`, `ptrs[i]->x`).~~ — completed 2026-05-08.
+18. ~~Fix indexed struct member lvalue writes for assignment paths (`a[i].y`, `ptrs[i]->x`, `(&a[i])->x`).~~ — completed 2026-05-08.
 
 ## Exit criteria for 100 percent claim
 

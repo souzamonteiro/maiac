@@ -4441,6 +4441,81 @@ function resolveMemberAccessFromAddress(memberAccessPath, baseAccessInfo, contex
   };
 }
 
+function resolvePostfixMemberAccessFromPrimaryExpression(primaryExpression, memberAccessPath, context) {
+  if (!primaryExpression || !Array.isArray(memberAccessPath) || memberAccessPath.length === 0) {
+    return null;
+  }
+
+  const firstStep = memberAccessPath[0];
+  if (!firstStep || !firstStep.isArrow) {
+    // For now, non-identifier base expressions are only supported for pointer-style access.
+    return null;
+  }
+
+  const basePointerInstructions = compileExpression(primaryExpression, context, { keepValue: true });
+  let structLayout = inferStructPointeeLayout(primaryExpression, context);
+  if (!structLayout) {
+    throw new CompilationError('Cannot apply member access to non-struct pointer expression', context.function.sourceName);
+  }
+
+  const addressInstructions = [...basePointerInstructions];
+  let currentField = null;
+
+  for (let index = 0; index < memberAccessPath.length; index += 1) {
+    const step = memberAccessPath[index];
+
+    if (!structLayout) {
+      throw new CompilationError('Cannot apply member access to non-struct type', context.function.sourceName);
+    }
+
+    if (step.isArrow && index > 0) {
+      // Previous step produced the address of a pointer field; load the pointer value first.
+      addressInstructions.push('i32.load');
+    }
+
+    currentField = structLayout.fieldsByName.get(step.fieldName);
+    if (!currentField) {
+      throw new CompilationError(`Unknown struct field '${step.fieldName}'`, context.function.sourceName);
+    }
+
+    if (currentField.offset > 0) {
+      addressInstructions.push(`i32.const ${currentField.offset}`, 'i32.add');
+    }
+
+    const nextStep = memberAccessPath[index + 1] || null;
+    if (!nextStep) {
+      continue;
+    }
+
+    if (nextStep.isArrow) {
+      if ((currentField.pointerDepth || 0) <= 0 || !currentField.structName) {
+        throw new CompilationError(
+          `Field '${currentField.sourceName}' is not a pointer-to-struct and cannot use '->'`,
+          context.function.sourceName
+        );
+      }
+      structLayout = resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null);
+      continue;
+    }
+
+    if (!currentField.isStruct) {
+      throw new CompilationError(`Field '${currentField.sourceName}' is not a nested struct`, context.function.sourceName);
+    }
+    structLayout = resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null);
+  }
+
+  return {
+    field: currentField,
+    addressInstructions,
+    watType: currentField ? getStorageTypeForSymbol(currentField) : 'i32',
+    isStruct: !!(currentField && currentField.isStruct),
+    structLayout: currentField && currentField.isStruct
+      ? resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null)
+      : null,
+    isArray: !!(currentField && (currentField.isArray || currentField.declaredAsArray))
+  };
+}
+
 /**
  * Compile member access when base address is already on stack.
  * Used for cases like ptrs[0]->field where [0] produces an address,
@@ -4568,6 +4643,35 @@ function inferStructPointeeLayout(node, context) {
   const identifierName = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
   const symbol = identifierName ? resolveSymbol(identifierName, context) : null;
   if (!symbol || (symbol.pointerDepth || 0) <= 0 || !symbol.structName) {
+    const unwrapped = unwrapSingleNonterminalChain(node) || node;
+    if (isNonterminal(unwrapped, 'primaryExpression')) {
+      const nestedExpression = firstNonterminal(unwrapped, 'expression');
+      if (nestedExpression) {
+        return inferStructPointeeLayout(nestedExpression, context);
+      }
+    }
+
+    if (isNonterminal(unwrapped, 'unaryExpression')) {
+      const unaryOperatorNode = firstNonterminal(unwrapped, 'unaryOperator');
+      const operatorTerminal = unaryOperatorNode ? firstTerminal(unaryOperatorNode) : null;
+      const operandNode = nonterminalChildren(unwrapped).find((child) => child !== unaryOperatorNode);
+
+      if (operatorTerminal && operatorTerminal.token === 'TOKEN__26_' && operandNode) {
+        if (isNonterminal(operandNode, 'postfixExpression')) {
+          const indexedInfo = getIndexedAccessInfoFromPostfix(operandNode, context);
+          if (indexedInfo && indexedInfo.symbol && indexedInfo.symbol.structName) {
+            return resolveStructLayout(indexedInfo.symbol.structName, context.module, indexedInfo.symbol.structLayout || null);
+          }
+        }
+
+        const operandName = getSimpleIdentifierName(operandNode) || extractIdentifierFromNode(operandNode);
+        const operandSymbol = operandName ? resolveSymbol(operandName, context) : null;
+        if (operandSymbol && operandSymbol.structName) {
+          return resolveStructLayout(operandSymbol.structName, context.module, operandSymbol.structLayout || null);
+        }
+      }
+    }
+
     return null;
   }
   return resolveStructLayout(symbol.structName, context.module, symbol.structLayout || null);
@@ -4644,6 +4748,23 @@ function resolveLValue(node, context, options = {}) {
           ? (memberAccess.structLayout.size || 0)
           : 0
       };
+    }
+
+    if (memberAccessPath.length > 0) {
+      const memberAccess = resolvePostfixMemberAccessFromPrimaryExpression(primaryExpression, memberAccessPath, context);
+      if (memberAccess) {
+        if (memberAccess.isStruct && !allowAggregate) {
+          throw new CompilationError('Assignment to a whole struct field object is not supported right now', context.function.sourceName);
+        }
+        return {
+          kind: 'indirect',
+          addressInstructions: memberAccess.addressInstructions,
+          watType: memberAccess.watType || 'i32',
+          aggregateByteSize: memberAccess.isStruct && memberAccess.structLayout
+            ? (memberAccess.structLayout.size || 0)
+            : 0
+        };
+      }
     }
   }
 
@@ -5374,6 +5495,17 @@ function compilePostfixExpression(node, context, keepValue) {
         }
         return memberAccess.addressInstructions.concat(getLoadOpcodeForType(memberAccess.watType || 'i32'));
       }
+    }
+
+    const memberAccess = resolvePostfixMemberAccessFromPrimaryExpression(primaryExpression, memberAccessPath, context);
+    if (memberAccess) {
+      if (!keepValue) {
+        return memberAccess.addressInstructions.concat('drop');
+      }
+      if (memberAccess.isStruct || memberAccess.isArray) {
+        return memberAccess.addressInstructions;
+      }
+      return memberAccess.addressInstructions.concat(getLoadOpcodeForType(memberAccess.watType || 'i32'));
     }
   }
 
