@@ -1075,15 +1075,13 @@ function registerEnumConstantsFromDeclaration(declarationNode, moduleModel) {
       continue;
     }
 
+    if (moduleModel.enumValues.has(identifier.value)) {
+      throw new CompilationError(`Duplicate enumerator name '${identifier.value}'`, getNodeName(enumerator));
+    }
+
     const constantExpression = firstNonterminal(enumerator, 'constantExpression');
-    const explicitInteger = constantExpression ? findFirstTerminal(constantExpression, 'IntegerConstant') : null;
-    const explicitCharacter = constantExpression ? findFirstTerminal(constantExpression, 'CharacterConstant') : null;
     const value = constantExpression
-      ? (explicitInteger
-        ? parseCIntegerLiteral(explicitInteger.value)
-        : (explicitCharacter
-          ? parseCCharacterLiteral(explicitCharacter.value)
-          : evaluateConstantExpression(constantExpression, moduleModel.enumValues)))
+      ? evaluateConstantExpression(constantExpression, moduleModel.enumValues)
       : nextValue;
     nextValue = value + 1;
     moduleModel.enumValues.set(identifier.value, value);

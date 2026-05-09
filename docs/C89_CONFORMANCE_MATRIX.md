@@ -51,7 +51,7 @@ Tier legend:
 | Storage/type qualifiers | storageClassSpecifier, typeQualifier | done | partial | partial | partial | Tier 2 | Phase 12 validates runtime behavior for const/volatile/register/auto/static and typedef-with-qualifier forms; static local storage now preserves state across calls; extern declaration + same-unit definition resolves correctly; unresolved extern variable declarations currently use explicit zero fallback behavior. Remaining semantic gaps include pointee-const write enforcement. |
 | Builtin and named types | builtinTypeSpecifier, namedTypeSpecifier, typedefName | done | partial | partial | partial | Tier 2 | Phase 13 validates char/short/long/float/double/signed/unsigned basics, typedef chains, enum/struct named-type paths, and forward struct tags; numeric signedness and invalid-void local diagnostics remain partial. |
 | Struct/union declarations | structOrUnionSpecifier, structDeclarationList, structDeclaratorList | done | partial | partial | partial | Tier 2 | Layout/access and struct copy assignment by value validated (b=a, b.field=a.field, *pb=*pa); nested dot/arrow, union-field coverage, and indexed struct-field writes (`a[i].y`, `ptrs[i]->x`, `(&a[i])->x`) are stable in diagnostics; broader semantic/codegen edge cases still keep the family partial. |
-| Enum declarations | enumSpecifier, enumeratorList | done | partial | partial | partial | Tier 2 | Phase 14 expands explicit/implicit numbering, char-based enumerators, forward tag + typedef enum paths, switch usage, and negative diagnostics; enumerator-folding/redeclaration/duplicate-name semantics remain partial. |
+| Enum declarations | enumSpecifier, enumeratorList | done | partial | partial | partial | Tier 2 | Phase 14 covers explicit/implicit numbering, character and negative values, enumerator references in enum initializers, forward tag + typedef enum paths, switch usage, and duplicate enumerator-name diagnostics; remaining gaps include enum tag redeclaration constraints and incomplete enum type diagnostics. |
 | Declarator system | declarator, directDeclaratorBase, directDeclaratorSuffix, pointer, parameterTypeList, abstractDeclarator | done | done | done | done | Tier 1 | Phase2 diagnostics validate covered advanced forms in current practical subset. |
 | Initializers | initializer, initializerList | done | done | done | done | Tier 1 | Nested aggregates and designated initializers (.field, [index], nested designated paths) validated by phase3 diagnostics. |
 | Compound blocks | compoundStatement, blockItem, statementList | done | done | done | done | Tier 1 | Strongly covered by mini-suite and large E2E. |
@@ -107,8 +107,6 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 
 ## Next priority candidates
 
-- Negative enumerator values mis-evaluation (Phase 14 known limitation)
-- Duplicate enumerator names not rejected (Phase 14 known limitation)
 
 ## Exit criteria for 100 percent claim
 

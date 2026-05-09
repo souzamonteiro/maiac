@@ -127,27 +127,25 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: negative enumerator values are mis-evaluated',
+    name: 'negative enumerator values are evaluated correctly',
     fn: () => {
       const source = [
         'enum E { NEG = -2, POS = 5 };',
         'int test_entry(void) { return NEG + POS; }'
       ].join('\n');
 
-      // Current behavior: NEG resolves incorrectly and expression yields 7.
-      assert.strictEqual(runEntryFromSource(source), 7);
+      assert.strictEqual(runEntryFromSource(source), 3);
     }
   },
   {
-    name: 'known limitation: enumerator references in enum initializers are not resolved',
+    name: 'enumerator references in enum initializers are resolved',
     fn: () => {
       const source = [
         'enum E { X = 2, Y = X + 4, Z = Y + 1 };',
         'int test_entry(void) { return Z; }'
       ].join('\n');
 
-      // Current behavior: referenced enumerators are not folded as expected.
-      assert.strictEqual(runEntryFromSource(source), 1);
+      assert.strictEqual(runEntryFromSource(source), 7);
     }
   },
   {
@@ -163,15 +161,14 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: duplicate enumerator names are accepted',
+    name: 'duplicate enumerator names are rejected',
     fn: () => {
       const source = [
         'enum E { A = 1, A = 2 };',
         'int test_entry(void) { return A; }'
       ].join('\n');
 
-      // Current behavior keeps first binding for duplicate enumerator name.
-      assert.strictEqual(runEntryFromSource(source), 1);
+      assert.throws(() => runEntryFromSource(source), /Duplicate enumerator name/);
     }
   },
   {
