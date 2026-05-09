@@ -138,7 +138,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: const local assignment is not rejected',
+    name: 'const local assignment is now rejected',
     fn: () => {
       const source = [
         'int test_entry(void) {',
@@ -148,8 +148,11 @@ const cases = [
         '}'
       ].join('\n');
 
-      // Current behavior: const write is accepted and updates value.
-      assert.strictEqual(runEntryFromSource(source), 9);
+      // Resolved in Phase 16: assignment to const local now throws CompilationError.
+      assert.throws(
+        () => compileSource(source, { validate: false, printWat: false }),
+        (err) => /read-only/.test(String(err.message))
+      );
     }
   },
   {

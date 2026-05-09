@@ -23,6 +23,7 @@ const scripts = [
   'test-phase13-builtin-named-types-diagnosis.js',
   'test-phase14-enum-declarations-diagnosis.js',
   'test-phase15-function-prototype-linkage-diagnosis.js',
+  'test-phase16-const-qualifier-diagnosis.js',
   'test-member-access-negative-diagnosis.js',
   'test-runtime-js-hosts.js',
   'test-runtime-stdio-edgecases.js',

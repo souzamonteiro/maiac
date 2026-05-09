@@ -180,6 +180,67 @@ const cases = [
 
       assert.strictEqual(runEntryFromSource(source), 7);
     }
+  },
+  {
+    name: 'function pointer call returning struct supports member access',
+    fn: () => {
+      const source = [
+        'struct P { int x; };',
+        'struct P mk(int v) {',
+        '  struct P p;',
+        '  p.x = v;',
+        '  return p;',
+        '}',
+        'int test_entry(void) {',
+        '  struct P (*fp)(int);',
+        '  fp = mk;',
+        '  return fp(9).x;',
+        '}'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 9);
+    }
+  },
+  {
+    name: 'array slot function pointer returning struct supports member access',
+    fn: () => {
+      const source = [
+        'struct P { int x; };',
+        'struct P mk(int v) {',
+        '  struct P p;',
+        '  p.x = v;',
+        '  return p;',
+        '}',
+        'int test_entry(void) {',
+        '  struct P (*ops[1])(int);',
+        '  ops[0] = mk;',
+        '  return ops[0](11).x;',
+        '}'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 11);
+    }
+  },
+  {
+    name: 'struct field function pointer returning struct supports member access',
+    fn: () => {
+      const source = [
+        'struct P { int x; };',
+        'struct H { struct P (*op)(int); };',
+        'struct P mk(int v) {',
+        '  struct P p;',
+        '  p.x = v;',
+        '  return p;',
+        '}',
+        'int test_entry(void) {',
+        '  struct H h;',
+        '  h.op = mk;',
+        '  return h.op(13).x;',
+        '}'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 13);
+    }
   }
 ];
 
