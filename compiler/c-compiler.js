@@ -1264,11 +1264,26 @@ function extractDeclaratorInfo(declaratorNode, moduleModel = null) {
   const hasIdentifierList = !!identifierList;
   const isVoidParameterList = hasParameterTypeList && isExplicitVoidParameterList(parameterList);
 
+  const params = extractParameters(parameterList, moduleModel);
+  const seenParamNames = new Set();
+  for (const param of params) {
+    if (!param || !param.sourceName) {
+      continue;
+    }
+    if (seenParamNames.has(param.sourceName)) {
+      throw new CompilationError(
+        `Duplicate parameter name '${param.sourceName}' in function '${identifier.value}'`,
+        getNodeName(declaratorNode)
+      );
+    }
+    seenParamNames.add(param.sourceName);
+  }
+
   return {
     sourceName: identifier.value,
     name: sanitizeIdentifier(identifier.value),
     pointerDepth: countLeadingPointerDepthInDeclarator(declaratorNode),
-    params: extractParameters(parameterList, moduleModel),
+    params,
     isVariadic,
     hasParameterTypeList,
     hasIdentifierList,

@@ -161,15 +161,14 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: duplicate parameter names are accepted and last binding wins',
+    name: 'duplicate parameter names in function definition are rejected',
     fn: () => {
       const source = [
         'int pick(int a, int a) { return a; }',
         'int test_entry(void) { return pick(1, 2); }'
       ].join('\n');
 
-      // Current behavior: duplicate parameter names are not rejected.
-      assert.strictEqual(runEntryFromSource(source), 2);
+      assert.throws(() => runEntryFromSource(source), /Duplicate parameter name/);
     }
   },
   {
