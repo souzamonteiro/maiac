@@ -173,7 +173,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: duplicate const qualifier is accepted',
+    name: 'duplicate const qualifier is rejected',
     fn: () => {
       const source = [
         'int test_entry(void) {',
@@ -182,7 +182,10 @@ const cases = [
         '}'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 2);
+      assert.throws(
+        () => compileSource(source, { validate: false, printWat: false }),
+        /Duplicate 'const' qualifier/
+      );
     }
   },
   {

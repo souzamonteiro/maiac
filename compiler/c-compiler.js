@@ -309,6 +309,10 @@ function extractStructFieldDefinitions(structDeclarationList, moduleModel = null
 }
 
 function extractDeclarationTypeInfo(specifierNode, moduleModel = null) {
+  if (countTypeQualifier(specifierNode, 'TOKEN_const') > 1) {
+    throw new CompilationError("Duplicate 'const' qualifier", getNodeName(specifierNode));
+  }
+
   const structSpecifier = findTypeSpecifierNode(specifierNode, 'structOrUnionSpecifier');
 
   if (structSpecifier) {
@@ -1564,6 +1568,10 @@ function declarationHasStorageClassSpecifier(specifierNode, token) {
 
 function declarationHasTypeQualifier(specifierNode, token) {
   return !!findFirst(specifierNode, (candidate) => isTerminal(candidate, token));
+}
+
+function countTypeQualifier(specifierNode, token) {
+  return findAll(specifierNode, (candidate) => isTerminal(candidate, token)).length;
 }
 
 function normalizeCTypeForSignature(cType) {
