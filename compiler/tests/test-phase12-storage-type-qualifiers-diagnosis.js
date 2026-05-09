@@ -155,7 +155,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: write through pointer-to-const is not rejected',
+    name: 'write through pointer-to-const is rejected',
     fn: () => {
       const source = [
         'int test_entry(void) {',
@@ -166,8 +166,10 @@ const cases = [
         '}'
       ].join('\n');
 
-      // Current behavior: pointee constness is not enforced.
-      assert.strictEqual(runEntryFromSource(source), 3);
+      assert.throws(
+        () => compileSource(source, { validate: false, printWat: false }),
+        (err) => /read-only/.test(String(err.message))
+      );
     }
   },
   {

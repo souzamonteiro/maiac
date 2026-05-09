@@ -1183,7 +1183,8 @@ function extractParameters(parameterListNode, moduleModel = null) {
         baseWatType,
         watType,
         // In C, `const T *p` means the pointee is const; the pointer variable remains mutable.
-        isConst: !!typeInfo.isConst && pointerDepth === 0
+        isConst: !!typeInfo.isConst && pointerDepth === 0,
+        pointeeIsConst: !!typeInfo.isConst && pointerDepth === 1
       };
     })
     .filter(Boolean);
@@ -1506,6 +1507,8 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
       isExternStorage: hasExternSpecifier,
       // Only mark the declared object as read-only when const qualifies a non-pointer object.
       isConst: !!typeInfo.isConst && declaratorInfo.pointerDepth === 0,
+      // const-qualified base type with one pointer level => read-only pointee.
+      pointeeIsConst: !!typeInfo.isConst && declaratorInfo.pointerDepth === 1,
       initializer: initializerNode
     };
   });
@@ -1969,6 +1972,7 @@ function buildModuleModel(ast, options = {}) {
           baseWatType: itemDef.baseWatType,
           pointerDepth: itemDef.pointerDepth || 0,
           isConst: !!itemDef.isConst,
+          pointeeIsConst: !!itemDef.pointeeIsConst,
           mutable: !itemDef.isConst,
           exported: true,
           initExpression: buildGlobalInitializerExpression(itemDef.initializer, itemDef)
@@ -2010,6 +2014,7 @@ function buildModuleModel(ast, options = {}) {
         baseWatType: externDef.baseWatType,
         pointerDepth: externDef.pointerDepth || 0,
         isConst: !!externDef.isConst,
+        pointeeIsConst: !!externDef.pointeeIsConst,
         mutable: !externDef.isConst,
         exported: true,
         // Current MaiaC policy for unresolved extern variables is zero fallback.
@@ -2519,6 +2524,7 @@ function compileLocalDeclaration(declarationNode, context) {
       pointerDepth: localDef.pointerDepth || 0,
       pointeeArrayDimensions: Array.isArray(localDef.pointeeArrayDimensions) ? [...localDef.pointeeArrayDimensions] : [],
       isConst: !!localDef.isConst,
+      pointeeIsConst: !!localDef.pointeeIsConst,
       mutable: !localDef.isConst,
       exported: false,
       initExpression: buildGlobalInitializerExpression(localDef.initializer, localDef)
@@ -2564,7 +2570,8 @@ function compileLocalDeclaration(declarationNode, context) {
       arrayLength: localDef.arrayLength || null,
       arrayDimensions: Array.isArray(localDef.arrayDimensions) ? [...localDef.arrayDimensions] : [],
       isStaticStorage: !!localDef.isStaticStorage,
-      isConst: !!localDef.isConst
+      isConst: !!localDef.isConst,
+      pointeeIsConst: !!localDef.pointeeIsConst
     };
 
     if (localDef.typeKind === 'struct' && !structLayout && localDef.pointerDepth === 0) {
@@ -5223,6 +5230,59 @@ function inferPointerPointeeType(node, context) {
   return symbol.baseWatType || symbol.watType || 'i32';
 }
 
+function isReadOnlyThroughSymbolIndirection(symbol, dereferenceDepth = 1) {
+  if (!symbol) {
+    return false;
+  }
+
+  if (symbol.isConst && (symbol.pointerDepth || 0) === 0) {
+    return true;
+  }
+
+  if (!symbol.pointeeIsConst) {
+    return false;
+  }
+
+  if (symbol.isArray && (symbol.pointerDepth || 0) > 0) {
+    return dereferenceDepth > 1;
+  }
+
+  return dereferenceDepth >= 1;
+}
+
+function isReadOnlyIndirectTarget(node, context) {
+  if (isNonterminal(node, 'castExpression')) {
+    const typeNameNode = firstNonterminal(node, 'typeName');
+    if (typeNameNode) {
+      const castType = extractTypeInfoFromTypeName(typeNameNode);
+      return !!castType.isConst && (castType.pointerDepth || 0) === 1;
+    }
+  }
+
+  if (isNonterminal(node, 'postfixExpression')) {
+    const primaryExpression = firstNonterminal(node, 'primaryExpression');
+    const indexExpressions = getIndexExpressionsFromPostfix(node);
+    const baseName = getSimpleIdentifierName(primaryExpression);
+
+    if (baseName && indexExpressions.length > 0) {
+      const accessInfo = getIndexedAccessInfo(baseName, indexExpressions, context);
+      const symbol = accessInfo ? accessInfo.symbol : null;
+      const dereferenceDepth = symbol && symbol.isArray
+        ? Math.max(0, indexExpressions.length - 1)
+        : indexExpressions.length;
+      return isReadOnlyThroughSymbolIndirection(symbol, dereferenceDepth);
+    }
+  }
+
+  const identifierName = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
+  const symbol = identifierName ? resolveSymbol(identifierName, context) : null;
+  if (!symbol) {
+    return false;
+  }
+
+  return isReadOnlyThroughSymbolIndirection(symbol, 1);
+}
+
 function inferStructPointeeLayout(node, context) {
   const identifierName = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
   const symbol = identifierName ? resolveSymbol(identifierName, context) : null;
@@ -5284,6 +5344,12 @@ function resolveLValue(node, context, options = {}) {
   if (isNonterminal(node, 'postfixExpression')) {
     const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
     if (accessInfo) {
+      const indexExpressions = getIndexExpressionsFromPostfix(node);
+      const symbol = accessInfo.symbol || null;
+      const dereferenceDepth = symbol && symbol.isArray
+        ? Math.max(0, indexExpressions.length - 1)
+        : indexExpressions.length;
+      const accessIsReadOnly = isReadOnlyThroughSymbolIndirection(symbol, dereferenceDepth);
       const memberAccessPath = getMemberAccessPathFromPostfix(node);
       if (memberAccessPath.length > 0) {
         const memberAccess = resolveMemberAccessFromAddress(memberAccessPath, accessInfo, context);
@@ -5297,6 +5363,7 @@ function resolveLValue(node, context, options = {}) {
           kind: 'indirect',
           addressInstructions: accessInfo.addressInstructions.concat(memberAccess.addressInstructions),
           watType: memberAccess.watType || 'i32',
+          readOnly: accessIsReadOnly,
           aggregateByteSize: memberAccess.isStruct && memberAccess.structLayout
             ? (memberAccess.structLayout.size || 0)
             : 0
@@ -5309,7 +5376,8 @@ function resolveLValue(node, context, options = {}) {
       return {
         kind: 'indirect',
         addressInstructions: accessInfo.addressInstructions,
-        watType: accessInfo.watType
+        watType: accessInfo.watType,
+        readOnly: accessIsReadOnly
       };
     }
 
@@ -5400,6 +5468,7 @@ function resolveLValue(node, context, options = {}) {
         kind: 'indirect',
         addressInstructions: compileExpression(operandNode, context, { keepValue: true }),
         watType: inferPointerPointeeType(operandNode, context),
+        readOnly: isReadOnlyIndirectTarget(operandNode, context),
         aggregateByteSize: pointeeLayout ? (pointeeLayout.size || 0) : 0
       };
     }
@@ -5454,6 +5523,10 @@ function compileAssignmentExpression(node, context, options = {}) {
   const lvalue = resolveLValue(leftNode, context, { allowAggregate: true });
   const operatorTerminal = firstTerminal(assignmentOperator);
   const operatorValue = operatorTerminal ? operatorTerminal.value : '=';
+
+  if (lvalue.readOnly) {
+    throw new CompilationError('Assignment through read-only pointer is not allowed', getNodeName(node));
+  }
 
   if ((lvalue.aggregateByteSize || 0) > 0) {
     if (operatorValue !== '=') {
@@ -7194,6 +7267,10 @@ function emitUpdateLValueInstructions(lvalue, delta, context, options = {}) {
 
   if (lvalue.kind !== 'indirect') {
     throw new CompilationError('Unsupported update target kind', context.function.sourceName);
+  }
+
+  if (lvalue.readOnly) {
+    throw new CompilationError('Increment/decrement through read-only pointer is not allowed', context.function ? context.function.sourceName : null);
   }
 
   const prefix = options.prefix !== false;

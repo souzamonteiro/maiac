@@ -7,7 +7,7 @@
  * - const parameter treated as read-only
  * - const global variable is rejected for write
  * - Reading a const variable works correctly
- * - pointer-to-const pointee mutability diagnosis remains a known limitation
+ * - pointer-to-const pointee mutability is diagnosed as read-only on writes
  */
 
 'use strict';
