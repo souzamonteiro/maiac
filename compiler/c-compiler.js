@@ -324,7 +324,8 @@ function extractDeclarationTypeInfo(specifierNode, moduleModel = null) {
       structName,
       structLayout,
       baseWatType: 'i32',
-      isConst: declarationHasTypeQualifier(specifierNode, 'TOKEN_const')
+      isConst: declarationHasTypeQualifier(specifierNode, 'TOKEN_const'),
+      isUnsigned: false
     };
   }
 
@@ -339,7 +340,8 @@ function extractDeclarationTypeInfo(specifierNode, moduleModel = null) {
       structName: null,
       structLayout: null,
       baseWatType: 'i32',
-      isConst: declarationHasTypeQualifier(specifierNode, 'TOKEN_const')
+      isConst: declarationHasTypeQualifier(specifierNode, 'TOKEN_const'),
+      isUnsigned: false
     };
   }
 
@@ -350,7 +352,8 @@ function extractDeclarationTypeInfo(specifierNode, moduleModel = null) {
     structName: null,
     structLayout: null,
     baseWatType: mapCTypeToWat(cType),
-    isConst: declarationHasTypeQualifier(specifierNode, 'TOKEN_const')
+    isConst: declarationHasTypeQualifier(specifierNode, 'TOKEN_const'),
+    isUnsigned: isUnsignedCType(cType)
   };
 }
 
@@ -737,6 +740,11 @@ function extractBuiltinType(specifierNode) {
   ).map((terminal) => terminal.value);
 
   return keywords.join(' ').trim() || 'int';
+}
+
+function isUnsignedCType(cType) {
+  const normalized = String(cType || '').replace(/\s+/g, ' ').trim();
+  return normalized === 'unsigned' || normalized.startsWith('unsigned ');
 }
 
 // Maps a C type name to an internal pseudo WAT type.
@@ -1184,7 +1192,9 @@ function extractParameters(parameterListNode, moduleModel = null) {
         watType,
         // In C, `const T *p` means the pointee is const; the pointer variable remains mutable.
         isConst: !!typeInfo.isConst && pointerDepth === 0,
-        pointeeIsConst: !!typeInfo.isConst && pointerDepth === 1
+        pointeeIsConst: !!typeInfo.isConst && pointerDepth === 1,
+        isUnsigned: !!typeInfo.isUnsigned && pointerDepth === 0,
+        pointeeIsUnsigned: !!typeInfo.isUnsigned && pointerDepth === 1
       };
     })
     .filter(Boolean);
@@ -1509,6 +1519,8 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
       isConst: !!typeInfo.isConst && declaratorInfo.pointerDepth === 0,
       // const-qualified base type with one pointer level => read-only pointee.
       pointeeIsConst: !!typeInfo.isConst && declaratorInfo.pointerDepth === 1,
+      isUnsigned: !!typeInfo.isUnsigned && declaratorInfo.pointerDepth === 0,
+      pointeeIsUnsigned: !!typeInfo.isUnsigned && declaratorInfo.pointerDepth === 1,
       initializer: initializerNode
     };
   });
@@ -1973,6 +1985,8 @@ function buildModuleModel(ast, options = {}) {
           pointerDepth: itemDef.pointerDepth || 0,
           isConst: !!itemDef.isConst,
           pointeeIsConst: !!itemDef.pointeeIsConst,
+          isUnsigned: !!itemDef.isUnsigned,
+          pointeeIsUnsigned: !!itemDef.pointeeIsUnsigned,
           mutable: !itemDef.isConst,
           exported: true,
           initExpression: buildGlobalInitializerExpression(itemDef.initializer, itemDef)
@@ -2015,6 +2029,8 @@ function buildModuleModel(ast, options = {}) {
         pointerDepth: externDef.pointerDepth || 0,
         isConst: !!externDef.isConst,
         pointeeIsConst: !!externDef.pointeeIsConst,
+        isUnsigned: !!externDef.isUnsigned,
+        pointeeIsUnsigned: !!externDef.pointeeIsUnsigned,
         mutable: !externDef.isConst,
         exported: true,
         // Current MaiaC policy for unresolved extern variables is zero fallback.
@@ -2525,6 +2541,8 @@ function compileLocalDeclaration(declarationNode, context) {
       pointeeArrayDimensions: Array.isArray(localDef.pointeeArrayDimensions) ? [...localDef.pointeeArrayDimensions] : [],
       isConst: !!localDef.isConst,
       pointeeIsConst: !!localDef.pointeeIsConst,
+      isUnsigned: !!localDef.isUnsigned,
+      pointeeIsUnsigned: !!localDef.pointeeIsUnsigned,
       mutable: !localDef.isConst,
       exported: false,
       initExpression: buildGlobalInitializerExpression(localDef.initializer, localDef)
@@ -2571,7 +2589,9 @@ function compileLocalDeclaration(declarationNode, context) {
       arrayDimensions: Array.isArray(localDef.arrayDimensions) ? [...localDef.arrayDimensions] : [],
       isStaticStorage: !!localDef.isStaticStorage,
       isConst: !!localDef.isConst,
-      pointeeIsConst: !!localDef.pointeeIsConst
+      pointeeIsConst: !!localDef.pointeeIsConst,
+      isUnsigned: !!localDef.isUnsigned,
+      pointeeIsUnsigned: !!localDef.pointeeIsUnsigned
     };
 
     if (localDef.typeKind === 'struct' && !structLayout && localDef.pointerDepth === 0) {
@@ -4175,6 +4195,56 @@ function inferExpressionType(node, context) {
   }
 
   return null;
+}
+
+function inferExpressionUnsignedness(node, context) {
+  if (!node) return false;
+
+  if (node.kind === 'terminal') {
+    if (node.token === 'IntegerConstant') {
+      return /[uU]/.test(String(node.value || ''));
+    }
+    if (node.token === 'Identifier') {
+      const symbol = resolveSymbol(node.value, context);
+      return !!(symbol && symbol.isUnsigned);
+    }
+    return false;
+  }
+
+  const nodeName = getNodeName(node);
+
+  if (nodeName === 'castExpression') {
+    const typeNameNode = firstNonterminal(node, 'typeName');
+    if (typeNameNode) {
+      const castType = extractTypeInfoFromTypeName(typeNameNode);
+      return !!castType.isUnsigned && (castType.pointerDepth || 0) === 0;
+    }
+  }
+
+  if (nodeName === 'unaryExpression') {
+    const unaryOperatorNode = firstNonterminal(node, 'unaryOperator');
+    const operatorTerminal = unaryOperatorNode ? firstTerminal(unaryOperatorNode) : null;
+    const operandNode = nonterminalChildren(node).find((child) => child !== unaryOperatorNode);
+
+    if (operatorTerminal && operatorTerminal.token === 'TOKEN__2A_') {
+      const identifierName = getSimpleIdentifierName(operandNode) || extractIdentifierFromNode(operandNode);
+      const symbol = identifierName ? resolveSymbol(identifierName, context) : null;
+      return !!(symbol && symbol.pointeeIsUnsigned);
+    }
+  }
+
+  const identifierName = getSimpleIdentifierName(node);
+  if (identifierName) {
+    const symbol = resolveSymbol(identifierName, context);
+    return !!(symbol && symbol.isUnsigned);
+  }
+
+  const nestedChildren = nonterminalChildren(node);
+  if (nestedChildren.length === 1 && terminalChildren(node).length === 0) {
+    return inferExpressionUnsignedness(nestedChildren[0], context);
+  }
+
+  return false;
 }
 
 function normalizeTruthiness(instructions, valueType = 'i32') {
@@ -5808,10 +5878,10 @@ function compileAdditiveExpression(node, context) {
   return instructions;
 }
 
-function getTypedComparisonOpcode(baseOperator, watType = 'i32') {
+function getTypedComparisonOpcode(baseOperator, watType = 'i32', useUnsigned = false) {
   const effectiveType = toWatType(watType || 'i32');
   if (effectiveType === 'i64') {
-    return `i64.${baseOperator}_s`;
+    return `i64.${baseOperator}_${useUnsigned ? 'u' : 's'}`;
   }
   if (effectiveType === 'f32' || effectiveType === 'f64') {
     return `${effectiveType}.${baseOperator}`;
@@ -5819,7 +5889,7 @@ function getTypedComparisonOpcode(baseOperator, watType = 'i32') {
   if (baseOperator === 'eq' || baseOperator === 'ne') {
     return `i32.${baseOperator}`;
   }
-  return `i32.${baseOperator}_s`;
+  return `i32.${baseOperator}_${useUnsigned ? 'u' : 's'}`;
 }
 
 function getTypedArithmeticOpcode(baseOperator, watType = 'i32') {
@@ -5853,6 +5923,7 @@ function compileTypedComparisonExpression(node, context, operatorMap) {
   }
 
   let currentType = toWatType(inferExpressionType(pieces[0], context) || 'i32');
+  let currentUnsigned = inferExpressionUnsignedness(pieces[0], context);
   let instructions = compileExpression(pieces[0], context, { keepValue: true });
 
   for (let index = 1; index < pieces.length; index += 2) {
@@ -5869,15 +5940,21 @@ function compileTypedComparisonExpression(node, context, operatorMap) {
     }
 
     const rightType = toWatType(inferExpressionType(rightNode, context) || 'i32');
+    const rightUnsigned = inferExpressionUnsignedness(rightNode, context);
     const commonType = selectCommonWatType(currentType, rightType);
     const rightInstructions = compileExpression(rightNode, context, { keepValue: true });
+    const useUnsigned = (commonType === 'i32' || commonType === 'i64')
+      && baseOperator !== 'eq'
+      && baseOperator !== 'ne'
+      && (currentUnsigned || rightUnsigned);
 
     instructions = coerceInstructionsToType(instructions, currentType, commonType, context).concat(
       coerceInstructionsToType(rightInstructions, rightType, commonType, context),
-      getTypedComparisonOpcode(baseOperator, commonType)
+      getTypedComparisonOpcode(baseOperator, commonType, useUnsigned)
     );
 
     currentType = 'i32';
+    currentUnsigned = false;
   }
 
   return instructions;

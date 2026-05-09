@@ -184,7 +184,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: unsigned comparison semantics are not fully C89-compliant',
+    name: 'unsigned comparison semantics follow C89 relational behavior',
     fn: () => {
       const source = [
         'int test_entry(void) {',
@@ -193,8 +193,7 @@ const cases = [
         '}'
       ].join('\n');
 
-      // Current behavior: result is 0, while strict C unsigned semantics would yield 1.
-      assert.strictEqual(runEntryFromSource(source), 0);
+      assert.strictEqual(runEntryFromSource(source), 1);
     }
   },
   {
