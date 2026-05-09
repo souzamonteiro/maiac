@@ -17,6 +17,9 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
+  ;; global env
+  (global $env (mut i32) (i32.const 0))
+
   ;; global stdin
   (global $stdin (mut i32) (i32.const 0))
 
@@ -25,9 +28,6 @@
 
   ;; global stderr
   (global $stderr (mut i32) (i32.const 0))
-
-  ;; global env
-  (global $env (mut i32) (i32.const 0))
 
   (data (i32.const 16) "\00\00\00\00")
   (data (i32.const 20) "PASS setjmp_longjmp\0a\00")
@@ -119,8 +119,8 @@
   (export "memory" (memory $mem))
   (export "__frame_ptr" (global $__frame_ptr))
   (export "__stack_ptr" (global $__stack_ptr))
+  (export "env" (global $env))
   (export "stdin" (global $stdin))
   (export "stdout" (global $stdout))
   (export "stderr" (global $stderr))
-  (export "env" (global $env))
 )

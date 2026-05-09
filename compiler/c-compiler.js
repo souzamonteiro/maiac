@@ -1395,6 +1395,8 @@ function inferArrayLengthFromInitializer(initializerNode) {
 function extractDeclarationItems(declarationNode, moduleModel = null) {
   const declarationSpecifiers = firstNonterminal(declarationNode, 'declarationSpecifiers');
   const typeInfo = extractDeclarationTypeInfo(declarationSpecifiers, moduleModel);
+  const hasStaticSpecifier = declarationHasStorageClassSpecifier(declarationSpecifiers, 'TOKEN_static');
+  const hasExternSpecifier = declarationHasStorageClassSpecifier(declarationSpecifiers, 'TOKEN_extern');
   const baseWatType = typeInfo.baseWatType || 'i32';
   const initDeclaratorList = firstNonterminal(declarationNode, 'initDeclaratorList');
 
@@ -1451,6 +1453,8 @@ function extractDeclarationItems(declarationNode, moduleModel = null) {
       isVoidParameterList: !!declaratorInfo.isVoidParameterList,
       arrayLength: isArray ? (normalizedArrayDimensions[0] ?? null) : null,
       arrayDimensions: normalizedArrayDimensions,
+      isStaticStorage: hasStaticSpecifier,
+      isExternStorage: hasExternSpecifier,
       // Only mark the declared object as read-only when const qualifies a non-pointer object.
       isConst: !!typeInfo.isConst && declaratorInfo.pointerDepth === 0,
       initializer: initializerNode
@@ -1731,6 +1735,7 @@ function buildModuleModel(ast, options = {}) {
     pendingStructLayouts: [],
     pendingAggregateTags: Array.isArray(options.aggregateTags) ? [...options.aggregateTags] : [],
     enumValues: new Map(),
+    externVariableDeclarations: new Map(),
     stringLiterals: new Map(),
     nextDataOffset: 16
   };
@@ -1918,9 +1923,51 @@ function buildModuleModel(ast, options = {}) {
           exported: true,
           initExpression: buildGlobalInitializerExpression(itemDef.initializer, itemDef)
         };
+
+        if (itemDef.isExternStorage && !itemDef.initializer) {
+          if (!moduleModel.globalsByName.has(itemDef.sourceName)) {
+            moduleModel.externVariableDeclarations.set(itemDef.sourceName, itemDef);
+          }
+          continue;
+        }
+
+        if (moduleModel.externVariableDeclarations.has(itemDef.sourceName)) {
+          moduleModel.externVariableDeclarations.delete(itemDef.sourceName);
+        }
+
         moduleModel.globals.push(globalDef);
         moduleModel.globalsByName.set(globalDef.sourceName, globalDef);
       }
+    }
+  }
+
+  if (moduleModel.externVariableDeclarations.size > 0) {
+    for (const [externName, externDef] of moduleModel.externVariableDeclarations.entries()) {
+      if (moduleModel.globalsByName.has(externName)) {
+        continue;
+      }
+
+      const fallbackGlobal = {
+        sourceName: externDef.sourceName,
+        name: externDef.name,
+        exportName: externDef.sourceName,
+        cType: externDef.cType,
+        typeKind: externDef.typeKind,
+        structName: externDef.structName || null,
+        structLayout: externDef.structLayout || null,
+        isStruct: !!externDef.isStruct,
+        watType: externDef.watType,
+        baseWatType: externDef.baseWatType,
+        pointerDepth: externDef.pointerDepth || 0,
+        isConst: !!externDef.isConst,
+        mutable: !externDef.isConst,
+        exported: true,
+        // Current MaiaC policy for unresolved extern variables is zero fallback.
+        initExpression: buildGlobalInitializerExpression(null, externDef)
+      };
+
+      moduleModel.globals.push(fallbackGlobal);
+      moduleModel.globalsByName.set(fallbackGlobal.sourceName, fallbackGlobal);
     }
   }
 
@@ -2387,6 +2434,51 @@ function compileCompoundStatement(compoundNode, context) {
 function compileLocalDeclaration(declarationNode, context) {
   const instructions = [];
 
+  const ensureStaticLocalBackingSymbol = (localDef, structLayout) => {
+    if (!context.module.staticLocalCounter) {
+      context.module.staticLocalCounter = 0;
+    }
+
+    const staticId = context.module.staticLocalCounter;
+    context.module.staticLocalCounter += 1;
+
+    const functionName = sanitizeIdentifier((context.function && context.function.sourceName) || 'fn');
+    const localName = sanitizeIdentifier(localDef.sourceName || 'local');
+    const backingSourceName = `__static_local_${functionName}_${localName}_${staticId}`;
+    const backingName = sanitizeIdentifier(backingSourceName);
+
+    const existing = context.module.globalsByName.get(backingSourceName);
+    if (existing) {
+      return existing;
+    }
+
+    const backingGlobal = {
+      sourceName: backingSourceName,
+      name: backingName,
+      exportName: backingSourceName,
+      cType: localDef.cType,
+      typeKind: localDef.typeKind,
+      structName: localDef.structName || null,
+      structLayout,
+      isStruct: !!localDef.isStruct,
+      isArray: !!localDef.isArray,
+      arrayLength: localDef.arrayLength || null,
+      arrayDimensions: Array.isArray(localDef.arrayDimensions) ? [...localDef.arrayDimensions] : [],
+      watType: localDef.watType,
+      baseWatType: localDef.baseWatType,
+      pointerDepth: localDef.pointerDepth || 0,
+      pointeeArrayDimensions: Array.isArray(localDef.pointeeArrayDimensions) ? [...localDef.pointeeArrayDimensions] : [],
+      isConst: !!localDef.isConst,
+      mutable: !localDef.isConst,
+      exported: false,
+      initExpression: buildGlobalInitializerExpression(localDef.initializer, localDef)
+    };
+
+    context.module.globals.push(backingGlobal);
+    context.module.globalsByName.set(backingGlobal.sourceName, backingGlobal);
+    return backingGlobal;
+  };
+
   // Register struct type-only declarations (e.g., `struct S { int a; };` without a variable)
   const declarationSpecifiers = firstNonterminal(declarationNode, 'declarationSpecifiers');
   const initDeclaratorList = firstNonterminal(declarationNode, 'initDeclaratorList');
@@ -2421,6 +2513,7 @@ function compileLocalDeclaration(declarationNode, context) {
       isArray: !!localDef.isArray,
       arrayLength: localDef.arrayLength || null,
       arrayDimensions: Array.isArray(localDef.arrayDimensions) ? [...localDef.arrayDimensions] : [],
+      isStaticStorage: !!localDef.isStaticStorage,
       isConst: !!localDef.isConst
     };
 
@@ -2428,14 +2521,19 @@ function compileLocalDeclaration(declarationNode, context) {
       throw new CompilationError(`Unknown struct type for '${localDef.sourceName}'`, getNodeName(declarationNode));
     }
 
-    if (context.usesLinearMemory) {
+    if (localEntry.isStaticStorage) {
+      const backingGlobal = ensureStaticLocalBackingSymbol(localDef, structLayout);
+      localEntry.staticStorageBacking = backingGlobal;
+    } else if (context.usesLinearMemory) {
       allocateStackSlot(context, localEntry);
     }
 
     registerScopedLocal(context, localEntry, getNodeName(declarationNode));
-    context.function.locals.push(localEntry);
+    if (!localEntry.isStaticStorage) {
+      context.function.locals.push(localEntry);
+    }
 
-    if (localDef.initializer) {
+    if (localDef.initializer && !localEntry.isStaticStorage) {
       if (localEntry.isArray || localEntry.isStruct) {
         instructions.push(...compileAggregateInitializer(localEntry, localDef.initializer, context));
       } else {
@@ -6692,6 +6790,11 @@ function isGlobalSymbol(symbol, context) {
     return false;
   }
 
+  if (symbol.staticStorageBacking) {
+    const staticBacking = context.module.globalsByName.get(symbol.staticStorageBacking.sourceName);
+    return staticBacking === symbol.staticStorageBacking;
+  }
+
   const candidate = context.module.globalsByName.get(symbol.sourceName);
   return candidate === symbol;
 }
@@ -6791,6 +6894,11 @@ function getAddressableStorageInstructionsForSymbol(symbol, context) {
       `i32.const ${symbol.stackOffset}`,
       'i32.add'
     ];
+  }
+
+  if (symbol.staticStorageBacking) {
+    const offset = ensureGlobalMemorySlot(symbol.staticStorageBacking, context.module);
+    return offset != null ? [`i32.const ${offset}`] : null;
   }
 
   if (isGlobalSymbol(symbol, context)) {

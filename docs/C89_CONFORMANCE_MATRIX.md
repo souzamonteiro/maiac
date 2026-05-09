@@ -1,12 +1,12 @@
 # MaiaC C89 Conformance Matrix
 
-Date: 2026-05-08
+Date: 2026-05-09
 
 Scope:
 - Grammar source: grammar/C.ebnf
 - Compiler implementation: compiler/c-compiler.js
 - Runtime evidence: compiler/tests/test-all.js
-- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-phase8-unary-postfix-diagnosis.js, compiler/tests/test-phase9-preprocessor-advanced-diagnosis.js, compiler/tests/test-phase10-function-definitions-diagnosis.js, compiler/tests/test-phase11-struct-union-edgepaths-diagnosis.js, compiler/tests/test-phase12-storage-type-qualifiers-diagnosis.js, compiler/tests/test-phase13-builtin-named-types-diagnosis.js, compiler/tests/test-phase14-enum-declarations-diagnosis.js, compiler/tests/test-phase15-function-prototype-linkage-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
+- Additional diagnostics: compiler/tests/test-phase2-declarators-diagnosis.js, compiler/tests/test-phase3-initializers-diagnosis.js, compiler/tests/test-phase4-abstract-declarators-diagnosis.js, compiler/tests/test-phase5-preprocessor-edgecases.js, compiler/tests/test-phase6-selection-statements-diagnosis.js, compiler/tests/test-phase7-iteration-statements-diagnosis.js, compiler/tests/test-phase8-unary-postfix-diagnosis.js, compiler/tests/test-phase9-preprocessor-advanced-diagnosis.js, compiler/tests/test-phase10-function-definitions-diagnosis.js, compiler/tests/test-phase11-struct-union-edgepaths-diagnosis.js, compiler/tests/test-phase12-storage-type-qualifiers-diagnosis.js, compiler/tests/test-phase13-builtin-named-types-diagnosis.js, compiler/tests/test-phase14-enum-declarations-diagnosis.js, compiler/tests/test-phase15-function-prototype-linkage-diagnosis.js, compiler/tests/test-phase16-const-qualifier-diagnosis.js, compiler/tests/test-argv-pointer-regressions.js, compiler/tests/test-struct-assignment-by-value.js
 
 Status legend:
 - done: implemented and validated in current flow
@@ -20,14 +20,14 @@ Tier legend:
 
 ## Current global evidence
 
-- Full test bundle: PASS (29 sub-scripts, 0 failures)
+- Full test bundle: PASS (30 sub-scripts, 0 failures)
 - Phase 2 declarators diagnostics: 10/10 PASS
 - Phase 3 initializers diagnostics: 18/18 PASS
 - Phase 4 abstract declarators diagnostics: 23/23 PASS
 - Phase 5 preprocessor edge cases: 16/16 PASS
 - Phase 6 selection statements diagnostics: 20/20 PASS
 - Phase 7 iteration statements diagnostics: 13/13 PASS
-- Phase 8 unary/postfix diagnostics: 22/22 PASS
+- Phase 8 unary/postfix diagnostics: 23/23 PASS
 - Phase 9 preprocessor advanced diagnostics: 9/9 PASS
 - Phase 10 function definitions diagnostics: 12/12 PASS
 - Phase 11 struct/union edge-path diagnostics: 12/12 PASS
@@ -35,6 +35,7 @@ Tier legend:
 - Phase 13 builtin/named types diagnostics: 14/14 PASS
 - Phase 14 enum declarations diagnostics: 14/14 PASS
 - Phase 15 function prototype/linkage diagnostics: 15/15 PASS
+- Phase 16 const qualifier diagnostics: 10/10 PASS
 - Struct lvalue corrections: PASS for `a[i].y`, `ptrs[i]->x`, and `(&a[i])->x` write/read paths
 - Argv/pointer regression tests: 3/3 PASS
 - Struct assignment by value tests: 3/3 PASS
@@ -47,7 +48,7 @@ Tier legend:
 | Translation unit | translationUnit, translationUnitItem, externalDeclaration | done | done | done | done | Tier 1 | Core pipeline validated by test-all. |
 | Function definitions | functionDefinition, declarationList | done | partial | partial | partial | Tier 2 | ANSI-style definitions are strongly covered (including recursion, forward declarations, array-style params and fn-ptr returns) via Phase 10; Phase 15 expands prototype/linkage/arity evidence; arity mismatch between prototype and definition is now diagnosed; struct return by value implemented via hidden sret ABI for direct and indirect call paths (`f(args).field`, `fp(args).field`, `ops[i](args).field`, `obj.op(args).field`); remaining gaps: K&R-style definition lowering and static/extern linkage conflict detection (parser limitation). |
 | Declarations | declaration, declarationSpecifiers, initDeclaratorList, initDeclarator | done | done | done | done | Tier 1 | Advanced declarators validated by phase2 diagnostics (arrays of pointers, function pointers, pointer chains, multidimensional arrays). |
-| Storage/type qualifiers | storageClassSpecifier, typeQualifier | done | partial | partial | partial | Tier 2 | Phase 12 validates runtime behavior for const/volatile/register/auto/static and typedef-with-qualifier forms; semantic enforcement remains partial (const writes and some extern semantics are not fully diagnosed). |
+| Storage/type qualifiers | storageClassSpecifier, typeQualifier | done | partial | partial | partial | Tier 2 | Phase 12 validates runtime behavior for const/volatile/register/auto/static and typedef-with-qualifier forms; static local storage now preserves state across calls; extern declaration + same-unit definition resolves correctly; unresolved extern variable declarations currently use explicit zero fallback behavior. Remaining semantic gaps include pointee-const write enforcement. |
 | Builtin and named types | builtinTypeSpecifier, namedTypeSpecifier, typedefName | done | partial | partial | partial | Tier 2 | Phase 13 validates char/short/long/float/double/signed/unsigned basics, typedef chains, enum/struct named-type paths, and forward struct tags; numeric signedness and invalid-void local diagnostics remain partial. |
 | Struct/union declarations | structOrUnionSpecifier, structDeclarationList, structDeclaratorList | done | partial | partial | partial | Tier 2 | Layout/access and struct copy assignment by value validated (b=a, b.field=a.field, *pb=*pa); nested dot/arrow, union-field coverage, and indexed struct-field writes (`a[i].y`, `ptrs[i]->x`, `(&a[i])->x`) are stable in diagnostics; broader semantic/codegen edge cases still keep the family partial. |
 | Enum declarations | enumSpecifier, enumeratorList | done | partial | partial | partial | Tier 2 | Phase 14 expands explicit/implicit numbering, char-based enumerators, forward tag + typedef enum paths, switch usage, and negative diagnostics; enumerator-folding/redeclaration/duplicate-name semantics remain partial. |
@@ -106,9 +107,6 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 
 ## Next priority candidates
 
-- `const` local assignment enforcement (writes to const locals not diagnosed)
-- `static` local state preservation across function calls (needs per-function global storage)
-- `extern` declaration semantics (declared-without-definition reads as zero; no diagnostic)
 - Negative enumerator values mis-evaluation (Phase 14 known limitation)
 - Duplicate enumerator names not rejected (Phase 14 known limitation)
 

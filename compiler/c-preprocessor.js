@@ -715,7 +715,7 @@ function preprocessCSource(source, options = {}) {
 
   const typedefAliases = collectTypedefAliases(text);
   const functionPointerAliases = new Map();
-  const strippedKeywords = new Set(['static', 'register', 'extern', 'auto']);
+  const strippedKeywords = new Set(['register', 'auto']);
 
   text = text.replace(
     /([A-Za-z_][\w\s*]*?)\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\(([^;{}]*)\)\s*=\s*&\s*([A-Za-z_]\w*)\s*;/g,

@@ -7,7 +7,7 @@
  * - const parameter treated as read-only
  * - const global variable is rejected for write
  * - Reading a const variable works correctly
- * - const pointer (pointer is read-only, pointee is not) - known limitation
+ * - pointer-to-const pointee mutability diagnosis remains a known limitation
  */
 
 'use strict';
@@ -156,7 +156,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: const parameter assignment diagnosed',
+    name: 'assignment to const parameter is rejected',
     fn: () => {
       const source = `
         int apply(const int v) {

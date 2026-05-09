@@ -131,7 +131,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: extern prototype followed by static definition is accepted',
+    name: 'extern prototype followed by static definition is rejected',
     fn: () => {
       const source = [
         'int f(int);',
@@ -139,11 +139,11 @@ const cases = [
         'int test_entry(void) { return f(3); }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 5);
+      expectCompileError(source, /Conflicting linkage/);
     }
   },
   {
-    name: 'known limitation: static prototype followed by non-static definition is accepted',
+    name: 'static prototype followed by non-static definition is rejected',
     fn: () => {
       const source = [
         'static int f(int);',
@@ -151,7 +151,7 @@ const cases = [
         'int test_entry(void) { return f(3); }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 6);
+      expectCompileError(source, /Conflicting linkage/);
     }
   },
   {

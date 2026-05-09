@@ -95,7 +95,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: static local state is not preserved across repeated calls',
+    name: 'static local state is preserved across repeated calls',
     fn: () => {
       const source = [
         'int bump(void) {',
@@ -108,8 +108,7 @@ const cases = [
         '}'
       ].join('\n');
 
-      // Current behavior: each call behaves as if local static storage is reset.
-      assert.strictEqual(runEntryFromSource(source), 2);
+      assert.strictEqual(runEntryFromSource(source), 3);
     }
   },
   {
@@ -185,7 +184,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: extern declaration plus same-unit definition yields no wasm output',
+    name: 'extern declaration plus same-unit definition resolves correctly',
     fn: () => {
       const source = [
         'extern int g;',
@@ -193,11 +192,11 @@ const cases = [
         'int test_entry(void) { return g; }'
       ].join('\n');
 
-      assert.throws(() => runEntryFromSource(source), /expected wasm output/);
+      assert.strictEqual(runEntryFromSource(source), 13);
     }
   },
   {
-    name: 'known behavior: extern declaration without definition reads as zero',
+    name: 'extern declaration without definition uses zero fallback',
     fn: () => {
       const source = [
         'extern int g;',

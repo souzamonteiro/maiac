@@ -15,15 +15,6 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
-  ;; global stdin
-  (global $stdin (mut i32) (i32.const 0))
-
-  ;; global stdout
-  (global $stdout (mut i32) (i32.const 0))
-
-  ;; global stderr
-  (global $stderr (mut i32) (i32.const 0))
-
   ;; global COLOR_RED
   (global $COLOR_RED i32 (i32.const 0))
 
@@ -32,6 +23,15 @@
 
   ;; global COLOR_BLUE
   (global $COLOR_BLUE i32 (i32.const 6))
+
+  ;; global stdin
+  (global $stdin (mut i32) (i32.const 0))
+
+  ;; global stdout
+  (global $stdout (mut i32) (i32.const 0))
+
+  ;; global stderr
+  (global $stderr (mut i32) (i32.const 0))
 
   (data (i32.const 16) "PASS struct_point\0a\00")
   (data (i32.const 36) "PASS nested_struct\0a\00")
