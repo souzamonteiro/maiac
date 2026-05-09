@@ -2556,6 +2556,13 @@ function compileLocalDeclaration(declarationNode, context) {
       throw new CompilationError(`Unknown struct type for '${localDef.sourceName}'`, getNodeName(declarationNode));
     }
 
+    if (localDef.cType === 'void' && localDef.pointerDepth === 0 && !localDef.isFunctionDeclaration) {
+      throw new CompilationError(
+        `Variable '${localDef.sourceName}' cannot be declared with type 'void'`,
+        getNodeName(declarationNode)
+      );
+    }
+
     if (localDef.typeKind === 'enum' && localDef.pointerDepth === 0) {
       const enumTagName = (localDef.cType || '').replace(/^enum\s+/, '').trim();
       if (enumTagName && context.module && context.module.definedEnumTags

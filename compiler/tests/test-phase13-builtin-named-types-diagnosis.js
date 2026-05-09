@@ -198,7 +198,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: local variable declared as void is accepted',
+    name: 'local variable declared as void is rejected',
     fn: () => {
       const source = [
         'int test_entry(void) {',
@@ -207,7 +207,7 @@ const cases = [
         '}'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 0);
+      assert.throws(() => runEntryFromSource(source), /cannot be declared with type 'void'/);
     }
   },
   {
