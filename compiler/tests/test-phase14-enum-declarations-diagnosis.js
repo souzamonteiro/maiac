@@ -149,7 +149,7 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: enum tag redeclaration with new body is accepted',
+    name: 'enum tag redeclaration with new body is rejected',
     fn: () => {
       const source = [
         'enum E { A = 1 };',
@@ -157,7 +157,7 @@ const cases = [
         'int test_entry(void) { return B; }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 2);
+      assert.throws(() => runEntryFromSource(source), /Redefinition of enum/);
     }
   },
   {
@@ -183,14 +183,14 @@ const cases = [
     }
   },
   {
-    name: 'known limitation: incomplete enum type can still declare local variable',
+    name: 'incomplete enum type in local variable declaration is rejected',
     fn: () => {
       const source = [
         'enum E;',
         'int test_entry(void) { enum E v; return 0; }'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 0);
+      assert.throws(() => runEntryFromSource(source), /incomplete enum type/);
     }
   }
 ];

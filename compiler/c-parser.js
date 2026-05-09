@@ -1351,7 +1351,7 @@ class Parser {
       const _ruleMark = this.markEventState();
       try {
     this.consume('TOKEN_enum');
-    if (this.match('Identifier')) { /* optional token matched */ }
+    if (this.peek() && this.peek().type === 'Identifier') { this.consume('Identifier'); }
     this.consume('TOKEN__7B_');
     this.parseenumeratorList();
     this.consume('TOKEN__7D_');

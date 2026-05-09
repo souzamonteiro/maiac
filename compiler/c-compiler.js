@@ -328,6 +328,21 @@ function extractDeclarationTypeInfo(specifierNode, moduleModel = null) {
     };
   }
 
+  const enumSpecifier = findTypeSpecifierNode(specifierNode, 'enumSpecifier');
+  if (enumSpecifier) {
+    const enumTagIdentifier = findFirst(enumSpecifier, (candidate) => isTerminal(candidate, 'Identifier'));
+    const enumTagName = enumTagIdentifier ? enumTagIdentifier.value : null;
+    return {
+      typeKind: 'enum',
+      cType: enumTagName ? `enum ${enumTagName}` : 'enum',
+      enumTagName,
+      structName: null,
+      structLayout: null,
+      baseWatType: 'i32',
+      isConst: declarationHasTypeQualifier(specifierNode, 'TOKEN_const')
+    };
+  }
+
   const cType = extractBuiltinType(specifierNode);
   return {
     typeKind: 'builtin',
@@ -1068,6 +1083,27 @@ function registerEnumConstantsFromDeclaration(declarationNode, moduleModel) {
     moduleModel.enumValues = new Map();
   }
 
+  if (!moduleModel.definedEnumTags) {
+    moduleModel.definedEnumTags = new Set();
+  }
+
+  const enumTagIdentifier = findFirst(
+    enumSpecifier,
+    (candidate) => isTerminal(candidate, 'Identifier')
+  );
+  const enumTag = enumTagIdentifier ? enumTagIdentifier.value : null;
+  const hasBody = !!firstNonterminal(enumSpecifier, 'enumeratorList');
+
+  if (hasBody && enumTag) {
+    if (moduleModel.definedEnumTags.has(enumTag)) {
+      throw new CompilationError(
+        `Redefinition of enum '${enumTag}'`,
+        getNodeName(enumSpecifier)
+      );
+    }
+    moduleModel.definedEnumTags.add(enumTag);
+  }
+
   let nextValue = 0;
   for (const enumerator of findAll(enumSpecifier, (candidate) => isNonterminal(candidate, 'enumerator'))) {
     const identifier = firstTerminal(enumerator, 'Identifier');
@@ -1733,6 +1769,7 @@ function buildModuleModel(ast, options = {}) {
     pendingStructLayouts: [],
     pendingAggregateTags: Array.isArray(options.aggregateTags) ? [...options.aggregateTags] : [],
     enumValues: new Map(),
+    definedEnumTags: new Set(),
     externVariableDeclarations: new Map(),
     stringLiterals: new Map(),
     nextDataOffset: 16
@@ -2517,6 +2554,17 @@ function compileLocalDeclaration(declarationNode, context) {
 
     if (localDef.typeKind === 'struct' && !structLayout && localDef.pointerDepth === 0) {
       throw new CompilationError(`Unknown struct type for '${localDef.sourceName}'`, getNodeName(declarationNode));
+    }
+
+    if (localDef.typeKind === 'enum' && localDef.pointerDepth === 0) {
+      const enumTagName = (localDef.cType || '').replace(/^enum\s+/, '').trim();
+      if (enumTagName && context.module && context.module.definedEnumTags
+          && !context.module.definedEnumTags.has(enumTagName)) {
+        throw new CompilationError(
+          `Variable '${localDef.sourceName}' declared with incomplete enum type 'enum ${enumTagName}'`,
+          getNodeName(declarationNode)
+        );
+      }
     }
 
     if (localEntry.isStaticStorage) {
