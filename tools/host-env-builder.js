@@ -223,6 +223,9 @@ function buildHostEnv(hostImports, opts = {}) {
       // Resolve the JS target lazily (only once per call site in practice
       // if the JS engine inlines, but we keep it simple and correct).
       const { thisValue, fn } = resolveJsTarget(parts);
+      if (typeof fn !== 'function') {
+        return hasResult ? 0 : undefined;
+      }
       const returnValue = fn.call(thisValue, ...jsArgs);
 
       // WASM expects a numeric return value for non-void functions.
@@ -285,12 +288,29 @@ function generateHostEnvSource(hostImports) {
     "    while (end < mem.length && mem[end] !== 0) end++;",
     "    return new TextDecoder('utf-8').decode(mem.subarray(offset, end));",
     "  }",
+    "  function __globalRoot() {",
+    "    if (typeof globalThis !== 'undefined') return globalThis;",
+    "    if (typeof window !== 'undefined') return window;",
+    "    if (typeof self !== 'undefined') return self;",
+    "    return {};",
+    "  }",
+    "  function __resolveHost(parts) {",
+    "    let obj = __globalRoot();",
+    "    if (!Array.isArray(parts) || parts.length === 0) return { thisValue: null, fn: null };",
+    "    for (let i = 0; i < parts.length - 1; i++) {",
+    "      if (obj == null) return { thisValue: null, fn: null };",
+    "      obj = obj[parts[i]];",
+    "    }",
+    "    if (obj == null) return { thisValue: null, fn: null };",
+    "    return { thisValue: obj, fn: obj[parts[parts.length - 1]] };",
+    "  }",
     "  return {"
   ];
 
   for (const imp of (hostImports || [])) {
     const { envKey, jsExpr, parts } = imp.hostInfo;
     const paramDefs = imp.paramDefs || [];
+    const hasResult = imp.resultType !== null;
 
     if (envKey === '__malloc') {
       lines.push(`    ${JSON.stringify(envKey)}: (p0) => __malloc(p0),`);
@@ -309,20 +329,27 @@ function generateHostEnvSource(hostImports) {
       return `p${i}`;
     });
 
-    // Build the JS call expression: console.log(...) or alert(...) etc.
-    let callTarget = parts.length > 1
-      ? `${parts.slice(0, -1).join('.')}.${parts[parts.length - 1]}`
-      : parts[0];
-
     const fnParams = paramNames.join(', ');
     const fnArgs = argExprs.join(', ');
 
-    // Special handling for 'new' keyword: use space, not dot
     if (parts.length > 1 && parts[0] === 'new') {
-      // new Constructor(args)
-      callTarget = `new ${parts.slice(1).join('.')}`;
+      const ctorPath = JSON.stringify(parts.slice(1));
+      const callArgs = fnArgs ? `, ${fnArgs}` : '';
+      const missingValue = hasResult ? '0' : 'undefined';
+      const returnValue = hasResult ? '(result ?? 0)' : 'undefined';
+      lines.push(
+        `    ${JSON.stringify(envKey)}: (${fnParams}) => { const target = __resolveHost(${ctorPath}); if (typeof target.fn !== 'function') return ${missingValue}; const result = new target.fn(${fnArgs}); return ${returnValue}; },`
+      );
+      continue;
     }
-    lines.push(`    ${JSON.stringify(envKey)}: (${fnParams}) => ${callTarget}(${fnArgs}),`);
+
+    const pathLiteral = JSON.stringify(parts);
+    const callArgs = fnArgs ? `, ${fnArgs}` : '';
+    const missingValue = hasResult ? '0' : 'undefined';
+    const returnValue = hasResult ? '(result ?? 0)' : 'undefined';
+    lines.push(
+      `    ${JSON.stringify(envKey)}: (${fnParams}) => { const target = __resolveHost(${pathLiteral}); if (typeof target.fn !== 'function') return ${missingValue}; const result = target.fn.call(target.thisValue${callArgs}); return ${returnValue}; },`
+    );
   }
 
   lines.push('  };', '})');
