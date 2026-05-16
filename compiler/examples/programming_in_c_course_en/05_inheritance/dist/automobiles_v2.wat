@@ -16,15 +16,6 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
-  ;; global stdin
-  (global $stdin (mut i32) (i32.const 0))
-
-  ;; global stdout
-  (global $stdout (mut i32) (i32.const 0))
-
-  ;; global stderr
-  (global $stderr (mut i32) (i32.const 0))
-
   ;; global VEHICLE_CAR
   (global $VEHICLE_CAR i32 (i32.const 0))
 
@@ -34,20 +25,32 @@
   ;; global VEHICLE_TRACTOR
   (global $VEHICLE_TRACTOR i32 (i32.const 2))
 
-  (data (i32.const 16) "Silver\00")
-  (data (i32.const 24) "XL\00")
-  (data (i32.const 28) "Red\00")
-  (data (i32.const 32) "X\00")
-  (data (i32.const 36) "Blue\00")
-  (data (i32.const 44) "MF 3400\00")
-  (data (i32.const 52) "Build your vehicle:\0a\00")
-  (data (i32.const 76) "Would you like to buy a car (1), truck (2) or tractor (3)? \00")
-  (data (i32.const 136) "%d\00")
-  (data (i32.const 140) "\0aWould you like a vehicle with air conditioning (y/n)? \00")
-  (data (i32.const 196) " %c\00")
-  (data (i32.const 200) "\0aWould you like a vehicle with power steering (y/n)? \00")
-  (data (i32.const 256) "Invalid option!\00")
-  (data (i32.const 272) "The vehicle %s costs $%.0f.\0a\00")
+  ;; global stdin
+  (global $stdin (mut i32) (i32.const 0))
+
+  ;; global stdout
+  (global $stdout (mut i32) (i32.const 0))
+
+  ;; global stderr
+  (global $stderr (mut i32) (i32.const 0))
+
+  (data (i32.const 16) "\00\00\00\00")
+  (data (i32.const 20) "Silver\00")
+  (data (i32.const 28) "XL\00")
+  (data (i32.const 32) "\01\00\00\00")
+  (data (i32.const 36) "Red\00")
+  (data (i32.const 40) "X\00")
+  (data (i32.const 44) "\02\00\00\00")
+  (data (i32.const 48) "Blue\00")
+  (data (i32.const 56) "MF 3400\00")
+  (data (i32.const 64) "Build your vehicle:\0a\00")
+  (data (i32.const 88) "Would you like to buy a car (1), truck (2) or tractor (3)? \00")
+  (data (i32.const 148) "%d\00")
+  (data (i32.const 152) "\0aWould you like a vehicle with air conditioning (y/n)? \00")
+  (data (i32.const 208) " %c\00")
+  (data (i32.const 212) "\0aWould you like a vehicle with power steering (y/n)? \00")
+  (data (i32.const 268) "Invalid option!\00")
+  (data (i32.const 284) "The vehicle %s costs $%.0f.\0a\00")
 
   (elem (table $fn_table) (i32.const 0) func $automobile_init $main)
 
@@ -459,10 +462,11 @@
     local.get $__frame
     i32.const 0
     i32.add
-    global.get $VEHICLE_CAR
     i32.const 16
+    i32.load
+    i32.const 20
     i32.const 2021
-    i32.const 24
+    i32.const 28
     f32.const 1.4
     f32.const 50000
     f32.const 2000
@@ -471,10 +475,11 @@
     local.get $__frame
     i32.const 88
     i32.add
-    global.get $VEHICLE_TRUCK
-    i32.const 28
-    i32.const 2022
     i32.const 32
+    i32.load
+    i32.const 36
+    i32.const 2022
+    i32.const 40
     f32.const 6
     f32.const 500000
     f32.const 20000
@@ -483,10 +488,11 @@
     local.get $__frame
     i32.const 176
     i32.add
-    global.get $VEHICLE_TRACTOR
-    i32.const 36
-    i32.const 2022
     i32.const 44
+    i32.load
+    i32.const 48
+    i32.const 2022
+    i32.const 56
     f32.const 3
     f32.const 75000
     f32.const 3000
@@ -514,7 +520,7 @@
     i32.store8
     local.get $__tmp_i8
     drop
-    i32.const 52
+    i32.const 64
     f64.convert_i32_s
     f64.const 0
     f64.const 0
@@ -525,7 +531,7 @@
     f64.const 0
     call $imp_printf
     drop
-    i32.const 76
+    i32.const 88
     f64.convert_i32_s
     f64.const 0
     f64.const 0
@@ -536,7 +542,7 @@
     f64.const 0
     call $imp_printf
     drop
-    i32.const 136
+    i32.const 148
     local.get $__frame
     i32.const 264
     i32.add
@@ -548,7 +554,7 @@
     i32.const 0
     call $imp_scanf
     drop
-    i32.const 140
+    i32.const 152
     f64.convert_i32_s
     f64.const 0
     f64.const 0
@@ -559,7 +565,7 @@
     f64.const 0
     call $imp_printf
     drop
-    i32.const 196
+    i32.const 208
     local.get $__frame
     i32.const 268
     i32.add
@@ -571,7 +577,7 @@
     i32.const 0
     call $imp_scanf
     drop
-    i32.const 200
+    i32.const 212
     f64.convert_i32_s
     f64.const 0
     f64.const 0
@@ -582,7 +588,7 @@
     f64.const 0
     call $imp_printf
     drop
-    i32.const 196
+    i32.const 208
     local.get $__frame
     i32.const 272
     i32.add
@@ -1621,7 +1627,7 @@
       end
       local.get $main___switch_matched_2
       if
-        i32.const 256
+        i32.const 268
         f64.convert_i32_s
         f64.const 0
         f64.const 0
@@ -1643,7 +1649,7 @@
         if
           i32.const 1
           local.set $main___switch_matched_2
-          i32.const 256
+          i32.const 268
           f64.convert_i32_s
           f64.const 0
           f64.const 0
@@ -1663,7 +1669,7 @@
         end
       end
     end
-    i32.const 272
+    i32.const 284
     f64.convert_i32_s
     local.get $__frame
     i32.const 280

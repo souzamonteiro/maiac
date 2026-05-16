@@ -29,7 +29,7 @@
   (elem (table $fn_table) (i32.const 0) func $vector_add $main)
 
   ;; function vector_add
-  (func $vector_add (param $a i32) (param $b i32) (result i32)
+  (func $vector_add (param $__maiac_sret i32) (param $a i32) (param $b i32)
     (local $__frame i32)
     (local $temp i32)
     (local $__tmp_i32 i32)
@@ -41,19 +41,24 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 24
+    i32.const 32
     i32.add
     global.set $__stack_ptr
     local.get $__frame
     i32.const 0
     i32.add
+    local.get $__maiac_sret
+    i32.store
+    local.get $__frame
+    i32.const 4
+    i32.add
     local.get $a
     i32.const 0
     i32.add
     i32.load
     i32.store
     local.get $__frame
-    i32.const 0
+    i32.const 4
     i32.add
     i32.const 4
     i32.add
@@ -63,7 +68,7 @@
     i32.load
     i32.store
     local.get $__frame
-    i32.const 8
+    i32.const 12
     i32.add
     local.get $b
     i32.const 0
@@ -71,7 +76,7 @@
     i32.load
     i32.store
     local.get $__frame
-    i32.const 8
+    i32.const 12
     i32.add
     i32.const 4
     i32.add
@@ -81,18 +86,18 @@
     i32.load
     i32.store
     local.get $__frame
-    i32.const 16
+    i32.const 20
     i32.add
     i32.const 0
     i32.add
     local.get $__frame
-    i32.const 0
+    i32.const 4
     i32.add
     i32.const 0
     i32.add
     i32.load
     local.get $__frame
-    i32.const 8
+    i32.const 12
     i32.add
     i32.const 0
     i32.add
@@ -104,18 +109,18 @@
     local.get $__tmp_i32
     drop
     local.get $__frame
-    i32.const 16
+    i32.const 20
     i32.add
     i32.const 4
     i32.add
     local.get $__frame
-    i32.const 0
+    i32.const 4
     i32.add
     i32.const 4
     i32.add
     i32.load
     local.get $__frame
-    i32.const 8
+    i32.const 12
     i32.add
     i32.const 4
     i32.add
@@ -126,15 +131,24 @@
     i32.store
     local.get $__tmp_i32
     drop
+    local.get $__maiac_sret
     local.get $__frame
-    i32.const 16
+    i32.const 20
     i32.add
-    local.get $__parent_frame
-    global.set $__frame_ptr
-    local.get $__frame
-    global.set $__stack_ptr
-    return
     i32.const 0
+    i32.add
+    i32.load
+    i32.store
+    local.get $__maiac_sret
+    i32.const 4
+    i32.add
+    local.get $__frame
+    i32.const 20
+    i32.add
+    i32.const 4
+    i32.add
+    i32.load
+    i32.store
     local.get $__parent_frame
     global.set $__frame_ptr
     local.get $__frame
@@ -149,6 +163,7 @@
     (local $b i32)
     (local $c i32)
     (local $__tmp_i32 i32)
+    (local $__maiac_sret_tmp i32)
     (local $__tmp_struct_dst i32)
     (local $__tmp_struct_src i32)
     (local $__parent_frame i32)
@@ -210,6 +225,13 @@
     i32.const 16
     i32.add
     local.set $__tmp_struct_dst
+    global.get $__stack_ptr
+    local.set $__maiac_sret_tmp
+    global.get $__stack_ptr
+    i32.const 8
+    i32.add
+    global.set $__stack_ptr
+    local.get $__maiac_sret_tmp
     local.get $__frame
     i32.const 0
     i32.add
@@ -217,6 +239,7 @@
     i32.const 8
     i32.add
     call $vector_add
+    local.get $__maiac_sret_tmp
     local.set $__tmp_struct_src
     local.get $__tmp_struct_dst
     i32.const 0

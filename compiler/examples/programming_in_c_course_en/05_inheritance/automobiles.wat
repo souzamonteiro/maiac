@@ -15,15 +15,6 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
-  ;; global stdin
-  (global $stdin (mut i32) (i32.const 0))
-
-  ;; global stdout
-  (global $stdout (mut i32) (i32.const 0))
-
-  ;; global stderr
-  (global $stderr (mut i32) (i32.const 0))
-
   ;; global VEHICLE_CAR
   (global $VEHICLE_CAR i32 (i32.const 0))
 
@@ -33,13 +24,25 @@
   ;; global VEHICLE_TRACTOR
   (global $VEHICLE_TRACTOR i32 (i32.const 2))
 
-  (data (i32.const 16) "Silver\00")
-  (data (i32.const 24) "XL\00")
-  (data (i32.const 28) "Red\00")
-  (data (i32.const 32) "X\00")
-  (data (i32.const 36) "Blue\00")
-  (data (i32.const 44) "MF 3400\00")
-  (data (i32.const 52) "The tractor %s year %d costs $%.0f.\0a\00")
+  ;; global stdin
+  (global $stdin (mut i32) (i32.const 0))
+
+  ;; global stdout
+  (global $stdout (mut i32) (i32.const 0))
+
+  ;; global stderr
+  (global $stderr (mut i32) (i32.const 0))
+
+  (data (i32.const 16) "\00\00\00\00")
+  (data (i32.const 20) "Silver\00")
+  (data (i32.const 28) "XL\00")
+  (data (i32.const 32) "\01\00\00\00")
+  (data (i32.const 36) "Red\00")
+  (data (i32.const 40) "X\00")
+  (data (i32.const 44) "\02\00\00\00")
+  (data (i32.const 48) "Blue\00")
+  (data (i32.const 56) "MF 3400\00")
+  (data (i32.const 64) "The tractor %s year %d costs $%.0f.\0a\00")
 
   (elem (table $fn_table) (i32.const 0) func $automobile_init $main)
 
@@ -398,34 +401,37 @@
     local.get $__frame
     i32.const 0
     i32.add
-    global.get $VEHICLE_CAR
     i32.const 16
+    i32.load
+    i32.const 20
     i32.const 2021
-    i32.const 24
+    i32.const 28
     f32.const 1.4
     f32.const 50000
     call $automobile_init
     local.get $__frame
     i32.const 80
     i32.add
-    global.get $VEHICLE_TRUCK
-    i32.const 28
-    i32.const 2022
     i32.const 32
+    i32.load
+    i32.const 36
+    i32.const 2022
+    i32.const 40
     f32.const 6
     f32.const 500000
     call $automobile_init
     local.get $__frame
     i32.const 160
     i32.add
-    global.get $VEHICLE_TRACTOR
-    i32.const 36
-    i32.const 2022
     i32.const 44
+    i32.load
+    i32.const 48
+    i32.const 2022
+    i32.const 56
     f32.const 3
     f32.const 75000
     call $automobile_init
-    i32.const 52
+    i32.const 64
     f64.convert_i32_s
     local.get $__frame
     i32.const 160

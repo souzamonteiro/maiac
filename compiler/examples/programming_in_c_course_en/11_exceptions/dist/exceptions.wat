@@ -15,15 +15,6 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
-  ;; global stdin
-  (global $stdin (mut i32) (i32.const 0))
-
-  ;; global stdout
-  (global $stdout (mut i32) (i32.const 0))
-
-  ;; global stderr
-  (global $stderr (mut i32) (i32.const 0))
-
   ;; global ERR_OK
   (global $ERR_OK i32 (i32.const 0))
 
@@ -33,9 +24,20 @@
   ;; global ERR_STRING
   (global $ERR_STRING i32 (i32.const 2))
 
+  ;; global stdin
+  (global $stdin (mut i32) (i32.const 0))
+
+  ;; global stdout
+  (global $stdout (mut i32) (i32.const 0))
+
+  ;; global stderr
+  (global $stderr (mut i32) (i32.const 0))
+
   (data (i32.const 16) "Oops!\00")
-  (data (i32.const 24) "An error occurred: %d.\0a\00")
-  (data (i32.const 48) "An error occurred: %s.\0a\00")
+  (data (i32.const 24) "\02\00\00\00")
+  (data (i32.const 28) "\01\00\00\00")
+  (data (i32.const 32) "An error occurred: %d.\0a\00")
+  (data (i32.const 56) "An error occurred: %s.\0a\00")
 
   (elem (table $fn_table) (i32.const 0) func $do_work $main)
 
@@ -201,7 +203,8 @@
       i32.store8
       local.get $__tmp_i8
       drop
-      global.get $ERR_STRING
+      i32.const 24
+      i32.load
       local.get $__parent_frame
       global.set $__frame_ptr
       local.get $__frame
@@ -218,7 +221,8 @@
     i32.store
     local.get $__tmp_i32
     drop
-    global.get $ERR_INT
+    i32.const 28
+    i32.load
     local.get $__parent_frame
     global.set $__frame_ptr
     local.get $__frame
@@ -271,12 +275,13 @@
     i32.const 0
     i32.add
     i32.load
-    global.get $ERR_INT
+    i32.const 28
+    i32.load
     i32.eq
     i32.eqz
     i32.eqz
     if
-      i32.const 24
+      i32.const 32
       f64.convert_i32_s
       local.get $__frame
       i32.const 4
@@ -296,12 +301,13 @@
       i32.const 0
       i32.add
       i32.load
-      global.get $ERR_STRING
+      i32.const 24
+      i32.load
       i32.eq
       i32.eqz
       i32.eqz
       if
-        i32.const 48
+        i32.const 56
         f64.convert_i32_s
         local.get $__frame
         i32.const 8

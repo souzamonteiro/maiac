@@ -15,15 +15,6 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
-  ;; global stdin
-  (global $stdin (mut i32) (i32.const 0))
-
-  ;; global stdout
-  (global $stdout (mut i32) (i32.const 0))
-
-  ;; global stderr
-  (global $stderr (mut i32) (i32.const 0))
-
   ;; global DINO_BRONTOSAURUS
   (global $DINO_BRONTOSAURUS i32 (i32.const 0))
 
@@ -33,13 +24,25 @@
   ;; global DINO_TYRANNOSAURUS
   (global $DINO_TYRANNOSAURUS i32 (i32.const 2))
 
+  ;; global stdin
+  (global $stdin (mut i32) (i32.const 0))
+
+  ;; global stdout
+  (global $stdout (mut i32) (i32.const 0))
+
+  ;; global stderr
+  (global $stderr (mut i32) (i32.const 0))
+
   (data (i32.const 16) "%s ate %s.\0a\00")
-  (data (i32.const 28) "Dino\00")
-  (data (i32.const 36) "Peter\00")
-  (data (i32.const 44) "Rex\00")
-  (data (i32.const 48) "The name of dinosaur dino is %s.\0a\00")
-  (data (i32.const 84) "The name of dinosaur peter is %s.\0a\00")
-  (data (i32.const 120) "The name of dinosaur rex is %s.\0a\00")
+  (data (i32.const 28) "\00\00\00\00")
+  (data (i32.const 32) "Dino\00")
+  (data (i32.const 40) "\01\00\00\00")
+  (data (i32.const 44) "Peter\00")
+  (data (i32.const 52) "\02\00\00\00")
+  (data (i32.const 56) "Rex\00")
+  (data (i32.const 60) "The name of dinosaur dino is %s.\0a\00")
+  (data (i32.const 96) "The name of dinosaur peter is %s.\0a\00")
+  (data (i32.const 132) "The name of dinosaur rex is %s.\0a\00")
 
   (elem (table $fn_table) (i32.const 0) func $dinosaur_init $dinosaur_eat $main)
 
@@ -272,22 +275,25 @@
     local.get $__frame
     i32.const 0
     i32.add
-    global.get $DINO_BRONTOSAURUS
     i32.const 28
+    i32.load
+    i32.const 32
     call $dinosaur_init
     local.get $__frame
     i32.const 56
     i32.add
-    global.get $DINO_PTERODACTYL
-    i32.const 36
+    i32.const 40
+    i32.load
+    i32.const 44
     call $dinosaur_init
     local.get $__frame
     i32.const 112
     i32.add
-    global.get $DINO_TYRANNOSAURUS
-    i32.const 44
+    i32.const 52
+    i32.load
+    i32.const 56
     call $dinosaur_init
-    i32.const 48
+    i32.const 60
     f64.convert_i32_s
     local.get $__frame
     i32.const 0
@@ -303,7 +309,7 @@
     f64.const 0
     call $imp_printf
     drop
-    i32.const 84
+    i32.const 96
     f64.convert_i32_s
     local.get $__frame
     i32.const 56
@@ -319,7 +325,7 @@
     f64.const 0
     call $imp_printf
     drop
-    i32.const 120
+    i32.const 132
     f64.convert_i32_s
     local.get $__frame
     i32.const 112

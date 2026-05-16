@@ -614,7 +614,11 @@ function createRuntimeAllocator(getMemory) {
     return ptr;
   }
 
-  return { alloc };
+  function free(_ptr) {
+    // Linear bump allocator currently does not reclaim memory.
+  }
+
+  return { alloc, free };
 }
 
 function createMemoryAccess(getMemory) {
@@ -2267,6 +2271,11 @@ function createC89JsHosts(getMemory, opts = {}) {
   const cstr = createCStringStore(getMemory, allocator, mem);
 
   return {
+    __malloc: (bytes) => allocator.alloc(bytes, 8),
+    __free: (ptr) => {
+      allocator.free(ptr);
+      return undefined;
+    },
     ...createMathHosts(getMemory),
     ...createStringHosts(getMemory),
     ...createStdioHosts(getMemory, allocator, cstr, opts),

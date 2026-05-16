@@ -15,6 +15,9 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
+  ;; global numeric_pi
+  (global $numeric_pi f32 (f32.const 3.1415269))
+
   ;; global stdin
   (global $stdin (mut i32) (i32.const 0))
 
@@ -24,11 +27,9 @@
   ;; global stderr
   (global $stderr (mut i32) (i32.const 0))
 
-  ;; global numeric_pi
-  (global $numeric_pi (mut f32) (f32.const 3.1415269))
-
   (data (i32.const 16) "PI number: %f\0a\00")
-  (data (i32.const 32) "PI number: %0.7f\00")
+  (data (i32.const 32) "\c7\0eI@")
+  (data (i32.const 36) "PI number: %0.7f\00")
 
   (elem (table $fn_table) (i32.const 0) func $main)
 
@@ -36,7 +37,8 @@
   (func $main (result i32)
     i32.const 16
     f64.convert_i32_s
-    global.get $numeric_pi
+    i32.const 32
+    f32.load
     f64.promote_f32
     f64.const 0
     f64.const 0
@@ -46,9 +48,10 @@
     f64.const 0
     call $imp_printf
     drop
-    i32.const 32
+    i32.const 36
     f64.convert_i32_s
-    global.get $numeric_pi
+    i32.const 32
+    f32.load
     f64.promote_f32
     f64.const 0
     f64.const 0
@@ -68,8 +71,8 @@
   (export "memory" (memory $mem))
   (export "__frame_ptr" (global $__frame_ptr))
   (export "__stack_ptr" (global $__stack_ptr))
+  (export "numeric_pi" (global $numeric_pi))
   (export "stdin" (global $stdin))
   (export "stdout" (global $stdout))
   (export "stderr" (global $stderr))
-  (export "numeric_pi" (global $numeric_pi))
 )

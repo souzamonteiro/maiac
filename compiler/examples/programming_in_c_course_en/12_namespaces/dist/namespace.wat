@@ -15,6 +15,12 @@
   ;; global __stack_ptr
   (global $__stack_ptr (mut i32) (i32.const 1024))
 
+  ;; global numeric_golden
+  (global $numeric_golden f32 (f32.const 1.168))
+
+  ;; global numeric_pi
+  (global $numeric_pi f32 (f32.const 3.1416))
+
   ;; global stdin
   (global $stdin (mut i32) (i32.const 0))
 
@@ -24,14 +30,10 @@
   ;; global stderr
   (global $stderr (mut i32) (i32.const 0))
 
-  ;; global numeric_golden
-  (global $numeric_golden (mut f32) (f32.const 1.168))
-
-  ;; global numeric_pi
-  (global $numeric_pi (mut f32) (f32.const 3.1416))
-
   (data (i32.const 16) "The golden ratio is %f.\0a\00")
-  (data (i32.const 44) "The number pi is %f.\0a\00")
+  (data (i32.const 44) "\06\81\95?")
+  (data (i32.const 48) "The number pi is %f.\0a\00")
+  (data (i32.const 72) "\f9\0fI@")
 
   (elem (table $fn_table) (i32.const 0) func $main)
 
@@ -39,7 +41,8 @@
   (func $main (result i32)
     i32.const 16
     f64.convert_i32_s
-    global.get $numeric_golden
+    i32.const 44
+    f32.load
     f64.promote_f32
     f64.const 0
     f64.const 0
@@ -49,9 +52,10 @@
     f64.const 0
     call $imp_printf
     drop
-    i32.const 44
+    i32.const 48
     f64.convert_i32_s
-    global.get $numeric_pi
+    i32.const 72
+    f32.load
     f64.promote_f32
     f64.const 0
     f64.const 0
@@ -71,9 +75,9 @@
   (export "memory" (memory $mem))
   (export "__frame_ptr" (global $__frame_ptr))
   (export "__stack_ptr" (global $__stack_ptr))
+  (export "numeric_golden" (global $numeric_golden))
+  (export "numeric_pi" (global $numeric_pi))
   (export "stdin" (global $stdin))
   (export "stdout" (global $stdout))
   (export "stderr" (global $stderr))
-  (export "numeric_golden" (global $numeric_golden))
-  (export "numeric_pi" (global $numeric_pi))
 )

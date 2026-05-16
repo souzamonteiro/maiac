@@ -1113,12 +1113,22 @@ async function main() {
     process.exit(1);
   }
 
+  // Always persist WAT when requested, even if validation/assembly fails.
+  if (opts.wat && result.wat) {
+    fs.writeFileSync(watOut, result.wat, 'utf8');
+    console.log(`[webc] wat   → ${watOut}`);
+  }
+
   if (result.validationError) {
     console.error(`[webc] Validation error: ${result.validationError.message}`);
     process.exit(1);
   }
 
   if (!result.wasm) {
+    if (opts.validate === false) {
+      console.log('[webc] wasm not emitted (validation disabled).');
+      return;
+    }
     console.error('[webc] Compiler did not produce a WASM binary. Re-run with --no-validate to check the WAT.');
     process.exit(1);
   }
@@ -1128,11 +1138,6 @@ async function main() {
   // ------------------------------------------------------------------
   fs.writeFileSync(wasmOut, Buffer.from(result.wasm));
   console.log(`[webc] wasm  → ${wasmOut}`);
-
-  if (opts.wat && result.wat) {
-    fs.writeFileSync(watOut, result.wat, 'utf8');
-    console.log(`[webc] wat   → ${watOut}`);
-  }
 
   const wrapperSrc = generateWrapper(result.hostImports || [], requiredLibraries);
   fs.writeFileSync(jsOut, wrapperSrc, 'utf8');
