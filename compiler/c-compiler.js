@@ -192,6 +192,29 @@ function getPointerStepForSymbol(symbol) {
 }
 
 function resolveDirectSymbol(name, context) {
+  if (name === 'this') {
+    const receiverParamNames = ['self', '__self', 'this'];
+
+    for (const paramName of receiverParamNames) {
+      const directParam = context.params.get(paramName);
+      if (directParam) {
+        return directParam;
+      }
+    }
+
+    for (const [paramName, paramSymbol] of context.params.entries()) {
+      if (/^(?:self|this)$/i.test(String(paramName || ''))) {
+        return paramSymbol;
+      }
+    }
+
+    for (const [, paramSymbol] of context.params.entries()) {
+      if (paramSymbol && (paramSymbol.pointerDepth || 0) > 0) {
+        return paramSymbol;
+      }
+    }
+  }
+
   return context.locals.get(name)
     || context.params.get(name)
     || context.module.globalsByName.get(name)
@@ -6709,7 +6732,7 @@ function compilePostfixExpression(node, context, keepValue) {
 
       instructions.push(`call $${importDef.internalName}`);
 
-      if (keepValue && importDef.resultType === null && !isNamedHostImport) {
+      if (keepValue && importDef.resultType === null) {
         instructions.push('i32.const 0');
       }
 
@@ -6744,6 +6767,8 @@ function compilePostfixExpression(node, context, keepValue) {
       instructions.push(`call $${sanitizeIdentifier(calleeName)}`);
       if (!keepValue && fn.resultType !== null) {
         instructions.push('drop');
+      } else if (keepValue && fn.resultType === null) {
+        instructions.push('i32.const 0');
       }
       return instructions;
     }
@@ -6791,6 +6816,8 @@ function compilePostfixExpression(node, context, keepValue) {
 
     if (!keepValue && fn.resultType !== null) {
       instructions.push('drop');
+    } else if (keepValue && fn.resultType === null) {
+      instructions.push('i32.const 0');
     }
 
     return instructions;
@@ -6970,6 +6997,8 @@ function compilePostfixExpression(node, context, keepValue) {
 
   if (!keepValue && fn.resultType !== null) {
     instructions.push('drop');
+  } else if (keepValue && fn.resultType === null) {
+    instructions.push('i32.const 0');
   }
 
   return instructions;
@@ -6981,6 +7010,29 @@ function extractIdentifierFromNode(node) {
 }
 
 function resolveSymbol(name, context) {
+  if (name === 'this') {
+    const receiverParamNames = ['self', '__self', 'this'];
+
+    for (const paramName of receiverParamNames) {
+      const directParam = context.params.get(paramName);
+      if (directParam) {
+        return directParam;
+      }
+    }
+
+    for (const [paramName, paramSymbol] of context.params.entries()) {
+      if (/^(?:self|this)$/i.test(String(paramName || ''))) {
+        return paramSymbol;
+      }
+    }
+
+    for (const [, paramSymbol] of context.params.entries()) {
+      if (paramSymbol && (paramSymbol.pointerDepth || 0) > 0) {
+        return paramSymbol;
+      }
+    }
+  }
+
   return context.locals.get(name)
     || context.params.get(name)
     || context.module.globalsByName.get(name)
@@ -7252,6 +7304,12 @@ function emitUpdateInstructions(name, delta, context, options = {}) {
   if (watType === 'i64') {
     constInstruction = `i64.const ${scaledMagnitude}`;
     arithmeticInstruction = delta >= 0 ? 'i64.add' : 'i64.sub';
+  } else if (watType === 'f32') {
+    constInstruction = `f32.const ${scaledMagnitude}`;
+    arithmeticInstruction = delta >= 0 ? 'f32.add' : 'f32.sub';
+  } else if (watType === 'f64') {
+    constInstruction = `f64.const ${scaledMagnitude}`;
+    arithmeticInstruction = delta >= 0 ? 'f64.add' : 'f64.sub';
   }
 
   if (addressInstructions) {
@@ -7364,10 +7422,18 @@ function emitUpdateLValueInstructions(lvalue, delta, context, options = {}) {
   const magnitude = Math.abs(delta);
   const constInstruction = watType === 'i64'
     ? `i64.const ${magnitude}`
-    : `i32.const ${magnitude}`;
+    : (watType === 'f32'
+      ? `f32.const ${magnitude}`
+      : (watType === 'f64'
+        ? `f64.const ${magnitude}`
+        : `i32.const ${magnitude}`));
   const arithmeticInstruction = watType === 'i64'
     ? (delta >= 0 ? 'i64.add' : 'i64.sub')
-    : (delta >= 0 ? 'i32.add' : 'i32.sub');
+    : (watType === 'f32'
+      ? (delta >= 0 ? 'f32.add' : 'f32.sub')
+      : (watType === 'f64'
+        ? (delta >= 0 ? 'f64.add' : 'f64.sub')
+        : (delta >= 0 ? 'i32.add' : 'i32.sub')));
   const addrTemp = ensureInternalLocal(context, '__tmp_addr', 'i32');
   const valueTemp = ensureInternalLocal(context, `__tmp_${watType}`, watType);
   const instructions = [
