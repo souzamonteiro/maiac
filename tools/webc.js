@@ -878,7 +878,7 @@ function createImports(getMemory, opts = {}) {
     env: {
       printf: createPrintfHost({ getMemory, write }),
       ...defaultBuiltins,
-      ..._buildHostEnv(getMemory),
+      ..._buildHostEnv(getMemory, { write }),
     }
   };
 }

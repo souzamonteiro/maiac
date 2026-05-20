@@ -1,5 +1,5 @@
 /* 11_host_extern - Host import bridge for console and Math. */
-extern void __console__log(char *message);
+extern int __console__log(char *message);
 extern double __Math__sqrt(double x);
 extern int __Math__floor(double x);
 

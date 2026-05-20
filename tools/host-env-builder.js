@@ -251,7 +251,7 @@ function buildHostEnv(hostImports, opts = {}) {
 function generateHostEnvSource(hostImports) {
   const lines = [
     '// Auto-generated host env – do not edit manually',
-    '(function buildEnv(getMemory) {',
+    '(function buildEnv(getMemory, opts = {}) {',
     '  function alignUp(value, alignment) {',
     '    const a = Math.max(1, Number(alignment) | 0);',
     '    const v = Number(value) | 0;',
@@ -304,6 +304,19 @@ function generateHostEnvSource(hostImports) {
     "    if (obj == null) return { thisValue: null, fn: null };",
     "    return { thisValue: obj, fn: obj[parts[parts.length - 1]] };",
     "  }",
+    "  function __hostWrite(text) {",
+    "    if (opts && typeof opts.write === 'function') {",
+    "      opts.write(String(text));",
+    "      return;",
+    "    }",
+    "    if (typeof process !== 'undefined' && process.stdout && typeof process.stdout.write === 'function') {",
+    "      process.stdout.write(String(text));",
+    "      return;",
+    "    }",
+    "    if (typeof console !== 'undefined' && typeof console.log === 'function') {",
+    "      console.log(String(text));",
+    "    }",
+    "  }",
     "  return {"
   ];
 
@@ -331,6 +344,17 @@ function generateHostEnvSource(hostImports) {
 
     const fnParams = paramNames.join(', ');
     const fnArgs = argExprs.join(', ');
+    const pathLiteral = JSON.stringify(parts);
+
+    // Route console-like host externs through the runner output channel.
+    if (isConsoleStringHost(envKey, paramDefs)) {
+      const argExpr = argExprs.length > 0 ? argExprs[0] : "''";
+      const consoleReturn = hasResult ? '0' : 'undefined';
+      lines.push(
+        `    ${JSON.stringify(envKey)}: (${fnParams}) => { const text = String(${argExpr}); __hostWrite(text + '\\n'); return ${consoleReturn}; },`
+      );
+      continue;
+    }
 
     if (parts.length > 1 && parts[0] === 'new') {
       const ctorPath = JSON.stringify(parts.slice(1));
@@ -343,7 +367,6 @@ function generateHostEnvSource(hostImports) {
       continue;
     }
 
-    const pathLiteral = JSON.stringify(parts);
     const callArgs = fnArgs ? `, ${fnArgs}` : '';
     const missingValue = hasResult ? '0' : 'undefined';
     const returnValue = hasResult ? '(result ?? 0)' : 'undefined';
