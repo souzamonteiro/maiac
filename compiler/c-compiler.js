@@ -898,7 +898,7 @@ function extractTypeInfoFromTypeName(typeNameNode) {
   const typeInfo = extractDeclarationTypeInfo(specifierQualifierList);
   const pointerDepth = countPointerDepthInDeclarator(typeNameNode);
   const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
-  const baseWatType = typeInfo.baseWatType || 'i32';
+  const baseWatType = (typeInfo.baseWatType === undefined) ? 'i32' : typeInfo.baseWatType;
   const watType = toWatType((pointerDepth > 0 || isStruct) ? 'i32' : baseWatType);
 
   return {
@@ -952,7 +952,7 @@ function extractTypeInfoFromTypeNameWithContext(typeNameNode, context) {
   const typeInfo = extractDeclarationTypeInfo(specifierQualifierList, moduleModel);
   const pointerDepth = countPointerDepthInDeclarator(typeNameNode);
   const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
-  const baseWatType = typeInfo.baseWatType || 'i32';
+  const baseWatType = (typeInfo.baseWatType === undefined) ? 'i32' : typeInfo.baseWatType;
   const watType = toWatType((pointerDepth > 0 || isStruct) ? 'i32' : baseWatType);
 
   return {
@@ -3430,6 +3430,10 @@ function compileStatement(statementNode, context) {
     const produces = expressionProducesValue(expressionNode, context);
     if (produces) {
       instructions.push('drop');
+    } else if (instructions.length > 0 && instructions[instructions.length - 1] === 'i32.const 0') {
+      // Void calls/casts may synthesize a sentinel i32.const 0 for composability.
+      // As a standalone statement, this must be discarded to avoid stack imbalance.
+      instructions.pop();
     }
     return instructions;
   }
@@ -3982,6 +3986,16 @@ function expressionProducesValue(node, context) {
   }
 
   const nodeName = getNodeName(node);
+  if (nodeName === 'castExpression') {
+    const typeNameNode = firstNonterminal(node, 'typeName');
+    if (typeNameNode) {
+      const castType = extractTypeInfoFromTypeName(typeNameNode);
+      if (castType && castType.watType === null) {
+        return false;
+      }
+    }
+  }
+
   if (nodeName && /expression$/i.test(nodeName)) {
     const postfixExpression = findFirstNonterminal(node, 'postfixExpression');
     const postfixSuffix = postfixExpression ? firstNonterminal(postfixExpression, 'postfixSuffix') : null;
@@ -4169,7 +4183,7 @@ function inferExpressionType(node, context) {
   if (nodeName === 'castExpression') {
     const typeNameNode = firstNonterminal(node, 'typeName');
     if (typeNameNode) {
-      return extractTypeInfoFromTypeName(typeNameNode).watType || 'i32';
+      return extractTypeInfoFromTypeName(typeNameNode).watType;
     }
   }
 
@@ -4528,7 +4542,17 @@ function compileCastExpression(node, context, keepValue) {
     || targetTypeInfo.watType
     || 'i32';
 
-  return coerceInstructionsToType(operandInstructions, operandType, targetTypeInfo.watType || 'i32', context);
+  if (targetTypeInfo.watType === null) {
+    // True void cast semantics: (void)expr must not leave a value on the stack.
+    const out = [...operandInstructions];
+    if (inferredOperandType !== null || expressionProducesValue(operandNode, context)) {
+      out.push('drop');
+    }
+    return out;
+  }
+
+  // Preserve true void-cast semantics: (void)expr should not force an i32 value.
+  return coerceInstructionsToType(operandInstructions, operandType, targetTypeInfo.watType, context);
 }
 
 function compileUnaryExpression(node, context, keepValue) {

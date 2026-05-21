@@ -536,10 +536,22 @@ async function main() {
     ? path.resolve(process.argv[2])
     : path.join(__dirname, '${appName}.wasm');
   // Args after the wasm path are forwarded to the C program as argv[1+].
-  const _progName  = path.basename(wasmPath, '.wasm');
+  const _progStem = path.basename(wasmPath, '.wasm');
+  const _distDir = path.dirname(wasmPath);
+  const _appDir = path.basename(_distDir) === 'dist' ? path.dirname(_distDir) : _distDir;
+  const _progName  = _appDir + '//' + _progStem;
   const _extraArgs = process.argv.slice(3);
   const _argv = [_progName].concat(_extraArgs);
-  const _env  = Object.keys(process.env).map(function(k) { return k + '=' + process.env[k]; });
+  const _env  = (() => {
+    try {
+      const { spawnSync } = require('child_process');
+      const out = spawnSync('env', ['-0'], { encoding: 'utf8' });
+      if (out && out.status === 0 && typeof out.stdout === 'string') {
+        return out.stdout.split('\0').filter((entry) => entry && entry.includes('='));
+      }
+    } catch (_) {}
+    return Object.keys(process.env).map(function(k) { return k + '=' + process.env[k]; });
+  })();
   const exitCode = await app.run(wasmPath, { resolveResumeExportName, argv: _argv, env: _env });
   process.stdout.write('\\n[node-runner] program returned: ' + exitCode + '\\n');
   process.exitCode = Number.isInteger(exitCode) ? exitCode : 0;
@@ -975,9 +987,22 @@ async function run(wasmPath, opts) {
       } else {
         // Standalone execution: [node, script.js, wasm-path?, arg1, arg2, ...]
         const _pathMod = require('path');
-        const progName = _pathMod.basename(wasmPath, '.wasm');
+        const _progStem = _pathMod.basename(wasmPath, '.wasm');
+        const _distDir = _pathMod.dirname(wasmPath);
+        const _appDir = _pathMod.basename(_distDir) === 'dist' ? _pathMod.dirname(_distDir) : _distDir;
+        const progName = _appDir + '//' + _progStem;
         argv = [progName].concat(process.argv.slice(3));
-        env  = Object.keys(process.env).map(function(k) { return k + '=' + process.env[k]; });
+        try {
+          const { spawnSync } = require('child_process');
+          const out = spawnSync('env', ['-0'], { encoding: 'utf8' });
+          if (out && out.status === 0 && typeof out.stdout === 'string') {
+            env = out.stdout.split('\0').filter((entry) => entry && entry.includes('='));
+          } else {
+            env = Object.keys(process.env).map(function(k) { return k + '=' + process.env[k]; });
+          }
+        } catch (_) {
+          env = Object.keys(process.env).map(function(k) { return k + '=' + process.env[k]; });
+        }
       }
     } else {
       // Browser: no access to process — pass empty argc/argv/env.
