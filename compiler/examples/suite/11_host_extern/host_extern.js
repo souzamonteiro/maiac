@@ -2324,10 +2324,26 @@ const _buildHostEnv = // Auto-generated host env – do not edit manually
     while (end < mem.length && mem[end] !== 0) end++;
     return new TextDecoder('utf-8').decode(mem.subarray(offset, end));
   }
+  function __globalRoot() {
+    if (typeof globalThis !== 'undefined') return globalThis;
+    if (typeof window !== 'undefined') return window;
+    if (typeof self !== 'undefined') return self;
+    return {};
+  }
+  function __resolveHost(parts) {
+    let obj = __globalRoot();
+    if (!Array.isArray(parts) || parts.length === 0) return { thisValue: null, fn: null };
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (obj == null) return { thisValue: null, fn: null };
+      obj = obj[parts[i]];
+    }
+    if (obj == null) return { thisValue: null, fn: null };
+    return { thisValue: obj, fn: obj[parts[parts.length - 1]] };
+  }
   return {
-    "__console__log": (p0) => console.log(readCString(p0)),
-    "__Math__sqrt": (p0) => Math.sqrt(p0),
-    "__Math__floor": (p0) => Math.floor(p0),
+    "__console__log": (p0) => { const target = __resolveHost(["console","log"]); if (typeof target.fn !== 'function') return undefined; const result = target.fn.call(target.thisValue, readCString(p0)); return undefined; },
+    "__Math__sqrt": (p0) => { const target = __resolveHost(["Math","sqrt"]); if (typeof target.fn !== 'function') return 0; const result = target.fn.call(target.thisValue, p0); return (result ?? 0); },
+    "__Math__floor": (p0) => { const target = __resolveHost(["Math","floor"]); if (typeof target.fn !== 'function') return 0; const result = target.fn.call(target.thisValue, p0); return (result ?? 0); },
   };
 });
 const _linkedLibraries = [];

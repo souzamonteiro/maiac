@@ -2324,6 +2324,22 @@ const _buildHostEnv = // Auto-generated host env – do not edit manually
     while (end < mem.length && mem[end] !== 0) end++;
     return new TextDecoder('utf-8').decode(mem.subarray(offset, end));
   }
+  function __globalRoot() {
+    if (typeof globalThis !== 'undefined') return globalThis;
+    if (typeof window !== 'undefined') return window;
+    if (typeof self !== 'undefined') return self;
+    return {};
+  }
+  function __resolveHost(parts) {
+    let obj = __globalRoot();
+    if (!Array.isArray(parts) || parts.length === 0) return { thisValue: null, fn: null };
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (obj == null) return { thisValue: null, fn: null };
+      obj = obj[parts[i]];
+    }
+    if (obj == null) return { thisValue: null, fn: null };
+    return { thisValue: obj, fn: obj[parts[parts.length - 1]] };
+  }
   return {
   };
 });
