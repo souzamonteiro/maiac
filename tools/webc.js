@@ -37,6 +37,7 @@ const { generateHostEnvSource } = require('./host-env-builder.js');
 const { createPrintfHost }      = require('../src/runtime/stdio.js');
 const { buildHostEnv }          = require('./host-env-builder.js');
 const { createDefaultHostBuiltins, isLongjmpSignal } = require('../src/runtime/default-host-builtins.js');
+const { createC89JsHosts } = require('../src/runtime/c89-js-hosts.js');
 
 const ROOT = path.resolve(__dirname, '..');
 const JS_RUNTIME_HEADERS = new Set(['stdio', 'math', 'time', 'locale', 'signal']);
@@ -268,15 +269,21 @@ function writeBrowserRunner(outDir, appName) {
   </main>
 
   <script src="./browser-memory-file-store.js"></script>
-  <script src="./${appName}.js?v=${Date.now()}"></script>
   <script>
     (function () {
+      const defaultAppName = ${JSON.stringify(appName)};
+      const params = new URLSearchParams(window.location.search);
+      const requestedWasm = params.get('wasm');
+      const requestedApp = params.get('app');
+      const selectedStem = requestedApp
+        || (requestedWasm ? requestedWasm.replace(/^.*\\//, '').replace(/\\.wasm$/i, '') : '')
+        || defaultAppName;
+      const storagePrefix = 'maiac:' + selectedStem + ':vfs:';
       const runBtn = document.getElementById('run');
       const clearBtn = document.getElementById('clear-vfs');
       const persistBox = document.getElementById('persist-vfs');
       const statusEl = document.getElementById('status');
       const outputEl = document.getElementById('output');
-      const storagePrefix = 'maiac:${appName}:vfs:';
 
       function write(text) {
         outputEl.textContent += String(text);
@@ -360,13 +367,36 @@ function writeBrowserRunner(outDir, appName) {
         };
       }
 
+      function loadScript(src) {
+        return new Promise(function (resolve, reject) {
+          const script = document.createElement('script');
+          script.src = src;
+          script.async = false;
+          script.onload = function () { resolve(); };
+          script.onerror = function () { reject(new Error('Failed to load ' + src)); };
+          document.head.appendChild(script);
+        });
+      }
+
+      async function loadManifestForStem(stem) {
+        const candidates = ['./' + stem + '.manifest.json', './manifest.json'];
+        for (const candidate of candidates) {
+          try {
+            const response = await fetch(candidate, { cache: 'no-store' });
+            if (response.ok) {
+              return await response.json();
+            }
+          } catch (_) {}
+        }
+        return {};
+      }
+
       async function runApp() {
         outputEl.textContent = '';
         statusEl.textContent = 'Running...';
 
         try {
-          const manifestResponse = await fetch('./manifest.json');
-          const manifest = await manifestResponse.json();
+          const manifest = await loadManifestForStem(selectedStem);
           const runtimeBridgeMeta = manifest
             && manifest.asyncRuntime
             && Array.isArray(manifest.asyncRuntime.resumeBridges)
@@ -378,7 +408,14 @@ function writeBrowserRunner(outDir, appName) {
             scheduleStateEnd: Number.isInteger(item.scheduleStateEnd) ? item.scheduleStateEnd : null
           })).filter((item) => typeof item.bridgeSymbol === 'string' && item.bridgeSymbol.length > 0);
           const availableBridgeSymbols = runtimeBridgeEntries.map((item) => item.bridgeSymbol);
-          const response = await fetch('./${appName}.wasm');
+          const wasmAsset = requestedWasm || ((manifest.artifacts && manifest.artifacts.wasm) || (selectedStem + '.wasm'));
+          const wrapperAsset = (manifest.artifacts && manifest.artifacts.wrapper) || (selectedStem + '.js');
+          await loadScript('./' + wrapperAsset + '?v=' + Date.now());
+          if (typeof createImports !== 'function') {
+            throw new Error('Wrapper did not expose createImports(): ' + wrapperAsset);
+          }
+
+          const response = await fetch('./' + wasmAsset);
           const bytes = await response.arrayBuffer();
           let memoryRef = null;
           const imports = createImports(
@@ -468,7 +505,30 @@ function writeNodeRunnerJs(outDir, appName) {
 
 const fs = require('fs');
 const path = require('path');
-const app = require('./${appName}.js');
+
+function loadAppModule(wasmPath) {
+  const stem = path.basename(wasmPath, '.wasm');
+  const wrapperPath = path.join(__dirname, stem + '.js');
+  if (!fs.existsSync(wrapperPath)) {
+    throw new Error('Wrapper not found for ' + path.basename(wasmPath) + ': ' + wrapperPath);
+  }
+  return require(wrapperPath);
+}
+
+function loadManifestForStem(stem) {
+  const manifestCandidates = [
+    path.join(__dirname, stem + '.manifest.json'),
+    path.join(__dirname, 'manifest.json')
+  ];
+
+  for (const manifestPath of manifestCandidates) {
+    if (fs.existsSync(manifestPath)) {
+      return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    }
+  }
+
+  return {};
+}
 
 function createMachineAwareBridgeResolver(runtimeBridgeEntries, availableBridgeSymbols) {
   const pointerToBridge = new Map();
@@ -515,10 +575,11 @@ function createMachineAwareBridgeResolver(runtimeBridgeEntries, availableBridgeS
 }
 
 async function main() {
-  const manifestPath = path.join(__dirname, 'manifest.json');
-  const manifest = fs.existsSync(manifestPath)
-    ? JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-    : {};
+  const wasmPath = process.argv[2]
+    ? path.resolve(process.argv[2])
+    : path.join(__dirname, '${appName}.wasm');
+  const stem = path.basename(wasmPath, '.wasm');
+  const manifest = loadManifestForStem(stem);
   const runtimeBridgeMeta = manifest
     && manifest.asyncRuntime
     && Array.isArray(manifest.asyncRuntime.resumeBridges)
@@ -531,15 +592,12 @@ async function main() {
   })).filter((item) => typeof item.bridgeSymbol === 'string' && item.bridgeSymbol.length > 0);
   const availableBridgeSymbols = runtimeBridgeEntries.map((item) => item.bridgeSymbol);
   const resolveResumeExportName = createMachineAwareBridgeResolver(runtimeBridgeEntries, availableBridgeSymbols);
-
-  const wasmPath = process.argv[2]
-    ? path.resolve(process.argv[2])
-    : path.join(__dirname, '${appName}.wasm');
+  const app = loadAppModule(wasmPath);
   // Args after the wasm path are forwarded to the C program as argv[1+].
-  const _progStem = path.basename(wasmPath, '.wasm');
+  const _progStem = stem;
   const _distDir = path.dirname(wasmPath);
   const _appDir = path.basename(_distDir) === 'dist' ? path.dirname(_distDir) : _distDir;
-  const _progName  = _appDir + '//' + _progStem;
+  const _progName  = _progStem;
   const _extraArgs = process.argv.slice(3);
   const _argv = [_progName].concat(_extraArgs);
   const _env  = (() => {
@@ -696,6 +754,7 @@ function createDistPackage(opts) {
   };
 
   fs.writeFileSync(path.join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(path.join(outDir, `${appName}.manifest.json`), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
   console.log(`[webc] dist wasm           → ${appWasm}`);
   console.log(`[webc] dist wrapper        → ${appJs}`);
@@ -713,6 +772,7 @@ function createDistPackage(opts) {
     console.log(`[webc] dist missing libs (not copied): ${missingLibs.join(', ')}`);
   }
   console.log(`[webc] dist manifest       → ${path.join(outDir, 'manifest.json')}`);
+  console.log(`[webc] dist app manifest   → ${path.join(outDir, `${appName}.manifest.json`)}`);
 
   return {
     outDir,
@@ -885,11 +945,13 @@ function _runEntrypointWithLongjmpResume(entry, maxAttempts = 32) {
 function createImports(getMemory, opts = {}) {
   const write = opts.write || (s => process.stdout.write(s));
   const defaultBuiltins = createDefaultHostBuiltins(getMemory, opts);
+  const c89Hosts = createC89JsHosts(getMemory, opts);
 
   return {
     env: {
       printf: createPrintfHost({ getMemory, write }),
       ...defaultBuiltins,
+      ...c89Hosts,
       ..._buildHostEnv(getMemory, { write }),
     }
   };
@@ -1196,6 +1258,7 @@ async function main() {
     let memoryRef = null;
     const hostEnv = buildHostEnv(result.hostImports, { getMemory: () => memoryRef });
     const defaultBuiltins = createDefaultHostBuiltins(() => memoryRef);
+    const c89Hosts = createC89JsHosts(() => memoryRef);
     const imports = {
       env: {
         printf: createPrintfHost({
@@ -1203,6 +1266,7 @@ async function main() {
           write: (text) => process.stdout.write(String(text)),
         }),
         ...defaultBuiltins,
+        ...c89Hosts,
         ...hostEnv,
       }
     };

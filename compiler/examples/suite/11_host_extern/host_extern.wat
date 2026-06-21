@@ -3,7 +3,7 @@
 ;; Style inspired by maiawasm/assembler/tests/fixtures
 
 (module
-  (import "env" "__console__log" (func $imp___console__log (param i32)))
+  (import "env" "__console__log" (func $imp___console__log (param i32) (result i32)))
   (import "env" "__Math__sqrt" (func $imp___Math__sqrt (param f64) (result f64)))
   (import "env" "__Math__floor" (func $imp___Math__floor (param f64) (result i32)))
 
@@ -28,6 +28,7 @@
     (local $root f64)
     i32.const 16
     call $imp___console__log
+    drop
     f64.const 144
     call $imp___Math__sqrt
     local.tee $root
@@ -41,9 +42,11 @@
     if
       i32.const 40
       call $imp___console__log
+      drop
     end
     i32.const 60
     call $imp___console__log
+    drop
     i32.const 0
     return
     i32.const 0
