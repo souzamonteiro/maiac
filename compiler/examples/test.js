@@ -2429,11 +2429,13 @@ function _runEntrypointWithLongjmpResume(entry, maxAttempts = 32) {
 function createImports(getMemory, opts = {}) {
   const write = opts.write || (s => process.stdout.write(s));
   const defaultBuiltins = createDefaultHostBuiltins(getMemory, opts);
+  const c89Hosts = createC89JsHosts(getMemory, opts);
 
   return {
     env: {
       printf: createPrintfHost({ getMemory, write }),
       ...defaultBuiltins,
+      ...c89Hosts,
       ..._buildHostEnv(getMemory, { write }),
     }
   };
