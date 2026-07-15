@@ -806,46 +806,57 @@ function inferResultTypeFromInstructions(instructions, context = null) {
     return null;
   }
 
-  const lastInstruction = String(instructions[instructions.length - 1] || '');
-  if (/^f32\./.test(lastInstruction)) return 'f32';
-  if (/^f64\./.test(lastInstruction)) return 'f64';
-  if (/^i64\./.test(lastInstruction)) return 'i64';
-  if (/^i32\./.test(lastInstruction)) return 'i32';
-
-  const directCallMatch = lastInstruction.match(/^call \$([^\s]+)$/);
-  if (directCallMatch && context && context.module && Array.isArray(context.module.functions)) {
-    const calleeName = directCallMatch[1];
-    const functionModel = context.module.functions.find(
-      (candidate) => candidate && (candidate.name === calleeName || sanitizeIdentifier(candidate.sourceName) === calleeName)
-    );
-    if (functionModel && functionModel.resultType) {
-      return functionModel.resultType;
+  for (let index = instructions.length - 1; index >= 0; index -= 1) {
+    const instruction = String(instructions[index] || '').trim();
+    if (!instruction) {
+      continue;
     }
-  }
 
-  const localGetMatch = lastInstruction.match(/^local\.get \$([^\s]+)$/);
-  if (localGetMatch && context) {
-    const localName = localGetMatch[1];
-    const symbols = [
-      ...Array.from((context.locals || new Map()).values()),
-      ...Array.from((context.params || new Map()).values())
-    ];
-    const symbol = symbols.find(
-      (candidate) => candidate && (candidate.name === localName || sanitizeIdentifier(candidate.sourceName) === localName)
-    );
-    if (symbol && symbol.watType) {
-      return toWatType(symbol.watType);
+    if (/^f32\./.test(instruction)) return 'f32';
+    if (/^f64\./.test(instruction)) return 'f64';
+    if (/^i64\./.test(instruction)) return 'i64';
+    if (/^i32\./.test(instruction)) return 'i32';
+
+    const structuredResultMatch = instruction.match(/^(?:if|block|loop)\s+\(result\s+(i32|i64|f32|f64)\)$/);
+    if (structuredResultMatch) {
+      return structuredResultMatch[1];
     }
-  }
 
-  const globalGetMatch = lastInstruction.match(/^global\.get \$([^\s]+)$/);
-  if (globalGetMatch && context && context.module && context.module.globalsByName) {
-    const globalName = globalGetMatch[1];
-    const symbol = Array.from(context.module.globalsByName.values()).find(
-      (candidate) => candidate && (candidate.name === globalName || sanitizeIdentifier(candidate.sourceName) === globalName)
-    );
-    if (symbol && symbol.watType) {
-      return toWatType(symbol.watType);
+    const directCallMatch = instruction.match(/^call \$([^\s]+)$/);
+    if (directCallMatch && context && context.module && Array.isArray(context.module.functions)) {
+      const calleeName = directCallMatch[1];
+      const functionModel = context.module.functions.find(
+        (candidate) => candidate && (candidate.name === calleeName || sanitizeIdentifier(candidate.sourceName) === calleeName)
+      );
+      if (functionModel && functionModel.resultType) {
+        return functionModel.resultType;
+      }
+    }
+
+    const localGetMatch = instruction.match(/^local\.get \$([^\s]+)$/);
+    if (localGetMatch && context) {
+      const localName = localGetMatch[1];
+      const symbols = [
+        ...Array.from((context.locals || new Map()).values()),
+        ...Array.from((context.params || new Map()).values())
+      ];
+      const symbol = symbols.find(
+        (candidate) => candidate && (candidate.name === localName || sanitizeIdentifier(candidate.sourceName) === localName)
+      );
+      if (symbol && symbol.watType) {
+        return toWatType(symbol.watType);
+      }
+    }
+
+    const globalGetMatch = instruction.match(/^global\.get \$([^\s]+)$/);
+    if (globalGetMatch && context && context.module && context.module.globalsByName) {
+      const globalName = globalGetMatch[1];
+      const symbol = Array.from(context.module.globalsByName.values()).find(
+        (candidate) => candidate && (candidate.name === globalName || sanitizeIdentifier(candidate.sourceName) === globalName)
+      );
+      if (symbol && symbol.watType) {
+        return toWatType(symbol.watType);
+      }
     }
   }
 
