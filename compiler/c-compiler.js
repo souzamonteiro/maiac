@@ -823,13 +823,23 @@ function inferResultTypeFromInstructions(instructions, context = null) {
     }
 
     const directCallMatch = instruction.match(/^call \$([^\s]+)$/);
-    if (directCallMatch && context && context.module && Array.isArray(context.module.functions)) {
+    if (directCallMatch && context && context.module) {
       const calleeName = directCallMatch[1];
-      const functionModel = context.module.functions.find(
-        (candidate) => candidate && (candidate.name === calleeName || sanitizeIdentifier(candidate.sourceName) === calleeName)
-      );
-      if (functionModel && functionModel.resultType) {
-        return functionModel.resultType;
+      if (Array.isArray(context.module.functions)) {
+        const functionModel = context.module.functions.find(
+          (candidate) => candidate && (candidate.name === calleeName || sanitizeIdentifier(candidate.sourceName) === calleeName)
+        );
+        if (functionModel && Object.prototype.hasOwnProperty.call(functionModel, 'resultType')) {
+          return functionModel.resultType;
+        }
+      }
+      if (Array.isArray(context.module.imports)) {
+        const importModel = context.module.imports.find(
+          (candidate) => candidate && (candidate.internalName === calleeName || sanitizeIdentifier(candidate.internalName) === calleeName)
+        );
+        if (importModel && Object.prototype.hasOwnProperty.call(importModel, 'resultType')) {
+          return importModel.resultType;
+        }
       }
     }
 
@@ -1966,10 +1976,6 @@ function buildModuleModel(ast, options = {}) {
 
       for (const itemDef of extractDeclarationItems(declaration, moduleModel)) {
         if (itemDef.isFunctionDeclaration) {
-          if ((itemDef.pointerDepth || 0) > 0) {
-            continue;
-          }
-
           const declarationSignature = buildFunctionSignature(typeInfo, itemDef, hasStaticSpecifier ? 'internal' : 'external');
           const existingSignature = moduleModel.functionSignaturesByName.get(itemDef.sourceName);
           if (existingSignature) {
@@ -1981,6 +1987,10 @@ function buildModuleModel(ast, options = {}) {
           // Register them so call sites can emit the correct WAT call.
           if (parseHostExternName(itemDef.sourceName)) {
             registerHostExternImport(itemDef, moduleModel);
+            continue;
+          }
+
+          if ((itemDef.pointerDepth || 0) > 0) {
             continue;
           }
 
@@ -2240,7 +2250,7 @@ function registerHostExternImport(itemDef, moduleModel) {
   // void return → resultType null; otherwise use the declared WAT type.
   const resultType = override
     ? override.resultType
-    : ((itemDef.watType === null || itemDef.cType === 'void')
+    : ((itemDef.watType === null || (itemDef.cType === 'void' && (itemDef.pointerDepth || 0) === 0))
       ? null
       : toWatType(itemDef.watType || 'i32'));
 
