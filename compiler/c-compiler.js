@@ -4346,8 +4346,10 @@ function compileBooleanValue(node, context) {
     return compileLogicalExpression(node, context, '&&');
   }
 
-  const valueType = inferExpressionType(node, context) || 'i32';
   const instructions = compileExpression(node, context, { keepValue: true });
+  const valueType = inferResultTypeFromInstructions(instructions, context)
+    || inferExpressionType(node, context)
+    || 'i32';
   return normalizeTruthiness(instructions, valueType);
 }
 
