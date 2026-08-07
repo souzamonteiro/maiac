@@ -812,6 +812,7 @@ function inferResultTypeFromInstructions(instructions, context = null) {
       continue;
     }
 
+    if (/^(?:i32|i64|f32|f64)\.(?:eq|ne|lt|gt|le|ge)(?:_|$)/.test(instruction)) return 'i32';
     if (/^f32\./.test(instruction)) return 'f32';
     if (/^f64\./.test(instruction)) return 'f64';
     if (/^i64\./.test(instruction)) return 'i64';
