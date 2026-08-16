@@ -936,7 +936,7 @@ function getCTypeSizeForSizeof(cType) {
   const normalized = String(cType || 'int').replace(/\s+/g, ' ').trim();
   if (normalized === 'char' || normalized === 'unsigned char' || normalized === 'signed char') return 1;
   if (normalized === 'short' || normalized === 'unsigned short' || normalized === 'short int' || normalized === 'unsigned short int' || normalized === 'signed short' || normalized === 'signed short int') return 2;
-  if (normalized === 'long' || normalized === 'unsigned long' || normalized === 'long int' || normalized === 'unsigned long int' || normalized === 'signed long' || normalized === 'signed long int') return 4;
+  if (normalized === 'long' || normalized === 'unsigned long' || normalized === 'long int' || normalized === 'unsigned long int' || normalized === 'signed long' || normalized === 'signed long int') return 8;
   if (normalized === 'long long' || normalized === 'unsigned long long' || normalized === 'long long int') return 8;
   if (normalized === 'float') return 4;
   if (normalized === 'double') return 8;
@@ -4837,11 +4837,17 @@ function getIndexedAccessInfoFromPostfix(node, context) {
         }
         if (memberAccessPath.length > 0) {
           const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
-          if (memberAccess && memberAccess.isArray) {
-            // The field is an array — apply index expressions using element stride
+          const field = memberAccess && memberAccess.field ? memberAccess.field : null;
+          const fieldIsIndexablePointer = field && !memberAccess.isArray && (field.pointerDepth || 0) > 0;
+          if (memberAccess && (memberAccess.isArray || fieldIsIndexablePointer)) {
+            // The field is either an array object or a pointer-valued field.
             const field = memberAccess.field;
             const rawBaseType = field ? (field.baseWatType || field.watType || 'i32') : 'i32';
-            const watType = (field && (field.pointerDepth || 0) > 0) ? 'i32' : rawBaseType;
+            const watType = (
+              (field && field.isArray && (field.pointerDepth || 0) > 0) ||
+              (field && field.declaredAsArray && (field.rawPointerDepth || 0) > 0) ||
+              (field && (field.pointerDepth || 0) > 1)
+            ) ? 'i32' : rawBaseType;
             // Collect index expressions starting at lastBracketIdx
             const indexSuffixes = allSuffixes.slice(lastBracketIdx).filter(
               (s) => firstTerminal(s, 'TOKEN__5B_')
@@ -4853,6 +4859,9 @@ function getIndexedAccessInfoFromPostfix(node, context) {
             let pointerPointeeDimensions = (field && Array.isArray(field.arrayDimensions))
               ? field.arrayDimensions.slice(1) : [];
             let addressInstructions = memberAccess.addressInstructions;
+            if (fieldIsIndexablePointer) {
+              addressInstructions = addressInstructions.concat('i32.load');
+            }
             let resultObjectDimensions = [];
             for (const indexExpression of indexExpressions) {
               const stride = getStrideForAccess(watType, pointerPointeeDimensions);
@@ -5959,14 +5968,14 @@ function compileAdditiveExpression(node, context) {
 
 function getTypedComparisonOpcode(baseOperator, watType = 'i32', useUnsigned = false) {
   const effectiveType = toWatType(watType || 'i32');
+  if (baseOperator === 'eq' || baseOperator === 'ne') {
+    return `${effectiveType}.${baseOperator}`;
+  }
   if (effectiveType === 'i64') {
     return `i64.${baseOperator}_${useUnsigned ? 'u' : 's'}`;
   }
   if (effectiveType === 'f32' || effectiveType === 'f64') {
     return `${effectiveType}.${baseOperator}`;
-  }
-  if (baseOperator === 'eq' || baseOperator === 'ne') {
-    return `i32.${baseOperator}`;
   }
   return `i32.${baseOperator}_${useUnsigned ? 'u' : 's'}`;
 }
