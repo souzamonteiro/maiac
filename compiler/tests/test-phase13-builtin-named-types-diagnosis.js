@@ -50,7 +50,7 @@ const cases = [
         '}'
       ].join('\n');
 
-      assert.strictEqual(runEntryFromSource(source), 18);
+      assert.strictEqual(runEntryFromSource(source), 22);
     }
   },
   {

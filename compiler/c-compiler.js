@@ -9,7 +9,6 @@ const { ParseTreeCollector, printTree } = require('./parse-tree-collector');
 const { renderModule } = require('./wat-templates');
 const {
   preprocessCSource,
-  collectNamedAggregateTags,
   collectTypedefAliases: collectTypedefAliasesFromPreprocessor
 } = require('./c-preprocessor');
 
@@ -396,10 +395,7 @@ function registerStructLayout(layout, moduleModel, explicitName = null) {
     moduleModel.pendingStructLayouts = [];
   }
 
-  let name = explicitName || layout.name;
-  if (!name && Array.isArray(moduleModel.pendingAggregateTags) && moduleModel.pendingAggregateTags.length > 0) {
-    name = moduleModel.pendingAggregateTags.shift() || null;
-  }
+  const name = explicitName || layout.name;
 
   if (name) {
     layout.name = name;
@@ -1850,7 +1846,6 @@ function buildModuleModel(ast, options = {}) {
     functionSignaturesByName: new Map(),
     structsByName: new Map(),
     pendingStructLayouts: [],
-    pendingAggregateTags: Array.isArray(options.aggregateTags) ? [...options.aggregateTags] : [],
     enumValues: new Map(),
     definedEnumTags: new Set(),
     externVariableDeclarations: new Map(),
@@ -4976,7 +4971,7 @@ function getMemberAccessPathAfterFirstCall(node) {
     }
 
     accessPath.push({
-      operator: isArrow ? 'arrow' : 'dot',
+      isArrow,
       fieldName: identifier.value
     });
   }
@@ -5009,7 +5004,7 @@ function getMemberAccessPathBeforeFirstCall(node) {
     }
 
     accessPath.push({
-      operator: isArrow ? 'arrow' : 'dot',
+      isArrow,
       fieldName: identifier.value
     });
   }
@@ -7634,9 +7629,7 @@ function compileSource(source, options = {}) {
     includeDirs,
     resolveSystemIncludes: options.resolveSystemIncludes === true
   });
-  const moduleModel = buildModuleModel(parsed.ast, {
-    aggregateTags: collectNamedAggregateTags(parsed.normalizedSource || source)
-  });
+  const moduleModel = buildModuleModel(parsed.ast);
   const wat = emitter(moduleModel, options);
 
   let wasm = null;

@@ -87,7 +87,7 @@ Note: All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`) are fully implemen
 3. ~~Expand function-call forms beyond current named-call restrictions~~ — completed 2026-05-05.
 4. ~~Add negative diagnostics for designated initializer error paths (Phase 3 coverage expansion).~~ — completed 2026-05-05.
 5. ~~Expand Phase 4 multi-level declarator nesting and pointer-to-array chains.~~ — completed 2026-05-05.
-6. ~~Fix `sizeof` for `short` (2), `long` (4), and local struct declarations.~~ — completed 2026-05-05.
+6. ~~Fix `sizeof` for `short` (2), `long` (8), and local struct declarations.~~ — completed 2026-05-05.
 7. ~~Expand Phase 5 preprocessor edge cases (#elif/#undef/#ifdef/#ifndef + recursive includes).~~ — completed 2026-05-05.
 8. ~~Expand Phase 6 selection statement coverage (if/else-if/switch/ternary/error cases).~~ — completed 2026-05-05.
 9. ~~Expand Phase 7 iteration statement coverage (while/do-while/for/nested/break-continue).~~ — completed 2026-05-05.
