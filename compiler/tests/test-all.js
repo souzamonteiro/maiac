@@ -6,6 +6,7 @@ const { spawnSync } = require('child_process');
 
 const scripts = [
   'test-preprocessor.js',
+  'test-comment-tokenization-regression.js',
   'test-c89-mini-suite.js',
   'test-example-suite.js',
   'test-example-diagnostic-suite.js',

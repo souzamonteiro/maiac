@@ -364,7 +364,7 @@ NewLine ::= #xA
 Comment ::= MultiLineComment
           | SingleLineComment
 
-MultiLineComment ::= '/*' ( .* - ( .* '*/' .* ) ) '*/'
+MultiLineComment ::= '/*' ( [^*] | '*' [^/] )* '*/'
 
 SingleLineComment ::= '//' [^\n\r]* ( NewLine | EOF )
 

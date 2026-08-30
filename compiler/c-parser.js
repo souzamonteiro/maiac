@@ -6,7 +6,7 @@ class Lexer {
     this.charClassDepth = 0;
     this.templateDepth = 0;
     this.templateBraceDepthStack = [];
-    this.tokenPatterns = [    { type: 'TOKEN__3B_', regex: /^;/ },    { type: 'TOKEN_auto', regex: /^auto/ },    { type: 'TOKEN_register', regex: /^register/ },    { type: 'TOKEN_static', regex: /^static/ },    { type: 'TOKEN_extern', regex: /^extern/ },    { type: 'TOKEN_typedef', regex: /^typedef/ },    { type: 'TOKEN_void', regex: /^void/ },    { type: 'TOKEN_char', regex: /^char/ },    { type: 'TOKEN_short', regex: /^short/ },    { type: 'TOKEN_int', regex: /^int/ },    { type: 'TOKEN_long', regex: /^long/ },    { type: 'TOKEN_float', regex: /^float/ },    { type: 'TOKEN_double', regex: /^double/ },    { type: 'TOKEN_signed', regex: /^signed/ },    { type: 'TOKEN_unsigned', regex: /^unsigned/ },    { type: 'TOKEN_const', regex: /^const/ },    { type: 'TOKEN_volatile', regex: /^volatile/ },    { type: 'TOKEN__7B_', regex: /^\{/ },    { type: 'TOKEN__7D_', regex: /^\}/ },    { type: 'TOKEN_struct', regex: /^struct/ },    { type: 'TOKEN_union', regex: /^union/ },    { type: 'TOKEN__2C_', regex: /^,/ },    { type: 'TOKEN__3D_', regex: /^=/ },    { type: 'TOKEN__3A_', regex: /^:/ },    { type: 'TOKEN_enum', regex: /^enum/ },    { type: 'TOKEN__28_', regex: /^\(/ },    { type: 'TOKEN__29_', regex: /^\)/ },    { type: 'TOKEN__5B_', regex: /^\[/ },    { type: 'TOKEN__5D_', regex: /^\]/ },    { type: 'TOKEN__2A_', regex: /^\*/ },    { type: 'TOKEN__2E__2E__2E_', regex: /^\.\.\./ },    { type: 'TOKEN__2E_', regex: /^\./ },    { type: 'TOKEN_case', regex: /^case/ },    { type: 'TOKEN_default', regex: /^default/ },    { type: 'TOKEN_if', regex: /^if/ },    { type: 'TOKEN_else', regex: /^else/ },    { type: 'TOKEN_switch', regex: /^switch/ },    { type: 'TOKEN_while', regex: /^while/ },    { type: 'TOKEN_do', regex: /^do/ },    { type: 'TOKEN_for', regex: /^for/ },    { type: 'TOKEN_goto', regex: /^goto/ },    { type: 'TOKEN_continue', regex: /^continue/ },    { type: 'TOKEN_break', regex: /^break/ },    { type: 'TOKEN_return', regex: /^return/ },    { type: 'TOKEN__2A__3D_', regex: /^\*=/ },    { type: 'TOKEN__2F__3D_', regex: /^\/=/ },    { type: 'TOKEN__25__3D_', regex: /^%=/ },    { type: 'TOKEN__2B__3D_', regex: /^\+=/ },    { type: 'TOKEN__2D__3D_', regex: /^-=/ },    { type: 'TOKEN__3C__3C__3D_', regex: /^<<=/ },    { type: 'TOKEN__3E__3E__3D_', regex: /^>>=/ },    { type: 'TOKEN__26__3D_', regex: /^&=/ },    { type: 'TOKEN__5E__3D_', regex: /^\^=/ },    { type: 'TOKEN__7C__3D_', regex: /^\|=/ },    { type: 'TOKEN__3F_', regex: /^\?/ },    { type: 'TOKEN__7C__7C_', regex: /^\|\|/ },    { type: 'TOKEN__26__26_', regex: /^&&/ },    { type: 'TOKEN__7C_', regex: /^\|/ },    { type: 'TOKEN__5E_', regex: /^\^/ },    { type: 'TOKEN__26_', regex: /^&/ },    { type: 'TOKEN__3D__3D_', regex: /^==/ },    { type: 'TOKEN__21__3D_', regex: /^!=/ },    { type: 'TOKEN__3C_', regex: /^</ },    { type: 'TOKEN__3E_', regex: /^>/ },    { type: 'TOKEN__3C__3D_', regex: /^<=/ },    { type: 'TOKEN__3E__3D_', regex: /^>=/ },    { type: 'TOKEN__3C__3C_', regex: /^<</ },    { type: 'TOKEN__3E__3E_', regex: /^>>/ },    { type: 'TOKEN__2B_', regex: /^\+/ },    { type: 'TOKEN__2D_', regex: /^-/ },    { type: 'TOKEN__2F_', regex: /^\// },    { type: 'TOKEN__25_', regex: /^%/ },    { type: 'TOKEN__2B__2B_', regex: /^\+\+/ },    { type: 'TOKEN__2D__2D_', regex: /^--/ },    { type: 'TOKEN_sizeof', regex: /^sizeof/ },    { type: 'TOKEN__7E_', regex: /^~/ },    { type: 'TOKEN__21_', regex: /^!/ },    { type: 'TOKEN__2D__3E_', regex: /^->/ },    { type: 'Identifier', regex: /^(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*/ },    { type: 'IntegerConstant', regex: /^(?:[1-9](?:[0-9])*|0(?:[0-7])*|0[xX](?:[0-9a-fA-F])+|0[bB](?:[01])+)/ },    { type: 'FloatingConstant', regex: /^(?:(?:(?:[0-9])+\.(?:[0-9])*(?:[eE](?:[+-])?(?:[0-9])+)?(?:[fFlL])?|\.(?:[0-9])+(?:[eE](?:[+-])?(?:[0-9])+)?(?:[fFlL])?|(?:[0-9])+[eE](?:[+-])?(?:[0-9])+(?:[fFlL])?|(?:[0-9])+[fFlL])|(?:0[xX](?:(?:[0-9a-fA-F])+\.(?:[0-9a-fA-F])*|\.(?:[0-9a-fA-F])+|(?:[0-9a-fA-F])+)[pP](?:[+-])?(?:[0-9])+(?:[fFlL])?|0[xX](?:(?:[0-9a-fA-F])+\.(?:[0-9a-fA-F])*|\.(?:[0-9a-fA-F])+|(?:[0-9a-fA-F])+)[pP](?:[+-])?(?:[0-9])+(?:[fFlL])?))/ },    { type: 'CharacterConstant', regex: /^(?:\\\\)?'(?:(?:[!-~]| |(?:\\['"?nrtv]|\\[0-7](?:[0-7])?(?:[0-7])?|\\[xX](?:[0-9a-fA-F])+|(?:\\u[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]|\\U[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]))))+'/ },    { type: 'StringLiteral', regex: /^"(?:(?:[#-[!]|[\u005d-\u007e]| |\u0009|(?:\\['"?nrtv]|\\[0-7](?:[0-7])?(?:[0-7])?|\\[xX](?:[0-9a-fA-F])+|(?:\\u[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]|\\U[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]))))*"/ },    { type: 'skip', regex: /^(?:[\u0009\u000A\u000D\u0020]+|\/\/[^\n]*\n?|\/\*(?!\s*ws\s*:)[\s\S]*?\*\/)+/, skip: true },    { type: 'Comment', regex: /^(?:\/\*(?:(?:[\s\S])*)\*\/|\/\/(?:[^\\n\\r])*(?:(?:\u000a|\u000d|\u000d\u000a)))/ },    { type: 'PreprocessingDirective', regex: /^(?:(?:#(?:(?: |\u0009|\u000b|\u000c))*define(?:(?: |\u0009|\u000b|\u000c))+(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:(?:[\u0020-\u007e]|\u0009))+))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|\((?:(?: |\u0009|\u000b|\u000c))*(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?:(?:(?: |\u0009|\u000b|\u000c))*,(?:(?: |\u0009|\u000b|\u000c))*(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*))*(?:(?:(?:(?: |\u0009|\u000b|\u000c))*,(?:(?: |\u0009|\u000b|\u000c))*\.\.\.))?|\.\.\.))?(?:(?: |\u0009|\u000b|\u000c))*\)(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:(?:[\u0020-\u007e]|\u0009))+))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a)))|#(?:(?: |\u0009|\u000b|\u000c))*undef(?:(?: |\u0009|\u000b|\u000c))+(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*include(?:(?: |\u0009|\u000b|\u000c))+(?:<(?:(?:[\u0020-\u003d]|[\u003f-\u007e]|\u0009))+>|"(?:(?:[\u0020-\u0021]|[\u0023-\u007e]|\u0009))*")(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*line(?:(?: |\u0009|\u000b|\u000c))+(?:[1-9](?:[0-9])*|0(?:[0-7])*|0[xX](?:[0-9a-fA-F])+|0[bB](?:[01])+)(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:<(?:(?:[\u0020-\u003d]|[\u003f-\u007e]|\u0009))+>|"(?:(?:[\u0020-\u0021]|[\u0023-\u007e]|\u0009))*")))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*error(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:(?:[\u0020-\u007e]|\u0009))+))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*pragma(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:(?:[\u0020-\u007e]|\u0009))+))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a)))|(?:#(?:(?: |\u0009|\u000b|\u000c))*if(?:(?: |\u0009|\u000b|\u000c))+(?:(?:(?:[\u0020-\u007e]|\u0009))+)?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*ifdef(?:(?: |\u0009|\u000b|\u000c))+(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*ifndef(?:(?: |\u0009|\u000b|\u000c))+(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a)))|#(?:(?: |\u0009|\u000b|\u000c))*elif(?:(?: |\u0009|\u000b|\u000c))+(?:(?:(?:[\u0020-\u007e]|\u0009))+)?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*else(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*endif(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a)))/ },    ];
+    this.tokenPatterns = [    { type: 'TOKEN__3B_', regex: /^;/ },    { type: 'TOKEN_auto', regex: /^auto/ },    { type: 'TOKEN_register', regex: /^register/ },    { type: 'TOKEN_static', regex: /^static/ },    { type: 'TOKEN_extern', regex: /^extern/ },    { type: 'TOKEN_typedef', regex: /^typedef/ },    { type: 'TOKEN_void', regex: /^void/ },    { type: 'TOKEN_char', regex: /^char/ },    { type: 'TOKEN_short', regex: /^short/ },    { type: 'TOKEN_int', regex: /^int/ },    { type: 'TOKEN_long', regex: /^long/ },    { type: 'TOKEN_float', regex: /^float/ },    { type: 'TOKEN_double', regex: /^double/ },    { type: 'TOKEN_signed', regex: /^signed/ },    { type: 'TOKEN_unsigned', regex: /^unsigned/ },    { type: 'TOKEN_const', regex: /^const/ },    { type: 'TOKEN_volatile', regex: /^volatile/ },    { type: 'TOKEN__7B_', regex: /^\{/ },    { type: 'TOKEN__7D_', regex: /^\}/ },    { type: 'TOKEN_struct', regex: /^struct/ },    { type: 'TOKEN_union', regex: /^union/ },    { type: 'TOKEN__2C_', regex: /^,/ },    { type: 'TOKEN__3D_', regex: /^=/ },    { type: 'TOKEN__3A_', regex: /^:/ },    { type: 'TOKEN_enum', regex: /^enum/ },    { type: 'TOKEN__28_', regex: /^\(/ },    { type: 'TOKEN__29_', regex: /^\)/ },    { type: 'TOKEN__5B_', regex: /^\[/ },    { type: 'TOKEN__5D_', regex: /^\]/ },    { type: 'TOKEN__2A_', regex: /^\*/ },    { type: 'TOKEN__2E__2E__2E_', regex: /^\.\.\./ },    { type: 'TOKEN__2E_', regex: /^\./ },    { type: 'TOKEN_case', regex: /^case/ },    { type: 'TOKEN_default', regex: /^default/ },    { type: 'TOKEN_if', regex: /^if/ },    { type: 'TOKEN_else', regex: /^else/ },    { type: 'TOKEN_switch', regex: /^switch/ },    { type: 'TOKEN_while', regex: /^while/ },    { type: 'TOKEN_do', regex: /^do/ },    { type: 'TOKEN_for', regex: /^for/ },    { type: 'TOKEN_goto', regex: /^goto/ },    { type: 'TOKEN_continue', regex: /^continue/ },    { type: 'TOKEN_break', regex: /^break/ },    { type: 'TOKEN_return', regex: /^return/ },    { type: 'TOKEN__2A__3D_', regex: /^\*=/ },    { type: 'TOKEN__2F__3D_', regex: /^\/=/ },    { type: 'TOKEN__25__3D_', regex: /^%=/ },    { type: 'TOKEN__2B__3D_', regex: /^\+=/ },    { type: 'TOKEN__2D__3D_', regex: /^-=/ },    { type: 'TOKEN__3C__3C__3D_', regex: /^<<=/ },    { type: 'TOKEN__3E__3E__3D_', regex: /^>>=/ },    { type: 'TOKEN__26__3D_', regex: /^&=/ },    { type: 'TOKEN__5E__3D_', regex: /^\^=/ },    { type: 'TOKEN__7C__3D_', regex: /^\|=/ },    { type: 'TOKEN__3F_', regex: /^\?/ },    { type: 'TOKEN__7C__7C_', regex: /^\|\|/ },    { type: 'TOKEN__26__26_', regex: /^&&/ },    { type: 'TOKEN__7C_', regex: /^\|/ },    { type: 'TOKEN__5E_', regex: /^\^/ },    { type: 'TOKEN__26_', regex: /^&/ },    { type: 'TOKEN__3D__3D_', regex: /^==/ },    { type: 'TOKEN__21__3D_', regex: /^!=/ },    { type: 'TOKEN__3C_', regex: /^</ },    { type: 'TOKEN__3E_', regex: /^>/ },    { type: 'TOKEN__3C__3D_', regex: /^<=/ },    { type: 'TOKEN__3E__3D_', regex: /^>=/ },    { type: 'TOKEN__3C__3C_', regex: /^<</ },    { type: 'TOKEN__3E__3E_', regex: /^>>/ },    { type: 'TOKEN__2B_', regex: /^\+/ },    { type: 'TOKEN__2D_', regex: /^-/ },    { type: 'TOKEN__2F_', regex: /^\// },    { type: 'TOKEN__25_', regex: /^%/ },    { type: 'TOKEN__2B__2B_', regex: /^\+\+/ },    { type: 'TOKEN__2D__2D_', regex: /^--/ },    { type: 'TOKEN_sizeof', regex: /^sizeof/ },    { type: 'TOKEN__7E_', regex: /^~/ },    { type: 'TOKEN__21_', regex: /^!/ },    { type: 'TOKEN__2D__3E_', regex: /^->/ },    { type: 'Identifier', regex: /^(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*/ },    { type: 'IntegerConstant', regex: /^(?:[1-9](?:[0-9])*|0(?:[0-7])*|0[xX](?:[0-9a-fA-F])+|0[bB](?:[01])+)/ },    { type: 'FloatingConstant', regex: /^(?:(?:(?:[0-9])+\.(?:[0-9])*(?:[eE](?:[+-])?(?:[0-9])+)?(?:[fFlL])?|\.(?:[0-9])+(?:[eE](?:[+-])?(?:[0-9])+)?(?:[fFlL])?|(?:[0-9])+[eE](?:[+-])?(?:[0-9])+(?:[fFlL])?|(?:[0-9])+[fFlL])|(?:0[xX](?:(?:[0-9a-fA-F])+\.(?:[0-9a-fA-F])*|\.(?:[0-9a-fA-F])+|(?:[0-9a-fA-F])+)[pP](?:[+-])?(?:[0-9])+(?:[fFlL])?|0[xX](?:(?:[0-9a-fA-F])+\.(?:[0-9a-fA-F])*|\.(?:[0-9a-fA-F])+|(?:[0-9a-fA-F])+)[pP](?:[+-])?(?:[0-9])+(?:[fFlL])?))/ },    { type: 'CharacterConstant', regex: /^(?:\\\\)?'(?:(?:[!-~]| |(?:\\['"?nrtv]|\\[0-7](?:[0-7])?(?:[0-7])?|\\[xX](?:[0-9a-fA-F])+|(?:\\u[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]|\\U[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]))))+'/ },    { type: 'StringLiteral', regex: /^"(?:(?:[#-[!]|[\u005d-\u007e]| |\u0009|(?:\\['"?nrtv]|\\[0-7](?:[0-7])?(?:[0-7])?|\\[xX](?:[0-9a-fA-F])+|(?:\\u[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]|\\U[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]))))*"/ },    { type: 'skip', regex: /^(?:[\u0009\u000A\u000D\u0020]+|\/\/[^\n]*\n?|\/\*(?!\s*ws\s*:)[\s\S]*?\*\/)+/, skip: true },    { type: 'Comment', regex: /^(?:\/\*(?:(?:[^*]|\*[^/]))*\*\/|\/\/(?:[^\\n\\r])*(?:(?:\u000a|\u000d|\u000d\u000a)))/ },    { type: 'PreprocessingDirective', regex: /^(?:(?:#(?:(?: |\u0009|\u000b|\u000c))*define(?:(?: |\u0009|\u000b|\u000c))+(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:(?:[\u0020-\u007e]|\u0009))+))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|\((?:(?: |\u0009|\u000b|\u000c))*(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?:(?:(?: |\u0009|\u000b|\u000c))*,(?:(?: |\u0009|\u000b|\u000c))*(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*))*(?:(?:(?:(?: |\u0009|\u000b|\u000c))*,(?:(?: |\u0009|\u000b|\u000c))*\.\.\.))?|\.\.\.))?(?:(?: |\u0009|\u000b|\u000c))*\)(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:(?:[\u0020-\u007e]|\u0009))+))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a)))|#(?:(?: |\u0009|\u000b|\u000c))*undef(?:(?: |\u0009|\u000b|\u000c))+(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*include(?:(?: |\u0009|\u000b|\u000c))+(?:<(?:(?:[\u0020-\u003d]|[\u003f-\u007e]|\u0009))+>|"(?:(?:[\u0020-\u0021]|[\u0023-\u007e]|\u0009))*")(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*line(?:(?: |\u0009|\u000b|\u000c))+(?:[1-9](?:[0-9])*|0(?:[0-7])*|0[xX](?:[0-9a-fA-F])+|0[bB](?:[01])+)(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:<(?:(?:[\u0020-\u003d]|[\u003f-\u007e]|\u0009))+>|"(?:(?:[\u0020-\u0021]|[\u0023-\u007e]|\u0009))*")))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*error(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:(?:[\u0020-\u007e]|\u0009))+))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*pragma(?:(?:(?:(?: |\u0009|\u000b|\u000c))+(?:(?:[\u0020-\u007e]|\u0009))+))?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a)))|(?:#(?:(?: |\u0009|\u000b|\u000c))*if(?:(?: |\u0009|\u000b|\u000c))+(?:(?:(?:[\u0020-\u007e]|\u0009))+)?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*ifdef(?:(?: |\u0009|\u000b|\u000c))+(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*ifndef(?:(?: |\u0009|\u000b|\u000c))+(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])(?:(?:(?:[A-Z]|_|[a-z]|[\u00c0-\u00d6]|[\u00d8-\u00f6]|[\u00f8-\u02ff]|[\u0370-\u037d]|[\u037f-\u1fff]|[\u200c-\u200d]|[\u2070-\u218f]|[\u2c00-\u2fef]|[\u3001-\ud7ff]|[\uf900-\ufdcf]|[\ufdf0-\ufffd])|[0-9]|·|[\u0300-\u036f]|[\u203f-\u2040]))*(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a)))|#(?:(?: |\u0009|\u000b|\u000c))*elif(?:(?: |\u0009|\u000b|\u000c))+(?:(?:(?:[\u0020-\u007e]|\u0009))+)?(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*else(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*endif(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a))|#(?:(?: |\u0009|\u000b|\u000c))*(?:(?:\u000a|\u000d|\u000d\u000a)))/ },    ];
   }
 
   isTemplateSpanPattern(pos, kind) {
@@ -216,6 +216,7 @@ class Parser {
     this.position = 0;
     this.errors = [];
     this.eventHandler = eventHandler;
+    this.failureMemo = new Set();
   }
   
   peek(offset = 0) {
@@ -305,6 +306,11 @@ class Parser {
     return result;
   }
   parsetranslationUnit() {
+    const __memoStart = this.position;
+    const __memoKey = 'translationUnit@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule translationUnit at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('translationUnit', this.position);
     }
@@ -330,6 +336,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('translationUnit', this.position);
@@ -341,6 +350,11 @@ class Parser {
     }
   }
   parsetranslationUnitItem() {
+    const __memoStart = this.position;
+    const __memoKey = 'translationUnitItem@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule translationUnitItem at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('translationUnitItem', this.position);
     }
@@ -384,6 +398,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('translationUnitItem', this.position);
@@ -395,6 +412,11 @@ class Parser {
     }
   }
   parseexternalDeclaration() {
+    const __memoStart = this.position;
+    const __memoKey = 'externalDeclaration@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule externalDeclaration at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('externalDeclaration', this.position);
     }
@@ -428,6 +450,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('externalDeclaration', this.position);
@@ -439,6 +464,11 @@ class Parser {
     }
   }
   parsefunctionDefinition() {
+    const __memoStart = this.position;
+    const __memoKey = 'functionDefinition@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule functionDefinition at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('functionDefinition', this.position);
     }
@@ -471,6 +501,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('functionDefinition', this.position);
@@ -482,6 +515,11 @@ class Parser {
     }
   }
   parsedeclaration() {
+    const __memoStart = this.position;
+    const __memoKey = 'declaration@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule declaration at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('declaration', this.position);
     }
@@ -503,6 +541,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('declaration', this.position);
@@ -514,6 +555,11 @@ class Parser {
     }
   }
   parsedeclarationList() {
+    const __memoStart = this.position;
+    const __memoKey = 'declarationList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule declarationList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('declarationList', this.position);
     }
@@ -539,6 +585,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('declarationList', this.position);
@@ -550,6 +599,11 @@ class Parser {
     }
   }
   parsedeclarationSpecifiers() {
+    const __memoStart = this.position;
+    const __memoKey = 'declarationSpecifiers@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule declarationSpecifiers at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('declarationSpecifiers', this.position);
     }
@@ -583,6 +637,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('declarationSpecifiers', this.position);
@@ -594,6 +651,11 @@ class Parser {
     }
   }
   parsedeclarationSpecifierPrefix() {
+    const __memoStart = this.position;
+    const __memoKey = 'declarationSpecifierPrefix@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule declarationSpecifierPrefix at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('declarationSpecifierPrefix', this.position);
     }
@@ -627,6 +689,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('declarationSpecifierPrefix', this.position);
@@ -638,6 +703,11 @@ class Parser {
     }
   }
   parsedeclarationSpecifierSuffix() {
+    const __memoStart = this.position;
+    const __memoKey = 'declarationSpecifierSuffix@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule declarationSpecifierSuffix at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('declarationSpecifierSuffix', this.position);
     }
@@ -647,6 +717,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('declarationSpecifierSuffix', this.position);
@@ -658,6 +731,11 @@ class Parser {
     }
   }
   parsestorageClassSpecifier() {
+    const __memoStart = this.position;
+    const __memoKey = 'storageClassSpecifier@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule storageClassSpecifier at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('storageClassSpecifier', this.position);
     }
@@ -721,6 +799,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('storageClassSpecifier', this.position);
@@ -732,6 +813,11 @@ class Parser {
     }
   }
   parsetypeSpecifier() {
+    const __memoStart = this.position;
+    const __memoKey = 'typeSpecifier@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule typeSpecifier at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('typeSpecifier', this.position);
     }
@@ -765,6 +851,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('typeSpecifier', this.position);
@@ -776,6 +865,11 @@ class Parser {
     }
   }
   parsetypeSpecifierSequence() {
+    const __memoStart = this.position;
+    const __memoKey = 'typeSpecifierSequence@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule typeSpecifierSequence at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('typeSpecifierSequence', this.position);
     }
@@ -825,6 +919,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('typeSpecifierSequence', this.position);
@@ -836,6 +933,11 @@ class Parser {
     }
   }
   parsebuiltinTypeSpecifier() {
+    const __memoStart = this.position;
+    const __memoKey = 'builtinTypeSpecifier@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule builtinTypeSpecifier at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('builtinTypeSpecifier', this.position);
     }
@@ -939,6 +1041,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('builtinTypeSpecifier', this.position);
@@ -950,6 +1055,11 @@ class Parser {
     }
   }
   parsenamedTypeSpecifier() {
+    const __memoStart = this.position;
+    const __memoKey = 'namedTypeSpecifier@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule namedTypeSpecifier at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('namedTypeSpecifier', this.position);
     }
@@ -993,6 +1103,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('namedTypeSpecifier', this.position);
@@ -1004,6 +1117,11 @@ class Parser {
     }
   }
   parsetypeQualifier() {
+    const __memoStart = this.position;
+    const __memoKey = 'typeQualifier@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule typeQualifier at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('typeQualifier', this.position);
     }
@@ -1037,6 +1155,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('typeQualifier', this.position);
@@ -1048,6 +1169,11 @@ class Parser {
     }
   }
   parsestructOrUnionSpecifier() {
+    const __memoStart = this.position;
+    const __memoKey = 'structOrUnionSpecifier@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule structOrUnionSpecifier at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('structOrUnionSpecifier', this.position);
     }
@@ -1086,6 +1212,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('structOrUnionSpecifier', this.position);
@@ -1097,6 +1226,11 @@ class Parser {
     }
   }
   parsestructOrUnion() {
+    const __memoStart = this.position;
+    const __memoKey = 'structOrUnion@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule structOrUnion at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('structOrUnion', this.position);
     }
@@ -1130,6 +1264,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('structOrUnion', this.position);
@@ -1141,6 +1278,11 @@ class Parser {
     }
   }
   parsestructDeclarationList() {
+    const __memoStart = this.position;
+    const __memoKey = 'structDeclarationList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule structDeclarationList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('structDeclarationList', this.position);
     }
@@ -1166,6 +1308,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('structDeclarationList', this.position);
@@ -1177,6 +1322,11 @@ class Parser {
     }
   }
   parseinitDeclaratorList() {
+    const __memoStart = this.position;
+    const __memoKey = 'initDeclaratorList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule initDeclaratorList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('initDeclaratorList', this.position);
     }
@@ -1200,6 +1350,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('initDeclaratorList', this.position);
@@ -1211,6 +1364,11 @@ class Parser {
     }
   }
   parseinitDeclarator() {
+    const __memoStart = this.position;
+    const __memoKey = 'initDeclarator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule initDeclarator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('initDeclarator', this.position);
     }
@@ -1246,6 +1404,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('initDeclarator', this.position);
@@ -1257,6 +1418,11 @@ class Parser {
     }
   }
   parsestructDeclaration() {
+    const __memoStart = this.position;
+    const __memoKey = 'structDeclaration@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule structDeclaration at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('structDeclaration', this.position);
     }
@@ -1268,6 +1434,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('structDeclaration', this.position);
@@ -1279,6 +1448,11 @@ class Parser {
     }
   }
   parsespecifierQualifierList() {
+    const __memoStart = this.position;
+    const __memoKey = 'specifierQualifierList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule specifierQualifierList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('specifierQualifierList', this.position);
     }
@@ -1312,6 +1486,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('specifierQualifierList', this.position);
@@ -1323,6 +1500,11 @@ class Parser {
     }
   }
   parsestructDeclaratorList() {
+    const __memoStart = this.position;
+    const __memoKey = 'structDeclaratorList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule structDeclaratorList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('structDeclaratorList', this.position);
     }
@@ -1346,6 +1528,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('structDeclaratorList', this.position);
@@ -1357,6 +1542,11 @@ class Parser {
     }
   }
   parsestructDeclarator() {
+    const __memoStart = this.position;
+    const __memoKey = 'structDeclarator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule structDeclarator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('structDeclarator', this.position);
     }
@@ -1402,6 +1592,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('structDeclarator', this.position);
@@ -1413,6 +1606,11 @@ class Parser {
     }
   }
   parseenumSpecifier() {
+    const __memoStart = this.position;
+    const __memoKey = 'enumSpecifier@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule enumSpecifier at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('enumSpecifier', this.position);
     }
@@ -1451,6 +1649,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('enumSpecifier', this.position);
@@ -1462,6 +1663,11 @@ class Parser {
     }
   }
   parseenumeratorList() {
+    const __memoStart = this.position;
+    const __memoKey = 'enumeratorList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule enumeratorList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('enumeratorList', this.position);
     }
@@ -1485,6 +1691,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('enumeratorList', this.position);
@@ -1496,6 +1705,11 @@ class Parser {
     }
   }
   parseenumerator() {
+    const __memoStart = this.position;
+    const __memoKey = 'enumerator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule enumerator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('enumerator', this.position);
     }
@@ -1531,6 +1745,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('enumerator', this.position);
@@ -1542,6 +1759,11 @@ class Parser {
     }
   }
   parsedeclarator() {
+    const __memoStart = this.position;
+    const __memoKey = 'declarator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule declarator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('declarator', this.position);
     }
@@ -1562,6 +1784,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('declarator', this.position);
@@ -1573,6 +1798,11 @@ class Parser {
     }
   }
   parsedirectDeclarator() {
+    const __memoStart = this.position;
+    const __memoKey = 'directDeclarator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule directDeclarator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('directDeclarator', this.position);
     }
@@ -1594,6 +1824,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('directDeclarator', this.position);
@@ -1605,6 +1838,11 @@ class Parser {
     }
   }
   parsedirectDeclaratorBase() {
+    const __memoStart = this.position;
+    const __memoKey = 'directDeclaratorBase@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule directDeclaratorBase at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('directDeclaratorBase', this.position);
     }
@@ -1640,6 +1878,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('directDeclaratorBase', this.position);
@@ -1651,6 +1892,11 @@ class Parser {
     }
   }
   parsedirectDeclaratorSuffix() {
+    const __memoStart = this.position;
+    const __memoKey = 'directDeclaratorSuffix@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule directDeclaratorSuffix at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('directDeclaratorSuffix', this.position);
     }
@@ -1720,6 +1966,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('directDeclaratorSuffix', this.position);
@@ -1731,6 +1980,11 @@ class Parser {
     }
   }
   parsepointer() {
+    const __memoStart = this.position;
+    const __memoKey = 'pointer@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule pointer at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('pointer', this.position);
     }
@@ -1787,6 +2041,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('pointer', this.position);
@@ -1798,6 +2055,11 @@ class Parser {
     }
   }
   parsetypeQualifierList() {
+    const __memoStart = this.position;
+    const __memoKey = 'typeQualifierList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule typeQualifierList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('typeQualifierList', this.position);
     }
@@ -1823,6 +2085,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('typeQualifierList', this.position);
@@ -1834,6 +2099,11 @@ class Parser {
     }
   }
   parseparameterTypeList() {
+    const __memoStart = this.position;
+    const __memoKey = 'parameterTypeList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule parameterTypeList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('parameterTypeList', this.position);
     }
@@ -1869,6 +2139,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('parameterTypeList', this.position);
@@ -1880,6 +2153,11 @@ class Parser {
     }
   }
   parseparameterList() {
+    const __memoStart = this.position;
+    const __memoKey = 'parameterList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule parameterList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('parameterList', this.position);
     }
@@ -1903,6 +2181,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('parameterList', this.position);
@@ -1914,6 +2195,11 @@ class Parser {
     }
   }
   parseparameterDeclaration() {
+    const __memoStart = this.position;
+    const __memoKey = 'parameterDeclaration@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule parameterDeclaration at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('parameterDeclaration', this.position);
     }
@@ -1959,6 +2245,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('parameterDeclaration', this.position);
@@ -1970,6 +2259,11 @@ class Parser {
     }
   }
   parseidentifierList() {
+    const __memoStart = this.position;
+    const __memoKey = 'identifierList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule identifierList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('identifierList', this.position);
     }
@@ -1993,6 +2287,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('identifierList', this.position);
@@ -2004,6 +2301,11 @@ class Parser {
     }
   }
   parseinitializer() {
+    const __memoStart = this.position;
+    const __memoKey = 'initializer@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule initializer at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('initializer', this.position);
     }
@@ -2052,6 +2354,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('initializer', this.position);
@@ -2063,6 +2368,11 @@ class Parser {
     }
   }
   parseinitializerList() {
+    const __memoStart = this.position;
+    const __memoKey = 'initializerList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule initializerList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('initializerList', this.position);
     }
@@ -2108,6 +2418,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('initializerList', this.position);
@@ -2119,6 +2432,11 @@ class Parser {
     }
   }
   parsedesignation() {
+    const __memoStart = this.position;
+    const __memoKey = 'designation@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule designation at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('designation', this.position);
     }
@@ -2129,6 +2447,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('designation', this.position);
@@ -2140,6 +2461,11 @@ class Parser {
     }
   }
   parsedesignatorList() {
+    const __memoStart = this.position;
+    const __memoKey = 'designatorList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule designatorList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('designatorList', this.position);
     }
@@ -2165,6 +2491,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('designatorList', this.position);
@@ -2176,6 +2505,11 @@ class Parser {
     }
   }
   parsedesignator() {
+    const __memoStart = this.position;
+    const __memoKey = 'designator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule designator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('designator', this.position);
     }
@@ -2212,6 +2546,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('designator', this.position);
@@ -2223,6 +2560,11 @@ class Parser {
     }
   }
   parsetypeName() {
+    const __memoStart = this.position;
+    const __memoKey = 'typeName@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule typeName at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('typeName', this.position);
     }
@@ -2243,6 +2585,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('typeName', this.position);
@@ -2254,6 +2599,11 @@ class Parser {
     }
   }
   parseabstractDeclarator() {
+    const __memoStart = this.position;
+    const __memoKey = 'abstractDeclarator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule abstractDeclarator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('abstractDeclarator', this.position);
     }
@@ -2298,6 +2648,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('abstractDeclarator', this.position);
@@ -2309,6 +2662,11 @@ class Parser {
     }
   }
   parsedirectAbstractDeclarator() {
+    const __memoStart = this.position;
+    const __memoKey = 'directAbstractDeclarator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule directAbstractDeclarator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('directAbstractDeclarator', this.position);
     }
@@ -2372,6 +2730,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('directAbstractDeclarator', this.position);
@@ -2383,6 +2744,11 @@ class Parser {
     }
   }
   parsedirectAbstractDeclaratorSuffix() {
+    const __memoStart = this.position;
+    const __memoKey = 'directAbstractDeclaratorSuffix@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule directAbstractDeclaratorSuffix at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('directAbstractDeclaratorSuffix', this.position);
     }
@@ -2440,6 +2806,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('directAbstractDeclaratorSuffix', this.position);
@@ -2451,6 +2820,11 @@ class Parser {
     }
   }
   parsetypedefName() {
+    const __memoStart = this.position;
+    const __memoKey = 'typedefName@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule typedefName at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('typedefName', this.position);
     }
@@ -2460,6 +2834,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('typedefName', this.position);
@@ -2471,6 +2848,11 @@ class Parser {
     }
   }
   parsestatement() {
+    const __memoStart = this.position;
+    const __memoKey = 'statement@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule statement at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('statement', this.position);
     }
@@ -2554,6 +2936,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('statement', this.position);
@@ -2565,6 +2950,11 @@ class Parser {
     }
   }
   parselabeledStatement() {
+    const __memoStart = this.position;
+    const __memoKey = 'labeledStatement@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule labeledStatement at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('labeledStatement', this.position);
     }
@@ -2615,6 +3005,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('labeledStatement', this.position);
@@ -2626,6 +3019,11 @@ class Parser {
     }
   }
   parseexpressionStatement() {
+    const __memoStart = this.position;
+    const __memoKey = 'expressionStatement@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule expressionStatement at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('expressionStatement', this.position);
     }
@@ -2646,6 +3044,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('expressionStatement', this.position);
@@ -2657,6 +3058,11 @@ class Parser {
     }
   }
   parsecompoundStatement() {
+    const __memoStart = this.position;
+    const __memoKey = 'compoundStatement@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule compoundStatement at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('compoundStatement', this.position);
     }
@@ -2679,6 +3085,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('compoundStatement', this.position);
@@ -2690,6 +3099,11 @@ class Parser {
     }
   }
   parseblockItem() {
+    const __memoStart = this.position;
+    const __memoKey = 'blockItem@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule blockItem at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('blockItem', this.position);
     }
@@ -2723,6 +3137,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('blockItem', this.position);
@@ -2734,6 +3151,11 @@ class Parser {
     }
   }
   parsestatementList() {
+    const __memoStart = this.position;
+    const __memoKey = 'statementList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule statementList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('statementList', this.position);
     }
@@ -2759,6 +3181,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('statementList', this.position);
@@ -2770,6 +3195,11 @@ class Parser {
     }
   }
   parseselectionStatement() {
+    const __memoStart = this.position;
+    const __memoKey = 'selectionStatement@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule selectionStatement at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('selectionStatement', this.position);
     }
@@ -2827,6 +3257,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('selectionStatement', this.position);
@@ -2838,6 +3271,11 @@ class Parser {
     }
   }
   parseiterationStatement() {
+    const __memoStart = this.position;
+    const __memoKey = 'iterationStatement@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule iterationStatement at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('iterationStatement', this.position);
     }
@@ -2966,6 +3404,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('iterationStatement', this.position);
@@ -2977,6 +3418,11 @@ class Parser {
     }
   }
   parsejumpStatement() {
+    const __memoStart = this.position;
+    const __memoKey = 'jumpStatement@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule jumpStatement at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('jumpStatement', this.position);
     }
@@ -3046,6 +3492,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('jumpStatement', this.position);
@@ -3057,6 +3506,11 @@ class Parser {
     }
   }
   parseexpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'expression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule expression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('expression', this.position);
     }
@@ -3080,6 +3534,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('expression', this.position);
@@ -3091,6 +3548,11 @@ class Parser {
     }
   }
   parseassignmentExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'assignmentExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule assignmentExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('assignmentExpression', this.position);
     }
@@ -3126,6 +3588,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('assignmentExpression', this.position);
@@ -3137,6 +3602,11 @@ class Parser {
     }
   }
   parseassignmentOperator() {
+    const __memoStart = this.position;
+    const __memoKey = 'assignmentOperator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule assignmentOperator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('assignmentOperator', this.position);
     }
@@ -3260,6 +3730,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('assignmentOperator', this.position);
@@ -3271,6 +3744,11 @@ class Parser {
     }
   }
   parseconditionalExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'conditionalExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule conditionalExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('conditionalExpression', this.position);
     }
@@ -3308,6 +3786,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('conditionalExpression', this.position);
@@ -3319,6 +3800,11 @@ class Parser {
     }
   }
   parseconstantExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'constantExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule constantExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('constantExpression', this.position);
     }
@@ -3328,6 +3814,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('constantExpression', this.position);
@@ -3339,6 +3828,11 @@ class Parser {
     }
   }
   parselogicalOrExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'logicalOrExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule logicalOrExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('logicalOrExpression', this.position);
     }
@@ -3362,6 +3856,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('logicalOrExpression', this.position);
@@ -3373,6 +3870,11 @@ class Parser {
     }
   }
   parselogicalAndExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'logicalAndExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule logicalAndExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('logicalAndExpression', this.position);
     }
@@ -3396,6 +3898,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('logicalAndExpression', this.position);
@@ -3407,6 +3912,11 @@ class Parser {
     }
   }
   parseinclusiveOrExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'inclusiveOrExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule inclusiveOrExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('inclusiveOrExpression', this.position);
     }
@@ -3430,6 +3940,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('inclusiveOrExpression', this.position);
@@ -3441,6 +3954,11 @@ class Parser {
     }
   }
   parseexclusiveOrExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'exclusiveOrExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule exclusiveOrExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('exclusiveOrExpression', this.position);
     }
@@ -3464,6 +3982,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('exclusiveOrExpression', this.position);
@@ -3475,6 +3996,11 @@ class Parser {
     }
   }
   parseandExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'andExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule andExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('andExpression', this.position);
     }
@@ -3498,6 +4024,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('andExpression', this.position);
@@ -3509,6 +4038,11 @@ class Parser {
     }
   }
   parseequalityExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'equalityExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule equalityExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('equalityExpression', this.position);
     }
@@ -3558,6 +4092,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('equalityExpression', this.position);
@@ -3569,6 +4106,11 @@ class Parser {
     }
   }
   parserelationalExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'relationalExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule relationalExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('relationalExpression', this.position);
     }
@@ -3640,6 +4182,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('relationalExpression', this.position);
@@ -3651,6 +4196,11 @@ class Parser {
     }
   }
   parseshiftExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'shiftExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule shiftExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('shiftExpression', this.position);
     }
@@ -3700,6 +4250,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('shiftExpression', this.position);
@@ -3711,6 +4264,11 @@ class Parser {
     }
   }
   parseadditiveExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'additiveExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule additiveExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('additiveExpression', this.position);
     }
@@ -3760,6 +4318,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('additiveExpression', this.position);
@@ -3771,6 +4332,11 @@ class Parser {
     }
   }
   parsemultiplicativeExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'multiplicativeExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule multiplicativeExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('multiplicativeExpression', this.position);
     }
@@ -3831,6 +4397,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('multiplicativeExpression', this.position);
@@ -3842,6 +4411,11 @@ class Parser {
     }
   }
   parsecastExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'castExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule castExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('castExpression', this.position);
     }
@@ -3878,6 +4452,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('castExpression', this.position);
@@ -3889,6 +4466,11 @@ class Parser {
     }
   }
   parseunaryExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'unaryExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule unaryExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('unaryExpression', this.position);
     }
@@ -3980,6 +4562,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('unaryExpression', this.position);
@@ -3991,6 +4576,11 @@ class Parser {
     }
   }
   parseunaryOperator() {
+    const __memoStart = this.position;
+    const __memoKey = 'unaryOperator@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule unaryOperator at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('unaryOperator', this.position);
     }
@@ -4064,6 +4654,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('unaryOperator', this.position);
@@ -4075,6 +4668,11 @@ class Parser {
     }
   }
   parsepostfixExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'postfixExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule postfixExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('postfixExpression', this.position);
     }
@@ -4096,6 +4694,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('postfixExpression', this.position);
@@ -4107,6 +4708,11 @@ class Parser {
     }
   }
   parsepostfixSuffix() {
+    const __memoStart = this.position;
+    const __memoKey = 'postfixSuffix@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule postfixSuffix at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('postfixSuffix', this.position);
     }
@@ -4196,6 +4802,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('postfixSuffix', this.position);
@@ -4207,6 +4816,11 @@ class Parser {
     }
   }
   parseprimaryExpression() {
+    const __memoStart = this.position;
+    const __memoKey = 'primaryExpression@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule primaryExpression at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('primaryExpression', this.position);
     }
@@ -4262,6 +4876,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('primaryExpression', this.position);
@@ -4273,6 +4890,11 @@ class Parser {
     }
   }
   parseargumentExpressionList() {
+    const __memoStart = this.position;
+    const __memoKey = 'argumentExpressionList@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule argumentExpressionList at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('argumentExpressionList', this.position);
     }
@@ -4296,6 +4918,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('argumentExpressionList', this.position);
@@ -4307,6 +4932,11 @@ class Parser {
     }
   }
   parseconstant() {
+    const __memoStart = this.position;
+    const __memoKey = 'constant@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule constant at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('constant', this.position);
     }
@@ -4360,6 +4990,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('constant', this.position);
@@ -4371,6 +5004,11 @@ class Parser {
     }
   }
   parseIgnore() {
+    const __memoStart = this.position;
+    const __memoKey = 'Ignore@' + __memoStart;
+    if (this.failureMemo.has(__memoKey)) {
+      throw new Error('Previously failed rule Ignore at position ' + __memoStart);
+    }
     if (this.eventHandler && typeof this.eventHandler.startNonterminal === 'function') {
       this.eventHandler.startNonterminal('Ignore', this.position);
     }
@@ -4380,6 +5018,9 @@ class Parser {
 
       __ok = true;
     } finally {
+      if (!__ok) {
+        this.failureMemo.add(__memoKey);
+      }
       if (this.eventHandler) {
         if (__ok && typeof this.eventHandler.endNonterminal === 'function') {
           this.eventHandler.endNonterminal('Ignore', this.position);
