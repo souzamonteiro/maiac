@@ -429,6 +429,20 @@ function writeBrowserRunner(outDir, appName) {
             }
           );
 
+          let exceptionRuntime = null;
+          if (runtimeBridgeEntries.length > 0) {
+            await loadScript('./exception.js?v=' + Date.now());
+            const exceptionApi = globalThis.MaiaExceptionRuntime;
+            if (!exceptionApi || typeof exceptionApi.instantiateExceptionRuntime !== 'function') {
+              throw new Error('Async runtime requires exception.js with MaiaExceptionRuntime');
+            }
+            exceptionRuntime = await exceptionApi.instantiateExceptionRuntime({
+              wasmUrl: './exception.wasm'
+            });
+            Object.assign(imports.env, exceptionRuntime.env);
+            imports.env.__exceptionRuntime = exceptionRuntime;
+          }
+
           const copiedLibraries = Array.isArray(manifest.copiedLibraries)
             ? manifest.copiedLibraries
             : [];
@@ -456,13 +470,6 @@ function writeBrowserRunner(outDir, appName) {
           const instantiated = await WebAssembly.instantiate(bytes, imports);
           const instance = instantiated.instance || instantiated;
           memoryRef = instance.exports.memory || null;
-
-          const exceptionRuntime = imports
-            && imports.env
-            && imports.env.__exceptionRuntime
-            && imports.env.__exceptionRuntime.scheduler
-            ? imports.env.__exceptionRuntime
-            : null;
 
           if (exceptionRuntime && exceptionRuntime.scheduler && typeof exceptionRuntime.scheduler.setAutoResumeResolver === 'function') {
             exceptionRuntime.scheduler.setAutoResumeResolver(
@@ -911,6 +918,29 @@ async function _loadLinkedLibraries(baseDir, imports) {
   return loaded;
 }
 
+async function _attachOptionalExceptionRuntime(baseDir, imports, opts) {
+  const path = require('path');
+  const fs = require('fs');
+  const runtimeJs = path.join(baseDir, 'exception.js');
+  const runtimeWasm = path.join(baseDir, 'exception.wasm');
+  if (!fs.existsSync(runtimeJs) || !fs.existsSync(runtimeWasm)) {
+    return null;
+  }
+
+  const runtimeModule = require(runtimeJs);
+  if (!runtimeModule || typeof runtimeModule.instantiateExceptionRuntime !== 'function') {
+    return null;
+  }
+
+  const runtime = await runtimeModule.instantiateExceptionRuntime({
+    wasmBytes: fs.readFileSync(runtimeWasm),
+    resolveResumeExportName: opts && opts.resolveResumeExportName
+  });
+  Object.assign(imports.env, runtime.env);
+  imports.env.__exceptionRuntime = runtime;
+  return runtime;
+}
+
 function _runEntrypointWithLongjmpResume(entry, maxAttempts = 32) {
   const isLongjmpLike = (error) => {
     if (typeof isLongjmpSignal === 'function' && isLongjmpSignal(error)) {
@@ -1031,9 +1061,17 @@ async function run(wasmPath, opts) {
 
   const baseDir = path.dirname(path.resolve(wasmPath));
   await _loadLinkedLibraries(baseDir, imports);
+  const exceptionRuntime = await _attachOptionalExceptionRuntime(baseDir, imports, opts);
 
   const { instance } = await WebAssembly.instantiate(bytes, imports);
   memoryRef = instance.exports.memory || null;
+  if (exceptionRuntime && exceptionRuntime.scheduler
+    && typeof exceptionRuntime.scheduler.setAutoResumeResolver === 'function') {
+    exceptionRuntime.scheduler.setAutoResumeResolver(
+      instance.exports,
+      opts && opts.resolveResumeExportName
+    );
+  }
   const entry = instance.exports.main || instance.exports.test_entry;
   if (typeof entry !== 'function') throw new Error('No main() export found');
 
