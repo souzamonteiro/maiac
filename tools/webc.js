@@ -437,7 +437,8 @@ function writeBrowserRunner(outDir, appName) {
               throw new Error('Async runtime requires exception.js with MaiaExceptionRuntime');
             }
             exceptionRuntime = await exceptionApi.instantiateExceptionRuntime({
-              wasmUrl: './exception.wasm'
+              wasmUrl: './exception.wasm',
+              getMemory: function () { return memoryRef; }
             });
             Object.assign(imports.env, exceptionRuntime.env);
             if (typeof exceptionRuntime.attachPromiseImports === 'function') {
@@ -937,7 +938,8 @@ async function _attachOptionalExceptionRuntime(baseDir, imports, opts) {
 
   const runtime = await runtimeModule.instantiateExceptionRuntime({
     wasmBytes: fs.readFileSync(runtimeWasm),
-    resolveResumeExportName: opts && opts.resolveResumeExportName
+    resolveResumeExportName: opts && opts.resolveResumeExportName,
+    getMemory: opts && opts.getMemory
   });
   Object.assign(imports.env, runtime.env);
   if (typeof runtime.attachPromiseImports === 'function') {
@@ -1067,7 +1069,10 @@ async function run(wasmPath, opts) {
 
   const baseDir = path.dirname(path.resolve(wasmPath));
   await _loadLinkedLibraries(baseDir, imports);
-  const exceptionRuntime = await _attachOptionalExceptionRuntime(baseDir, imports, opts);
+  const exceptionRuntime = await _attachOptionalExceptionRuntime(baseDir, imports, {
+    ...(opts || {}),
+    getMemory: () => memoryRef
+  });
 
   const { instance } = await WebAssembly.instantiate(bytes, imports);
   memoryRef = instance.exports.memory || null;
