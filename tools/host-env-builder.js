@@ -228,8 +228,11 @@ function buildHostEnv(hostImports, opts = {}) {
       }
       const returnValue = fn.call(thisValue, ...jsArgs);
 
-      // WASM expects a numeric return value for non-void functions.
-      return hasResult ? (returnValue ?? 0) : undefined;
+      // WebAssembly ignores a JS return from a void import. Preserve a thenable
+      // so the optional async runtime can bind it to a prepared await context.
+      return hasResult
+        ? (returnValue ?? 0)
+        : (returnValue && typeof returnValue.then === 'function' ? returnValue : undefined);
     };
 
     // Provide a human-readable name for stack traces.
@@ -369,7 +372,9 @@ function generateHostEnvSource(hostImports) {
 
     const callArgs = fnArgs ? `, ${fnArgs}` : '';
     const missingValue = hasResult ? '0' : 'undefined';
-    const returnValue = hasResult ? '(result ?? 0)' : 'undefined';
+    const returnValue = hasResult
+      ? '(result ?? 0)'
+      : "(result && typeof result.then === 'function' ? result : undefined)";
     lines.push(
       `    ${JSON.stringify(envKey)}: (${fnParams}) => { const target = __resolveHost(${pathLiteral}); if (typeof target.fn !== 'function') return ${missingValue}; const result = target.fn.call(target.thisValue${callArgs}); return ${returnValue}; },`
     );
