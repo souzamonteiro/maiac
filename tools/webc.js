@@ -440,6 +440,9 @@ function writeBrowserRunner(outDir, appName) {
               wasmUrl: './exception.wasm'
             });
             Object.assign(imports.env, exceptionRuntime.env);
+            if (typeof exceptionRuntime.attachPromiseImports === 'function') {
+              exceptionRuntime.attachPromiseImports(imports.env);
+            }
             imports.env.__exceptionRuntime = exceptionRuntime;
           }
 
@@ -937,6 +940,9 @@ async function _attachOptionalExceptionRuntime(baseDir, imports, opts) {
     resolveResumeExportName: opts && opts.resolveResumeExportName
   });
   Object.assign(imports.env, runtime.env);
+  if (typeof runtime.attachPromiseImports === 'function') {
+    runtime.attachPromiseImports(imports.env);
+  }
   imports.env.__exceptionRuntime = runtime;
   return runtime;
 }
