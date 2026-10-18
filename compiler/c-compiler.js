@@ -2213,7 +2213,15 @@ function parseHostExternName(name) {
   const body = String(name).slice(2); // strip leading __
   const parts = body.split('__').filter(Boolean);
   if (parts.length === 0) return null;
-  return { envKey: name, jsExpr: parts.join('.'), parts };
+  const isMaiaAbiImport = parts[0] === 'maia' && parts.length >= 3;
+  return {
+    envKey: name,
+    jsExpr: parts.join('.'),
+    parts,
+    module: isMaiaAbiImport ? `maia.${parts[1]}` : 'env',
+    field: isMaiaAbiImport ? parts.slice(2).join('__') : name,
+    isMaiaAbiImport
+  };
 }
 
 /**
@@ -2253,8 +2261,8 @@ function registerHostExternImport(itemDef, moduleModel) {
   const importDef = ensureImportedFunction(moduleModel, {
     sourceName: itemDef.sourceName,
     internalName: `imp_${sanitizeIdentifier(itemDef.sourceName)}`,
-    module: 'env',
-    field: itemDef.sourceName,
+    module: hostInfo.module,
+    field: hostInfo.field,
     paramTypes,
     resultType
   });

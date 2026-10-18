@@ -36,6 +36,24 @@ function runCase(name, fn) {
 
 const cases = [
   {
+    name: 'MaiaOS bridge symbol preserves exact module and field in WASM',
+    fn: () => {
+      const source = [
+        'extern int __maia__gfx__probe(int value);',
+        'int test_entry(void) { return __maia__gfx__probe(7); }'
+      ].join('\n');
+      const result = compileSource(source, { validate: true, printWat: false });
+      const module = new WebAssembly.Module(Buffer.from(result.wasm));
+      const imports = WebAssembly.Module.imports(module);
+      assert.ok(imports.some((item) =>
+        item.module === 'maia.gfx' && item.name === 'probe' && item.kind === 'function'));
+      const instance = new WebAssembly.Instance(module, {
+        'maia.gfx': { probe: (value) => value + 1 }
+      });
+      assert.strictEqual(instance.exports.test_entry(), 8);
+    }
+  },
+  {
     name: 'self-recursive function with forward prototype works',
     fn: () => {
       const source = [
