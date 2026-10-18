@@ -754,13 +754,13 @@ function findTypeSpecifierNode(specifierNode, targetName, visited = new Set()) {
 }
 
 function extractBuiltinType(specifierNode) {
-  const builtinType = findTypeSpecifierNode(specifierNode, 'builtinTypeSpecifier');
-  if (!builtinType) return 'int';
+  const builtinTypes = findAll(specifierNode, (candidate) => isNonterminal(candidate, 'builtinTypeSpecifier'));
+  if (builtinTypes.length === 0) return 'int';
 
-  const keywords = findAll(
+  const keywords = builtinTypes.flatMap((builtinType) => findAll(
     builtinType,
     (candidate) => candidate && candidate.kind === 'terminal' && /^TOKEN_[A-Za-z]/.test(candidate.token)
-  ).map((terminal) => terminal.value);
+  ).map((terminal) => terminal.value));
 
   return keywords.join(' ').trim() || 'int';
 }

@@ -126,6 +126,16 @@ const phase8Cases = [
     expectedReturn: 30
   },
   {
+    id: 'unsigned-char-pointer-index',
+    name: 'Unsigned-char pointer indexing preserves byte stride and load width',
+    code: `
+      static unsigned char payload[] = "AB";
+      int read_byte(unsigned char* bytes) { return bytes[1]; }
+      int test_entry() { return read_byte(payload); }
+    `,
+    expectedReturn: 66
+  },
+  {
     id: 'postfix-call-through-array-slot',
     name: 'Postfix call through function pointer array slot',
     code: `
