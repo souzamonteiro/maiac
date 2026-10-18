@@ -1798,9 +1798,10 @@ function buildGlobalInitializerExpression(initializerNode, globalDef) {
     return `(${globalDef.watType}.const 0)`;
   }
 
-  const integerConstant = findFirstTerminal(initializerNode, 'IntegerConstant');
-  if (integerConstant) {
-    const value = parseCIntegerLiteral(integerConstant.value);
+  const assignmentExpression = firstNonterminal(initializerNode, 'assignmentExpression');
+  const hasStringLiteral = !!findFirstTerminal(initializerNode, 'StringLiteral');
+  if (assignmentExpression && !hasStringLiteral && ['i32', 'i64'].includes(globalDef.watType)) {
+    const value = evaluateConstantExpression(assignmentExpression);
     const opcode = globalDef.watType === 'i64' ? 'i64.const' : 'i32.const';
     return `(${opcode} ${value})`;
   }

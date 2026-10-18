@@ -135,6 +135,18 @@ const cases = [
     }
   },
   {
+    name: 'negative and bitwise global constant initializers preserve their value',
+    fn: () => {
+      const source = [
+        'static int would_block = -6;',
+        'static int flags = 2 | 4 | 8;',
+        'int test_entry(void) { return would_block + flags; }'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 8);
+    }
+  },
+  {
     name: 'known limitation: nested stringification + global initializer rejected',
     fn: () => {
       const source = [
