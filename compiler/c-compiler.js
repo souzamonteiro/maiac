@@ -165,10 +165,10 @@ function getSymbolSize(symbol) {
         : getTypeSize(symbol.baseWatType || symbol.watType || 'i32'));
     return elementSize * getDimensionProduct(getSymbolArrayDimensions(symbol));
   }
+  if ((symbol.pointerDepth || 0) > 0) return 4;
   if (symbol.structLayout && (symbol.isStruct || symbol.typeKind === 'struct')) {
     return symbol.structLayout.size || 4;
   }
-  if ((symbol.pointerDepth || 0) > 0) return 4;
   return getTypeSize(symbol.baseWatType || symbol.watType || 'i32');
 }
 

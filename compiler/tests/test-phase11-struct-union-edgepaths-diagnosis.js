@@ -29,6 +29,18 @@ function runCase(name, fn) {
 
 const cases = [
   {
+    name: 'struct pointer fields use four-byte C89 layout regardless of pointee size',
+    fn: () => {
+      const source = [
+        'struct Token { int a; int b; int c; int d; int e; };',
+        'struct State { struct Token *tokens; int count; int position; };',
+        'int test_entry(void) { return sizeof(struct State); }'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 12);
+    }
+  },
+  {
     name: 'nested dot chain updates and reads member value',
     fn: () => {
       const source = [
