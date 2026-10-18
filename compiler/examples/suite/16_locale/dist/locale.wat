@@ -47,7 +47,7 @@
     local.get $__frame
     global.set $__frame_ptr
     global.get $__stack_ptr
-    i32.const 80
+    i32.const 8
     i32.add
     global.set $__stack_ptr
     local.get $__frame
