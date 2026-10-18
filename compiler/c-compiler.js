@@ -1791,6 +1791,9 @@ function functionRequiresLinearMemory(functionNode) {
 }
 
 function buildGlobalInitializerExpression(initializerNode, globalDef) {
+  if (globalDef && globalDef.isArray) {
+    return '(i32.const 0)';
+  }
   if (!initializerNode) {
     return `(${globalDef.watType}.const 0)`;
   }
@@ -2028,6 +2031,12 @@ function buildModuleModel(ast, options = {}) {
           structName: itemDef.structName || null,
           structLayout: itemDef.structLayout || null,
           isStruct: !!itemDef.isStruct,
+          isArray: !!itemDef.isArray,
+          arrayLength: itemDef.arrayLength,
+          arrayDimensions: Array.isArray(itemDef.arrayDimensions) ? [...itemDef.arrayDimensions] : [],
+          initializerBytes: itemDef.isArray
+            ? getStringLiteralInitializerValues(itemDef.initializer)
+            : null,
           watType: itemDef.watType,
           baseWatType: itemDef.baseWatType,
           pointerDepth: itemDef.pointerDepth || 0,
@@ -7203,7 +7212,11 @@ function ensureGlobalMemorySlot(symbol, moduleModel) {
   const offset = alignTo(moduleModel.nextDataOffset || 0, alignment);
   const bytes = new Array(size).fill(0);
 
-  if (!symbol.isArray && !symbol.isStruct) {
+  if (symbol.isArray && Array.isArray(symbol.initializerBytes)) {
+    for (let index = 0; index < Math.min(size, symbol.initializerBytes.length); index += 1) {
+      bytes[index] = Number(symbol.initializerBytes[index]) & 0xFF;
+    }
+  } else if (!symbol.isArray && !symbol.isStruct) {
     const storageType = getStorageTypeForSymbol(symbol);
     const initialValue = parseNumericGlobalInitializerValue(symbol.initExpression, storageType);
     if (initialValue != null) {

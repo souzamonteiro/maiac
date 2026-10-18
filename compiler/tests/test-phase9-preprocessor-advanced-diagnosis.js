@@ -124,6 +124,17 @@ const cases = [
     }
   },
   {
+    name: 'global char array initialized from string literal is stored in WASM memory',
+    fn: () => {
+      const source = [
+        'static const char message[] = "MaiaOS";',
+        'int test_entry(void) { return message[0]; }'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 'M'.charCodeAt(0));
+    }
+  },
+  {
     name: 'known limitation: nested stringification + global initializer rejected',
     fn: () => {
       const source = [
