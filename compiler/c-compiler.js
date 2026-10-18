@@ -4611,7 +4611,11 @@ function compileUnaryExpression(node, context, keepValue) {
   if (directOperator) {
     const operandNode = nonterminalChildren(node)[0];
     const delta = directOperator.token === 'TOKEN__2B__2B_' ? 1 : -1;
-    const targetName = extractIdentifierFromNode(operandNode);
+    const postfix = isNonterminal(operandNode, 'postfixExpression')
+      ? operandNode
+      : firstNonterminal(operandNode, 'postfixExpression');
+    const hasPostfixSuffix = nonterminalChildren(postfix, 'postfixSuffix').length > 0;
+    const targetName = hasPostfixSuffix ? null : getSimpleIdentifierName(operandNode);
     if (targetName) {
       return emitUpdateInstructions(targetName, delta, context, { prefix: true, keepValue });
     }

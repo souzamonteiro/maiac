@@ -167,6 +167,21 @@ const phase8Cases = [
     expectedReturn: 11
   },
   {
+    id: 'prefix-increment-arrow-field',
+    name: 'Prefix increment updates a pointer-to-struct field',
+    code: `
+      struct S { int x; };
+      int test_entry() {
+        struct S s;
+        struct S *p = &s;
+        p->x = 4;
+        ++p->x;
+        return p->x;
+      }
+    `,
+    expectedReturn: 5
+  },
+  {
     id: 'sizeof-expression',
     name: 'sizeof over expression',
     code: `
