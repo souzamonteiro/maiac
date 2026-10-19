@@ -4,3 +4,6 @@
 [submodule "maiawasm"]
 	path = maiawasm
 	url = https://github.com/souzamonteiro/maiawasm.git
+[submodule "maiaregex"]
+	path = maiaregex
+	url = https://github.com/souzamonteiro/maiaregex.git
