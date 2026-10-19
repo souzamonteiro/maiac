@@ -29,6 +29,18 @@ function runCase(name, fn) {
 
 const cases = [
   {
+    name: 'character constants stop at their closing quote before logical operators',
+    fn: () => {
+      const source = [
+        'int test_entry(void) {',
+        "  return 'a' == 'a' && 'b' != 'c';",
+        '}'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 1);
+    }
+  },
+  {
     name: 'struct pointer fields use four-byte C89 layout regardless of pointee size',
     fn: () => {
       const source = [
