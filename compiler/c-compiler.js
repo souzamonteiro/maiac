@@ -5849,6 +5849,17 @@ function getPointerElementSize(node, context) {
   if (simpleIdentifier) {
     const symbol = resolveSymbol(simpleIdentifier, context);
     if (symbol) {
+      if ((symbol.pointerDepth || 0) === 1 && (symbol.structName || symbol.structLayout)) {
+        const structLayout = resolveStructLayout(
+          symbol.structName || null,
+          context.module,
+          symbol.structLayout || null
+        );
+        if (structLayout) {
+          return (structLayout.size || 4)
+            * getDimensionProduct(getDecayDimensionsForSymbol(symbol));
+        }
+      }
       return getStrideForAccess(symbol.baseWatType || symbol.watType || 'i32', getDecayDimensionsForSymbol(symbol));
     }
   }
@@ -5870,6 +5881,15 @@ function getPointerElementSize(node, context) {
           return getStrideForAccess(memberAccess.watType || 'i32', dims);
         }
         if (memberAccess.pointerDepth > 0) {
+          const field = memberAccess.field;
+          if ((field.pointerDepth || 0) === 1 && field.structName) {
+            const structLayout = resolveStructLayout(
+              field.structName,
+              context.module,
+              field.structLayout || null
+            );
+            if (structLayout) return structLayout.size || 4;
+          }
           return getTypeSize(memberAccess.watType || 'i32');
         }
       }

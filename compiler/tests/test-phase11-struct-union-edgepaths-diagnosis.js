@@ -173,6 +173,43 @@ const cases = [
     }
   },
   {
+    name: 'pointer addition scales by struct pointee size',
+    fn: () => {
+      const source = [
+        'struct S { int x; int y; };',
+        'int test_entry(void) {',
+        '  struct S a[2];',
+        '  struct S *p = a;',
+        '  struct S *second = p + 1;',
+        '  second->x = 23;',
+        '  return second->x;',
+        '}'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 23);
+    }
+  },
+  {
+    name: 'struct pointer field addition scales by pointee size',
+    fn: () => {
+      const source = [
+        'struct S { int x; int y; };',
+        'struct State { struct S *items; int count; };',
+        'int test_entry(void) {',
+        '  struct S a[2];',
+        '  struct State state;',
+        '  state.items = a;',
+        '  state.count = 1;',
+        '  struct S *second = state.items + state.count;',
+        '  second->x = 29;',
+        '  return second->x;',
+        '}'
+      ].join('\n');
+
+      assert.strictEqual(runEntryFromSource(source), 29);
+    }
+  },
+  {
     name: 'arrow on non-pointer struct base is rejected (negative)',
     fn: () => {
       const source = [
