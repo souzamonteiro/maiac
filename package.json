@@ -27,6 +27,7 @@
   ],
   "scripts": {
     "test": "node compiler/tests/test-all.js",
+    "test:maiaregex": "node compiler/tests/test-maiaregex.js",
     "test:full": "bash tools/run-full-tests.sh",
     "build:parser": "bash tools/build-c-parser.sh",
     "build:libs": "node tools/build-libs.js",

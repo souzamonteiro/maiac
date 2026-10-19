@@ -1208,7 +1208,7 @@ function extractParameters(parameterListNode, moduleModel = null) {
       const declaredAsArray = declaratorNode ? hasArrayDeclaratorSuffix(declaratorNode) : false;
       const arrayDimensions = declaratorNode ? extractArrayDimensionsFromDeclarator(declaratorNode) : [];
       const pointeeArrayDimensions = declaratorForType ? extractPointerPointeeArrayDimensionsFromDeclarator(declaratorForType) : [];
-      const pointerDepth = declaredAsArray ? Math.max(1, rawPointerDepth) : rawPointerDepth;
+      const pointerDepth = declaredAsArray ? rawPointerDepth + 1 : rawPointerDepth;
       const isStruct = typeInfo.typeKind === 'struct' && pointerDepth === 0;
       const baseWatType = typeInfo.baseWatType || 'i32';
       const watType = toWatType((pointerDepth > 0 || isStruct) ? 'i32' : baseWatType);
@@ -1446,8 +1446,8 @@ function extractArrayDimensionsFromDeclarator(declaratorNode) {
       continue;
     }
 
-    const lengthNode = findFirstTerminal(suffix, 'IntegerConstant');
-    dimensions.push(lengthNode ? parseCIntegerLiteral(lengthNode.value) : null);
+    const lengthNode = firstNonterminal(suffix, 'constantExpression');
+    dimensions.push(lengthNode ? evaluateConstantExpression(lengthNode) : null);
   }
 
   return dimensions;
@@ -1463,8 +1463,8 @@ function extractPointerPointeeArrayDimensionsFromDeclarator(declaratorNode) {
     (candidate) => isNonterminal(candidate, 'directDeclaratorSuffix') && !!firstTerminal(candidate, 'TOKEN__5B_')
   );
   const allDimensions = allArraySuffixes.map((suffix) => {
-    const lengthNode = findFirstTerminal(suffix, 'IntegerConstant');
-    return lengthNode ? parseCIntegerLiteral(lengthNode.value) : null;
+    const lengthNode = firstNonterminal(suffix, 'constantExpression');
+    return lengthNode ? evaluateConstantExpression(lengthNode) : null;
   });
 
   const identifierScopedDimensions = extractArrayDimensionsFromDeclarator(declaratorNode);
@@ -1608,11 +1608,16 @@ function declarationHasStorageClassSpecifier(specifierNode, token) {
 }
 
 function declarationHasTypeQualifier(specifierNode, token) {
-  return !!findFirst(specifierNode, (candidate) => isTerminal(candidate, token));
+  return countTypeQualifier(specifierNode, token) > 0;
 }
 
 function countTypeQualifier(specifierNode, token) {
-  return findAll(specifierNode, (candidate) => isTerminal(candidate, token)).length;
+  if (!specifierNode || isNonterminal(specifierNode, 'structOrUnionSpecifier')
+      || isNonterminal(specifierNode, 'enumSpecifier')) return 0;
+  if (isTerminal(specifierNode, token)) return 1;
+  return (specifierNode.children || []).reduce(
+    (count, child) => count + countTypeQualifier(child, token), 0,
+  );
 }
 
 function normalizeCTypeForSignature(cType) {
@@ -1659,8 +1664,7 @@ function areFunctionParamsCompatible(left, right) {
   return left.cType === right.cType
     && left.pointerDepth === right.pointerDepth
     && left.typeKind === right.typeKind
-    && left.structName === right.structName
-    && left.declaredAsArray === right.declaredAsArray;
+    && left.structName === right.structName;
 }
 
 function assertFunctionSignaturesCompatible(existingSignature, currentSignature, contextName) {
@@ -2114,7 +2118,8 @@ function buildModuleModel(ast, options = {}) {
   }
 
   if (moduleModel.usesLinearMemory) {
-    moduleModel.memories = [{ name: 'mem', pages: 1 }];
+    const stackStart = alignTo(Math.max(1024, moduleModel.nextDataOffset), 16);
+    moduleModel.memories = [{ name: 'mem', pages: Math.ceil((stackStart + 65536) / 65536) }];
 
     if (!moduleModel.globalsByName.has('__stack_ptr')) {
       const stackPointerGlobal = {
@@ -4293,6 +4298,17 @@ function inferExpressionUnsignedness(node, context) {
 
   const nodeName = getNodeName(node);
 
+  if (nodeName === 'unaryExpression' && firstTerminal(node, 'TOKEN_sizeof')) return true;
+
+  if (nodeName === 'primaryExpression') {
+    const expression = firstNonterminal(node, 'expression');
+    if (expression) return inferExpressionUnsignedness(expression, context);
+  }
+
+  if (['multiplicativeExpression', 'additiveExpression', 'andExpression', 'exclusiveOrExpression', 'inclusiveOrExpression'].includes(nodeName)) {
+    return nonterminalChildren(node).some((child) => inferExpressionUnsignedness(child, context));
+  }
+
   if (nodeName === 'castExpression') {
     const typeNameNode = firstNonterminal(node, 'typeName');
     if (typeNameNode) {
@@ -4881,7 +4897,7 @@ function getIndexedAccessInfoFromPostfix(node, context) {
             }
             let resultObjectDimensions = [];
             for (const indexExpression of indexExpressions) {
-              const stride = getStrideForAccess(watType, pointerPointeeDimensions);
+              const stride = getIndexedStrideForAccess(field, watType, pointerPointeeDimensions, context);
               addressInstructions = addressInstructions.concat(
                 compileExpression(indexExpression, context, { keepValue: true }),
                 `i32.const ${stride}`,
@@ -5318,6 +5334,16 @@ function getStrideForAccess(baseWatType, pointeeDimensions = []) {
   return getTypeSize(baseWatType || 'i32') * getDimensionProduct(pointeeDimensions);
 }
 
+function getIndexedStrideForAccess(symbol, watType, dimensions, context) {
+  const structElement = symbol && (symbol.isArray
+    ? (symbol.pointerDepth || 0) === 0
+    : (symbol.pointerDepth || 0) === 1);
+  const layout = structElement && (symbol.structName || symbol.structLayout)
+    ? resolveStructLayout(symbol.structName || null, context.module, symbol.structLayout || null)
+    : null;
+  return layout ? layout.size * getDimensionProduct(dimensions) : getStrideForAccess(watType, dimensions);
+}
+
 function getIndexedAccessInfo(name, indexExpressions, context) {
   const symbol = resolveSymbol(name, context);
   if (!symbol) {
@@ -5347,7 +5373,7 @@ function getIndexedAccessInfo(name, indexExpressions, context) {
   let resultObjectDimensions = [];
 
   for (const indexExpression of indices) {
-    const stride = getStrideForAccess(watType, pointerPointeeDimensions);
+    const stride = getIndexedStrideForAccess(symbol, watType, pointerPointeeDimensions, context);
     addressInstructions = addressInstructions.concat(
       compileExpression(indexExpression, context, { keepValue: true }),
       `i32.const ${stride}`,
@@ -5804,6 +5830,15 @@ function isPointerLikeNode(node, context) {
     return isPointerLikeNode(unwrapped, context);
   }
 
+  if (isNonterminal(node, 'castExpression')) {
+    const typeName = firstNonterminal(node, 'typeName');
+    if (typeName) return (extractTypeInfoFromTypeName(typeName).pointerDepth || 0) > 0;
+  }
+  if (isNonterminal(node, 'primaryExpression')) {
+    const expression = firstNonterminal(node, 'expression');
+    if (expression) return isPointerLikeNode(expression, context);
+  }
+
   const type = inferExpressionType(node, context);
   if (type !== 'i32') {
     return false;
@@ -5843,6 +5878,22 @@ function getPointerElementSize(node, context) {
   const unwrapped = unwrapSingleNonterminalChain(node);
   if (unwrapped && unwrapped !== node) {
     return getPointerElementSize(unwrapped, context);
+  }
+
+  if (isNonterminal(node, 'castExpression')) {
+    const typeName = firstNonterminal(node, 'typeName');
+    if (typeName) {
+      const castType = extractTypeInfoFromTypeName(typeName);
+      if (castType.pointerDepth > 1) return 4;
+      const layout = castType.structName
+        ? resolveStructLayout(castType.structName, context.module, castType.structLayout || null)
+        : null;
+      return layout ? layout.size : getTypeSize(castType.baseWatType || 'i32');
+    }
+  }
+  if (isNonterminal(node, 'primaryExpression')) {
+    const expression = firstNonterminal(node, 'expression');
+    if (expression) return getPointerElementSize(expression, context);
   }
 
   const simpleIdentifier = getSimpleIdentifierName(node);
@@ -6017,17 +6068,17 @@ function getTypedComparisonOpcode(baseOperator, watType = 'i32', useUnsigned = f
   return `i32.${baseOperator}_${useUnsigned ? 'u' : 's'}`;
 }
 
-function getTypedArithmeticOpcode(baseOperator, watType = 'i32') {
+function getTypedArithmeticOpcode(baseOperator, watType = 'i32', useUnsigned = false) {
   const effectiveType = toWatType(watType || 'i32');
   if (baseOperator === 'rem') {
-    if (effectiveType === 'i64') return 'i64.rem_s';
-    if (effectiveType === 'i32') return 'i32.rem_s';
+    if (effectiveType === 'i64') return `i64.rem_${useUnsigned ? 'u' : 's'}`;
+    if (effectiveType === 'i32') return `i32.rem_${useUnsigned ? 'u' : 's'}`;
     throw new CompilationError('Modulo is only supported for integer operands');
   }
 
   if (baseOperator === 'div') {
-    if (effectiveType === 'i64') return 'i64.div_s';
-    if (effectiveType === 'i32') return 'i32.div_s';
+    if (effectiveType === 'i64') return `i64.div_${useUnsigned ? 'u' : 's'}`;
+    if (effectiveType === 'i32') return `i32.div_${useUnsigned ? 'u' : 's'}`;
     return `${effectiveType}.div`;
   }
 
@@ -6095,6 +6146,7 @@ function compileTypedArithmeticExpression(node, context, operatorMap) {
   }
 
   let currentType = toWatType(inferExpressionType(pieces[0], context) || 'i32');
+  let currentUnsigned = inferExpressionUnsignedness(pieces[0], context);
   let instructions = compileExpression(pieces[0], context, { keepValue: true });
 
   for (let index = 1; index < pieces.length; index += 2) {
@@ -6113,13 +6165,15 @@ function compileTypedArithmeticExpression(node, context, operatorMap) {
     const rightType = toWatType(inferExpressionType(rightNode, context) || 'i32');
     const commonType = selectCommonWatType(currentType, rightType);
     const rightInstructions = compileExpression(rightNode, context, { keepValue: true });
+    const useUnsigned = currentUnsigned || inferExpressionUnsignedness(rightNode, context);
 
     instructions = coerceInstructionsToType(instructions, currentType, commonType, context).concat(
       coerceInstructionsToType(rightInstructions, rightType, commonType, context),
-      getTypedArithmeticOpcode(baseOperator, commonType)
+      getTypedArithmeticOpcode(baseOperator, commonType, useUnsigned)
     );
 
     currentType = commonType;
+    currentUnsigned = useUnsigned;
   }
 
   return instructions;

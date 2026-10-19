@@ -38,6 +38,20 @@ function runCase(name, fn) {
 
 const cases = [
   {
+    name: 'macro-expanded constant array bounds reserve the complete expression',
+    fn: () => {
+      const source = '#define CAPACITY (1024 * 1024)\nstatic char arena[CAPACITY];\nint test_entry(void) { arena[CAPACITY - 1] = 37; return sizeof(arena) == CAPACITY && arena[CAPACITY - 1] == 37; }';
+      assert.strictEqual(runEntryFromSource(source), 1);
+    }
+  },
+  {
+    name: 'size_t aliases preserve unsigned target width',
+    fn: () => {
+      const pre = normalize(preprocessCSource('typedef unsigned int size_t; size_t count;'));
+      assert.ok(pre.includes('unsigned int count;'), pre);
+    }
+  },
+  {
     name: 'object and function macro expansion',
     fn: () => {
       const source = [

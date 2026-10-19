@@ -90,7 +90,7 @@ function collectNamedAggregateTags(source) {
 function collectTypedefAliases(source) {
   const text = String(source || '');
   const aliases = new Map([
-    ['size_t', 'int']
+    ['size_t', 'unsigned int']
   ]);
 
   const patterns = [

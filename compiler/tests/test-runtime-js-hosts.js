@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert');
+const vm = require('vm');
+const { buildHostEnv, generateHostEnvSource } = require('../../tools/host-env-builder.js');
 const { createDefaultHostBuiltins } = require('../../src/runtime/default-host-builtins.js');
 
 function writeCString(memory, ptr, text) {
@@ -62,6 +64,20 @@ function main() {
   );
 
   const tests = [
+    runTest('C libc memory builtins use instance memory in Node and generated wrappers', () => {
+      const imports = ['__builtin_wasm_memory_size', '__builtin_wasm_memory_grow'].map((envKey) => ({
+        hostInfo: { envKey, parts: [] }, paramDefs: [], resultType: 'i32',
+      }));
+      for (const build of [buildHostEnv, (metadata, options) => vm.runInNewContext(generateHostEnvSource(metadata))(options.getMemory)]) {
+        const instanceMemory = new WebAssembly.Memory({ initial: 1, maximum: 2 });
+        const env = build(imports, { getMemory: () => instanceMemory });
+        assert.strictEqual(env.__builtin_wasm_memory_size(0), 1);
+        assert.strictEqual(env.__builtin_wasm_memory_grow(0, 1), 1);
+        assert.strictEqual(env.__builtin_wasm_memory_size(0), 2);
+        assert.strictEqual(env.__builtin_wasm_memory_grow(0, 1), -1);
+        assert.strictEqual(env.__builtin_wasm_memory_size(1), -1);
+      }
+    }),
     runTest('frexp writes exponent pointer', () => {
       const expPtr = 8;
       i32Write(expPtr, 0);

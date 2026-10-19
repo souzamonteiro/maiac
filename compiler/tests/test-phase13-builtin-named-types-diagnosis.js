@@ -29,6 +29,25 @@ function runCase(name, fn) {
 
 const cases = [
   {
+    name: 'limits header describes the i32 int target',
+    fn: () => {
+      const result = compileSource('#include <limits.h>\nint test_entry(void) { return INT_MAX; }', { resolveSystemIncludes: true, validate: true });
+      assert.ok(result.wasm);
+      const instance = new WebAssembly.Instance(new WebAssembly.Module(result.wasm), {});
+      assert.strictEqual(instance.exports.test_entry(), 2147483647);
+    }
+  },
+  {
+    name: 'unsigned division and remainder preserve high-bit operands and chained results',
+    fn: () => {
+      assert.strictEqual(runEntryFromSource('int test_entry(void) { return ((unsigned int)-1) / 4; }'), 1073741823);
+      assert.strictEqual(runEntryFromSource('int test_entry(void) { return ((unsigned int)-1) % 4; }'), 3);
+      assert.strictEqual(runEntryFromSource('int test_entry(void) { return ((unsigned int)-1) / 4 / 4; }'), 268435455);
+      assert.strictEqual(runEntryFromSource('int test_entry(void) { return -9 / 4; }'), -2);
+      assert.strictEqual(runEntryFromSource('int test_entry(void) { return -9 % 4; }'), -1);
+    }
+  },
+  {
     name: 'char builtin type stores and returns byte-sized value',
     fn: () => {
       const source = [

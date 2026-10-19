@@ -14,6 +14,51 @@ function runCase(name, source, expected) {
 
 (() => {
   runCase(
+    'casts determine struct-pointer arithmetic and integer casts stop pointer scaling',
+    `
+struct Header { int size; int available; struct Header *next; };
+int test_entry(void) {
+  char buffer[100];
+  return (unsigned int)((struct Header *)buffer + 1) - (unsigned int)buffer;
+}
+`,
+    12
+  );
+  runCase(
+    'cast struct-pointer subtraction recovers the allocation header',
+    `
+struct Header { int size; int available; struct Header *next; };
+int test_entry(void) {
+  char buffer[100];
+  void *payload;
+  struct Header *header;
+  payload = buffer + 12;
+  header = (struct Header *)payload - 1;
+  return (unsigned int)header - (unsigned int)buffer;
+}
+`,
+    0
+  );
+  runCase(
+    'struct array and pointer indexing agree with pointer arithmetic',
+    `
+struct Entry { int first; int second; int third; };
+struct Holder { struct Entry *entries; };
+int test_entry(void) {
+  struct Entry entries[3];
+  struct Entry *cursor;
+  struct Holder holder;
+  cursor = entries;
+  holder.entries = entries;
+  entries[2].second = 17;
+  cursor[1].third = 23;
+  holder.entries[0].first = 5;
+  return (cursor + 2)->second + entries[1].third + entries[0].first;
+}
+`,
+    45
+  );
+  runCase(
     'local struct copy assignment',
     `
 struct Pair { int x; int y; };

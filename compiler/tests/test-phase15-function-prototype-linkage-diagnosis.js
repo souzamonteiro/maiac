@@ -36,6 +36,14 @@ function runCase(name, fn) {
 
 const cases = [
   {
+    name: 'stdlib conversion declarations accept pointer-to-pointer endptr definitions',
+    fn: () => {
+      const source = '#include <stdlib.h>\ndouble strtod(const char *text, char *endptr[]) { return 0.0; }\nlong int strtol(const char *text, char *endptr[], int base) { return 0; }\nunsigned long int strtoul(const char *text, char *endptr[], int base) { return 0; }\nint test_entry(void) { return 0; }';
+      const result = compileSource(source, { resolveSystemIncludes: true, validate: true });
+      assert.ok(result.wasm);
+    }
+  },
+  {
     name: 'MaiaOS bridge symbol preserves exact module and field in WASM',
     fn: () => {
       const source = [

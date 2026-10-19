@@ -186,6 +186,16 @@ function buildHostEnv(hostImports, opts = {}) {
     const paramDefs = imp.paramDefs || [];
     const hasResult = imp.resultType !== null;
 
+    if (envKey === '__builtin_wasm_memory_size' || envKey === '__builtin_wasm_memory_grow') {
+      env[envKey] = (memoryIndex, pages) => {
+        const memory = getMemory();
+        if (!memory || memoryIndex !== 0) return -1;
+        if (envKey === '__builtin_wasm_memory_size') return memory.buffer.byteLength / 65536;
+        try { return memory.grow(pages >>> 0); } catch { return -1; }
+      };
+      continue;
+    }
+
     if (envKey === '__malloc') {
       env[envKey] = (bytes) => allocator.alloc(bytes, 8);
       Object.defineProperty(env[envKey], 'name', { value: envKey, configurable: true });
@@ -327,6 +337,14 @@ function generateHostEnvSource(hostImports) {
     const { envKey, jsExpr, parts } = imp.hostInfo;
     const paramDefs = imp.paramDefs || [];
     const hasResult = imp.resultType !== null;
+
+    if (envKey === '__builtin_wasm_memory_size' || envKey === '__builtin_wasm_memory_grow') {
+      const operation = envKey === '__builtin_wasm_memory_size'
+        ? 'return memory.buffer.byteLength / 65536;'
+        : 'try { return memory.grow(p1 >>> 0); } catch { return -1; }';
+      lines.push(`    ${JSON.stringify(envKey)}: (p0, p1) => { const memory = getMemory(); if (!memory || p0 !== 0) return -1; ${operation} },`);
+      continue;
+    }
 
     if (envKey === '__malloc') {
       lines.push(`    ${JSON.stringify(envKey)}: (p0) => __malloc(p0),`);

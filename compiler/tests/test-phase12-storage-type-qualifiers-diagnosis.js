@@ -29,6 +29,19 @@ function runCase(name, fn) {
 
 const cases = [
   {
+    name: 'separate const struct fields do not qualify the enclosing declaration',
+    fn: () => {
+      const source = 'typedef struct { const int *first; const int *second; } Pair; int test_entry(void) { return 7; }';
+      assert.strictEqual(runEntryFromSource(source), 7);
+    }
+  },
+  {
+    name: 'duplicate const qualifiers inside a struct field remain rejected',
+    fn: () => {
+      assert.throws(() => compileSource('struct Pair { const const int first; }; int test_entry(void) { return 7; }'), /Duplicate 'const' qualifier/);
+    }
+  },
+  {
     name: 'const-qualified local variable is readable',
     fn: () => {
       const source = [

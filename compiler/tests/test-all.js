@@ -5,6 +5,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const scripts = [
+  'test-maiaregex.js',
   'test-preprocessor.js',
   'test-comment-tokenization-regression.js',
   'test-c89-mini-suite.js',

@@ -64,7 +64,7 @@ static void init_heap(void) {
     block->next = NULL;
 
     heap_list = block;
-    program_break = static_heap + HEAP_SIZE;
+    program_break = (char *)(__builtin_wasm_memory_size(0) * WASM_PAGE_SIZE);
 }
 
 static void *sbrk_local(size_t increment) {

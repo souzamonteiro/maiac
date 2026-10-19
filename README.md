@@ -223,6 +223,11 @@ Run the full bundle:
 node compiler/tests/test-all.js
 ```
 
+The full bundle includes the C89 MaiaRegex program tests compiled to WASM with
+this repository's `maiaregex` submodule and C allocator implementation. Run
+`npm run test:maiaregex` for that integration alone. It asserts the guest test
+report and return value, including heap growth for long iterative matches.
+
 Run full regression (bundle + additional focused diagnostics):
 
 ```bash
