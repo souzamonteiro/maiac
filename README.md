@@ -38,6 +38,9 @@ comparison/division lowering, including `UINT_MAX` guards. Regressions execute i
 `compiler/tests/test-adjacent-string-literals.js` and
 `compiler/tests/test-struct-return-temporaries.js` and
 `compiler/tests/test-integer-literal-signedness.js`.
+Assignments through `struct **` update pointer storage, while assignments through
+`struct *` retain whole-struct copying. The pointer-indirection regression checks
+linked-list tails, adjacent canaries and dereferenced member updates in WASM.
 
 Static arrays and structs retain their positional aggregate initializers in
 linear memory, including nested braces, zero filling, strings and references

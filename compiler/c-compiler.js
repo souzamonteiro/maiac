@@ -5646,7 +5646,7 @@ function inferStructPointeeLayout(node, context) {
   }
   const identifierName = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
   const symbol = identifierName ? resolveSymbol(identifierName, context) : null;
-  if (!symbol || (symbol.pointerDepth || 0) <= 0 || !symbol.structName) {
+  if (!symbol || (symbol.pointerDepth || 0) !== 1 || !symbol.structName) {
     const unwrapped = unwrapSingleNonterminalChain(node) || node;
     if (isNonterminal(unwrapped, 'primaryExpression')) {
       const nestedExpression = firstNonterminal(unwrapped, 'expression');
@@ -5659,6 +5659,14 @@ function inferStructPointeeLayout(node, context) {
       const unaryOperatorNode = firstNonterminal(unwrapped, 'unaryOperator');
       const operatorTerminal = unaryOperatorNode ? firstTerminal(unaryOperatorNode) : null;
       const operandNode = nonterminalChildren(unwrapped).find((child) => child !== unaryOperatorNode);
+
+      if (operatorTerminal && operatorTerminal.token === 'TOKEN__2A_' && operandNode) {
+        const operandName = getSimpleIdentifierName(operandNode) || extractIdentifierFromNode(operandNode);
+        const operandSymbol = operandName ? resolveSymbol(operandName, context) : null;
+        if (operandSymbol && operandSymbol.pointerDepth === 2 && operandSymbol.structName) {
+          return resolveStructLayout(operandSymbol.structName, context.module, operandSymbol.structLayout || null);
+        }
+      }
 
       if (operatorTerminal && operatorTerminal.token === 'TOKEN__26_' && operandNode) {
         if (isNonterminal(operandNode, 'postfixExpression')) {
