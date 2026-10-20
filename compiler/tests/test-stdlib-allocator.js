@@ -15,6 +15,7 @@ int test_entry(void) {
   unsigned char *grown;
   if ((unsigned char)256 != 0 || (unsigned char)-1 != 255) return 9;
   if ((signed char)255 != -1 || (unsigned short)65536 != 0 || (short)65535 != -1) return 10;
+  if ((char)255 != -1) return 11;
   for (round = 0; round < 12; ++round) {
     length = 128 + round * 257;
     bytes = (unsigned char*)calloc(length, 1);

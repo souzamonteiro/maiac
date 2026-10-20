@@ -4647,7 +4647,7 @@ function compileCastExpression(node, context, keepValue) {
   const narrowBytes = getCTypeSizeForSizeof(cType);
   if (!(targetTypeInfo.pointerDepth > 0) && narrowBytes < 4) {
     const bits = narrowBytes * 8;
-    if (targetTypeInfo.isUnsigned || cType === 'char') {
+    if (targetTypeInfo.isUnsigned) {
       return converted.concat(`i32.const ${(1 << bits) - 1}`, 'i32.and');
     }
     return converted.concat(`i32.const ${32 - bits}`, 'i32.shl', `i32.const ${32 - bits}`, 'i32.shr_s');
