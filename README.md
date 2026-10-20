@@ -27,6 +27,18 @@ The project uses two local submodules:
 
 ## Repository Structure
 
+Adjacent string literals retain their C89 concatenation semantics, including
+escape boundaries, static pointer/aggregate initialization and array sizes.
+Generated grammar rules recognize the fragments; semantic processing combines
+their decoded values. Struct-returning calls use independent frame storage per
+call expression, including nested arguments and indirect calls, without growing
+the linear stack on each loop iteration. Return-value copies evaluate the source
+expression once. Integer suffixes and unsigned struct-field types survive into
+comparison/division lowering, including `UINT_MAX` guards. Regressions execute in WebAssembly:
+`compiler/tests/test-adjacent-string-literals.js` and
+`compiler/tests/test-struct-return-temporaries.js` and
+`compiler/tests/test-integer-literal-signedness.js`.
+
 Static arrays and structs retain their positional aggregate initializers in
 linear memory, including nested braces, zero filling, strings and references
 to static tables/objects. Static local aggregates are initialized once. This

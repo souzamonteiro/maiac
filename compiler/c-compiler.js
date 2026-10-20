@@ -314,6 +314,8 @@ function extractStructFieldDefinitions(structDeclarationList, moduleModel = null
         structLayout: fieldTypeInfo.structLayout || null,
         isStruct,
         pointerDepth,
+        isUnsigned: !!fieldTypeInfo.isUnsigned && pointerDepth === 0,
+        pointeeIsUnsigned: !!fieldTypeInfo.isUnsigned && pointerDepth === 1,
         pointeeArrayDimensions,
         baseWatType: fieldTypeInfo.baseWatType,
         watType,
@@ -570,7 +572,7 @@ function resolveMemberAccess(name, context) {
 }
 
 function parseCIntegerLiteral(text) {
-  const value = String(text).trim();
+  const value = String(text).trim().replace(/[uUlL]+$/, '');
   if (/^0[xX][0-9a-fA-F]+$/.test(value)) return parseInt(value.slice(2), 16);
   if (/^0[bB][01]+$/.test(value)) return parseInt(value.slice(2), 2);
   if (/^0[0-7]+$/.test(value) && value.length > 1) return parseInt(value.slice(1), 8);
@@ -633,7 +635,6 @@ function parseCStringLiteral(text) {
     'n': 10,
     'r': 13,
     't': 9,
-    '0': 0,
     'a': 7,
     'b': 8,
     'f': 12,
@@ -990,6 +991,19 @@ function getSizeOfTypeNameNode(typeNameNode, context) {
 }
 
 function getSizeOfExpressionNode(node, context) {
+  // A string literal has array type here; the usual pointer decay does not
+  // apply to sizeof. Only unwrap transparent expression/parenthesis nodes.
+  let stringOperand = node;
+  while (stringOperand && stringOperand.kind === 'nonterminal') {
+    const terminals = terminalChildren(stringOperand);
+    const nested = nonterminalChildren(stringOperand);
+    if (terminals.length === 1 && terminals[0].token === 'StringLiteral' && nested.length === 0) {
+      return parseCStringLiteral(terminals[0].value).length + 1;
+    }
+    const parentheses = terminals.length === 2 && terminals[0].value === '(' && terminals[1].value === ')';
+    if (nested.length !== 1 || (terminals.length !== 0 && !parentheses)) break;
+    stringOperand = nested[0];
+  }
   const simpleIdentifier = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
   if (simpleIdentifier) {
     if (simpleIdentifier === 'NULL') {
@@ -1357,16 +1371,21 @@ function extractDeclaratorInfo(declaratorNode, moduleModel = null) {
   };
 }
 
-function emitCopyBytesFromAddress(destinationAddressInstructions, sourceAddressInstructions, byteSize) {
+function emitCopyBytesFromAddress(destinationAddressInstructions, sourceAddressInstructions, byteSize, context) {
   const safeByteSize = Math.max(0, Number(byteSize) || 0);
   const wordCount = Math.floor(safeByteSize / 4);
   const remainderBytes = safeByteSize % 4;
-  const instructions = [];
+  const destination = ensureInternalLocal(context, createLabel(context, '__copy_destination'), 'i32');
+  const source = ensureInternalLocal(context, createLabel(context, '__copy_source'), 'i32');
+  const instructions = [
+    ...destinationAddressInstructions, `local.set $${destination.name}`,
+    ...sourceAddressInstructions, `local.set $${source.name}`,
+  ];
 
   for (let offset = 0; offset < wordCount * 4; offset += 4) {
     instructions.push(
-      ...withAddressOffset(destinationAddressInstructions, offset),
-      ...sourceAddressInstructions,
+      ...withAddressOffset([`local.get $${destination.name}`], offset),
+      `local.get $${source.name}`,
       `i32.const ${offset}`,
       'i32.add',
       'i32.load',
@@ -1376,8 +1395,8 @@ function emitCopyBytesFromAddress(destinationAddressInstructions, sourceAddressI
 
   for (let offset = wordCount * 4; offset < wordCount * 4 + remainderBytes; offset += 1) {
     instructions.push(
-      ...withAddressOffset(destinationAddressInstructions, offset),
-      ...sourceAddressInstructions,
+      ...withAddressOffset([`local.get $${destination.name}`], offset),
+      `local.get $${source.name}`,
       `i32.const ${offset}`,
       'i32.add',
       'i32.load8_u',
@@ -1600,6 +1619,24 @@ function parseCSource(source, options = {}) {
     throw new Error('No AST was generated from the parsed input');
   }
 
+  // Translation phase 6. The generated grammar recognizes adjacent literals;
+  // concatenate decoded values, preserving escape boundaries ("\\x1" "F"
+  // must not become "\\x1F"). Later lowering sees one ordinary literal.
+  const concatenateStringLiterals = (node) => {
+    if (!node || node.kind !== 'nonterminal') return;
+    const children = childNodes(node);
+    if (node.name === 'primaryExpression' && children.length > 1
+        && children.every((child) => child.kind === 'terminal' && child.token === 'StringLiteral')) {
+      const values = children.flatMap((child) => parseCStringLiteral(child.value));
+      const encoded = values.map((value) => value <= 255
+        ? `\\x${value.toString(16).padStart(2, '0')}` : String.fromCodePoint(value)).join('');
+      node.children = [{ ...children[0], value: `"${encoded}"` }];
+      return;
+    }
+    for (const child of children) concatenateStringLiterals(child);
+  };
+  concatenateStringLiterals(collector.root);
+
   return {
     ast: collector.root,
     json: collector.toJSON(),
@@ -1804,7 +1841,7 @@ function functionRequiresLinearMemory(functionNode) {
   });
 }
 
-function buildGlobalInitializerExpression(initializerNode, globalDef) {
+function buildGlobalInitializerExpression(initializerNode, globalDef, moduleModel) {
   if (globalDef && (globalDef.isArray || globalDef.isStruct)) {
     return '(i32.const 0)';
   }
@@ -1814,6 +1851,11 @@ function buildGlobalInitializerExpression(initializerNode, globalDef) {
 
   const assignmentExpression = firstNonterminal(initializerNode, 'assignmentExpression');
   const hasStringLiteral = !!findFirstTerminal(initializerNode, 'StringLiteral');
+  const terminals = findAll(initializerNode, (node) => node.kind === 'terminal');
+  if ((globalDef.pointerDepth || 0) > 0 && terminals.length === 1
+      && terminals[0].token === 'StringLiteral' && moduleModel) {
+    return `(i32.const ${registerStringLiteral(terminals[0].value, moduleModel).offset})`;
+  }
   if (assignmentExpression && !hasStringLiteral && ['i32', 'i64'].includes(globalDef.watType)) {
     const value = evaluateConstantExpression(assignmentExpression);
     const opcode = globalDef.watType === 'i64' ? 'i64.const' : 'i32.const';
@@ -2063,7 +2105,7 @@ function buildModuleModel(ast, options = {}) {
           pointeeIsUnsigned: !!itemDef.pointeeIsUnsigned,
           mutable: !itemDef.isConst,
           exported: true,
-          initExpression: buildGlobalInitializerExpression(itemDef.initializer, itemDef)
+          initExpression: buildGlobalInitializerExpression(itemDef.initializer, itemDef, moduleModel)
         };
 
         if (itemDef.isExternStorage && !itemDef.initializer) {
@@ -2108,7 +2150,7 @@ function buildModuleModel(ast, options = {}) {
         mutable: !externDef.isConst,
         exported: true,
         // Current MaiaC policy for unresolved extern variables is zero fallback.
-        initExpression: buildGlobalInitializerExpression(null, externDef)
+        initExpression: buildGlobalInitializerExpression(null, externDef, moduleModel)
       };
 
       moduleModel.globals.push(fallbackGlobal);
@@ -2629,7 +2671,7 @@ function compileLocalDeclaration(declarationNode, context) {
       pointeeIsUnsigned: !!localDef.pointeeIsUnsigned,
       mutable: !localDef.isConst,
       exported: false,
-      initExpression: buildGlobalInitializerExpression(localDef.initializer, localDef)
+      initExpression: buildGlobalInitializerExpression(localDef.initializer, localDef, context.module)
     };
 
     context.module.globals.push(backingGlobal);
@@ -3391,6 +3433,25 @@ function allocateStackSlot(context, symbol) {
   return symbol.stackOffset;
 }
 
+function allocateStructReturnTemporary(context, structLayout) {
+  context.usesLinearMemory = true;
+  // Each call expression needs independent storage: evaluating an argument
+  // can itself call a struct-returning function. Frame slots also prevent
+  // repeated calls in a loop from continually advancing the linear stack.
+  const temporary = {
+    isStruct: true,
+    structLayout: structLayout || { size: 4, alignment: 4 },
+    pointerDepth: 0,
+  };
+  const offset = allocateStackSlot(context, temporary);
+  const local = ensureInternalLocal(context, createLabel(context, '__maiac_sret_tmp'), 'i32');
+  const frame = ensureInternalLocal(context, '__frame', 'i32');
+  return {
+    local,
+    prepare: [`local.get $${frame.name}`, `i32.const ${offset}`, 'i32.add', `local.tee $${local.name}`],
+  };
+}
+
 function buildFunctionPrologue(context) {
   if (!context.usesLinearMemory) {
     return [];
@@ -3424,7 +3485,8 @@ function buildFunctionPrologue(context) {
         ...emitCopyBytesFromAddress(
           emitAddressOfSymbol(param.sourceName, context),
           [`local.get $${param.name}`],
-          getSymbolSize(param)
+          getSymbolSize(param),
+          context
         )
       );
     } else {
@@ -3543,7 +3605,7 @@ function compileJumpStatement(jumpNode, context) {
       const sourceAddressInstructions = compileExpression(expressionNode, context, { keepValue: true });
 
       return [
-        ...emitCopyBytesFromAddress([`local.get $${sretParam.name}`], sourceAddressInstructions, structSize),
+        ...emitCopyBytesFromAddress([`local.get $${sretParam.name}`], sourceAddressInstructions, structSize, context),
         ...buildFunctionEpilogue(context),
         'return'
       ];
@@ -4324,7 +4386,7 @@ function inferExpressionUnsignedness(node, context) {
 
   if (node.kind === 'terminal') {
     if (node.token === 'IntegerConstant') {
-      return /[uU]/.test(String(node.value || ''));
+      return /[uU]/.test(String(node.value || '')) || parseCIntegerLiteral(node.value) > 2147483647;
     }
     if (node.token === 'Identifier') {
       const symbol = resolveSymbol(node.value, context);
@@ -4336,6 +4398,34 @@ function inferExpressionUnsignedness(node, context) {
   const nodeName = getNodeName(node);
 
   if (nodeName === 'unaryExpression' && firstTerminal(node, 'TOKEN_sizeof')) return true;
+
+  if (nodeName === 'postfixExpression') {
+    const primary = firstNonterminal(node, 'primaryExpression');
+    const path = getMemberAccessPathFromPostfix(node);
+    const name = getSimpleIdentifierName(primary);
+    const calls = nonterminalChildren(node, 'postfixSuffix').some((suffix) => firstTerminal(suffix, 'TOKEN__28_'));
+    if (calls) {
+      const fn = name && context.module.functionsByName.get(name);
+      const members = getMemberAccessPathAfterFirstCall(node);
+      if (fn && fn.structReturnLayout && members.length) {
+        const member = resolveMemberAccessFromAddress(members, {
+          symbol: { structLayout: fn.structReturnLayout }, baseIsPointerValue: true,
+        }, context);
+        return !!(member && member.field && member.field.isUnsigned && !(member.field.pointerDepth || 0));
+      }
+      return false;
+    }
+    const indexed = getIndexedAccessInfoFromPostfix(node, context);
+    if (indexed) {
+      const member = path.length ? resolveMemberAccessFromAddress(path, indexed, context) : null;
+      const symbol = member ? member.field : indexed.symbol;
+      return !!(symbol && ((symbol.pointerDepth || 0) > 0 ? symbol.pointeeIsUnsigned : symbol.isUnsigned));
+    }
+    if (name && path.length) {
+      const member = resolvePostfixMemberAccess(name, path, context);
+      return !!(member && member.field && member.field.isUnsigned && !(member.field.pointerDepth || 0));
+    }
+  }
 
   if (nodeName === 'primaryExpression') {
     const expression = firstNonterminal(node, 'expression');
@@ -4372,10 +4462,8 @@ function inferExpressionUnsignedness(node, context) {
     return !!(symbol && symbol.isUnsigned);
   }
 
-  const nestedChildren = nonterminalChildren(node);
-  if (nestedChildren.length === 1 && terminalChildren(node).length === 0) {
-    return inferExpressionUnsignedness(nestedChildren[0], context);
-  }
+  const transparent = childNodes(node);
+  if (transparent.length === 1) return inferExpressionUnsignedness(transparent[0], context);
 
   return false;
 }
@@ -4916,7 +5004,21 @@ function getIndexedAccessInfoFromPostfix(node, context) {
           }
         }
         if (memberAccessPath.length > 0) {
-          const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+          // Resolve the prefix in order. In table[i].text[j], i indexes the
+          // struct table before .text selects the pointer indexed by j.
+          const prefixSuffixes = allSuffixes.slice(0, lastBracketIdx);
+          const prefixHasIndex = prefixSuffixes.some((suffix) => firstTerminal(suffix, 'TOKEN__5B_'));
+          let memberAccess;
+          if (prefixHasIndex) {
+            const prefixNode = { ...node, children: [primaryExpression, ...prefixSuffixes] };
+            const indexedPrefix = getIndexedAccessInfoFromPostfix(prefixNode, context);
+            const trailingMembers = getMemberAccessPathFromPostfix(prefixNode);
+            const selected = indexedPrefix && resolveMemberAccessFromAddress(trailingMembers, indexedPrefix, context);
+            memberAccess = selected ? {
+              ...selected,
+              addressInstructions: indexedPrefix.addressInstructions.concat(selected.addressInstructions),
+            } : null;
+          } else memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
           const field = memberAccess && memberAccess.field ? memberAccess.field : null;
           const fieldIsIndexablePointer = field && !memberAccess.isArray && (field.pointerDepth || 0) > 0;
           if (memberAccess && (memberAccess.isArray || fieldIsIndexablePointer)) {
@@ -5838,8 +5940,8 @@ function compileAssignmentExpression(node, context, options = {}) {
 }
 
 function emitStructAssignmentInstructions(destAddressInstructions, srcAddressInstructions, byteSize, context, keepValue) {
-  const dstTemp = ensureInternalLocal(context, '__tmp_struct_dst', 'i32');
-  const srcTemp = ensureInternalLocal(context, '__tmp_struct_src', 'i32');
+  const dstTemp = ensureInternalLocal(context, createLabel(context, '__tmp_struct_dst'), 'i32');
+  const srcTemp = ensureInternalLocal(context, createLabel(context, '__tmp_struct_src'), 'i32');
   const instructions = [
     ...destAddressInstructions,
     `local.set $${dstTemp.name}`,
@@ -6456,19 +6558,10 @@ function emitIndirectCallInstructions(options) {
   let sretLocal = null;
   let structLayout = null;
   if (callable && callable.returnsStructByValue) {
-    context.usesLinearMemory = true;
     structLayout = callable.structLayout;
-    const structSize = (structLayout && structLayout.size) || 4;
-    sretLocal = ensureInternalLocal(context, '__maiac_sret_tmp', 'i32');
-    instructions.push(
-      'global.get $__stack_ptr',
-      `local.set $${sretLocal.name}`,
-      'global.get $__stack_ptr',
-      `i32.const ${structSize}`,
-      'i32.add',
-      'global.set $__stack_ptr',
-      `local.get $${sretLocal.name}`
-    );
+    const temporary = allocateStructReturnTemporary(context, structLayout);
+    sretLocal = temporary.local;
+    instructions.push(...temporary.prepare);
   }
 
   for (let i = 0; i < userParamTypes.length; i += 1) {
@@ -7038,20 +7131,9 @@ function compilePostfixExpression(node, context, keepValue) {
       context.module,
       fn.structReturnLayout || null
     );
-    const structSize = (structLayout && structLayout.size) || 4;
-
-    context.usesLinearMemory = true;
-
-    const sretLocal = ensureInternalLocal(context, '__maiac_sret_tmp', 'i32');
-    instructions.push(
-      'global.get $__stack_ptr',
-      `local.set $${sretLocal.name}`,
-      'global.get $__stack_ptr',
-      `i32.const ${structSize}`,
-      'i32.add',
-      'global.set $__stack_ptr',
-      `local.get $${sretLocal.name}`
-    );
+    const temporary = allocateStructReturnTemporary(context, structLayout);
+    const sretLocal = temporary.local;
+    instructions.push(...temporary.prepare);
 
     const userParamTypes = Array.isArray(fn.userParams)
       ? fn.userParams.map((param) => toWatType(param.watType || 'i32'))

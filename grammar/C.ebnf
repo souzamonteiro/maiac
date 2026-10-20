@@ -209,7 +209,7 @@ postfixSuffix ::= '[' expression ']'
                     
 primaryExpression ::= Identifier
                     | constant
-                    | StringLiteral
+                    | StringLiteral+
                     | '(' expression ')'
                     
 argumentExpressionList ::= assignmentExpression ( ',' assignmentExpression )*
@@ -287,10 +287,10 @@ Keyword ::= 'auto'
 
 ConstantKeyword ::= 'true' | 'false' | 'null'
 
-IntegerConstant ::= DecimalConstant
-                  | OctalConstant
-                  | HexadecimalConstant
-                  | BinaryConstant
+IntegerConstant ::= ( DecimalConstant | OctalConstant | HexadecimalConstant | BinaryConstant ) IntegerSuffix?
+
+IntegerSuffix ::= [uU] [lL]?
+                | [lL] [uU]?
 
 DecimalConstant ::= [1-9] [0-9]*
 
@@ -333,7 +333,7 @@ EscapeSequence ::= SimpleEscapeSequence
                  | HexadecimalEscapeSequence
                  | UniversalCharacterName
 
-SimpleEscapeSequence ::= #x5C ['"?#x5Cabfnrtv]
+SimpleEscapeSequence ::= #x5C [#x27#x22#x3F#x5C#x61#x62#x66#x6E#x72#x74#x76]
 
 OctalEscapeSequence ::= #x5C [0-7] [0-7]? [0-7]?
 

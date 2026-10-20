@@ -930,7 +930,7 @@ function preprocessCSource(source, options = {}) {
         const remaining = text.slice(index);
         const numericMatch = remaining.match(/^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[0-7]+|[0-9]+)([uUlL]+)?\b/);
         if (numericMatch && (numericMatch[2] || /^0[xXbB]/.test(numericMatch[1]) || /^0[0-7]+$/.test(numericMatch[1]))) {
-          result += String(parseCIntegerLiteral(numericMatch[1]));
+          result += String(parseCIntegerLiteral(numericMatch[1])) + (numericMatch[2] || '');
           index += numericMatch[0].length;
           lineHasOnlyWhitespace = false;
           continue;
