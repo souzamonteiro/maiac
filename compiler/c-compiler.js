@@ -186,6 +186,9 @@ function getPointerStepForSymbol(symbol) {
   // For pointer-to-pointer (char **, int **, etc.) the pointee is itself
   // an address, so stride must be 4 bytes regardless of base scalar type.
   const pointerDepth = symbol.pointerDepth || 0;
+  if (pointerDepth === 1 && symbol.typeKind === 'struct' && symbol.structLayout) {
+    return symbol.structLayout.size * getDimensionProduct(symbol.pointeeArrayDimensions || []);
+  }
   const pointeeWatType = pointerDepth > 1 ? 'i32' : (symbol.baseWatType || 'i32');
   return getStrideForAccess(pointeeWatType, symbol.pointeeArrayDimensions || []);
 }
@@ -1795,7 +1798,7 @@ function functionRequiresLinearMemory(functionNode) {
 }
 
 function buildGlobalInitializerExpression(initializerNode, globalDef) {
-  if (globalDef && globalDef.isArray) {
+  if (globalDef && (globalDef.isArray || globalDef.isStruct)) {
     return '(i32.const 0)';
   }
   if (!initializerNode) {
@@ -2039,6 +2042,7 @@ function buildModuleModel(ast, options = {}) {
           isArray: !!itemDef.isArray,
           arrayLength: itemDef.arrayLength,
           arrayDimensions: Array.isArray(itemDef.arrayDimensions) ? [...itemDef.arrayDimensions] : [],
+          initializer: itemDef.initializer,
           initializerBytes: itemDef.isArray
             ? getStringLiteralInitializerValues(itemDef.initializer)
             : null,
@@ -2606,6 +2610,7 @@ function compileLocalDeclaration(declarationNode, context) {
       isArray: !!localDef.isArray,
       arrayLength: localDef.arrayLength || null,
       arrayDimensions: Array.isArray(localDef.arrayDimensions) ? [...localDef.arrayDimensions] : [],
+      initializer: localDef.initializer,
       watType: localDef.watType,
       baseWatType: localDef.baseWatType,
       pointerDepth: localDef.pointerDepth || 0,
@@ -7273,6 +7278,86 @@ function encodeScalarInitializerBytes(value, watType = 'i32') {
   return Array.from(new Uint8Array(view.buffer));
 }
 
+function encodeStaticAggregateInitializer(target, initializer, bytes, offset, moduleModel) {
+  const writeScalar = (type, value, at) => {
+    const encoded = encodeScalarInitializerBytes(value, getStorageTypeForSymbol(type));
+    for (let index = 0; index < encoded.length; ++index) bytes[at + index] = encoded[index];
+  };
+  const scalarValue = (node, type) => {
+    const terminals = findAll(node, (part) => part.kind === 'terminal');
+    if ((type.pointerDepth || 0) > 0) {
+      if (terminals.length === 1 && terminals[0].token === 'StringLiteral')
+        return registerStringLiteral(terminals[0].value, moduleModel).offset;
+      const addressOf = terminals.length === 2 && terminals[0].value === '&';
+      const identifier = addressOf ? terminals[1] : terminals[0];
+      if ((terminals.length === 1 || addressOf) && identifier && identifier.token === 'Identifier') {
+        const symbol = moduleModel.globalsByName.get(identifier.value);
+        if (symbol && (addressOf || symbol.isArray)) return ensureGlobalMemorySlot(symbol, moduleModel);
+        const fn = moduleModel.functionTableByName && moduleModel.functionTableByName.get(identifier.value);
+        if (fn) return fn.tableIndex;
+      }
+    }
+    if (terminals.some((part) => part.token === 'TOKEN_sizeof')
+        || findAll(node, (part) => isNonterminal(part, 'postfixSuffix')).length)
+      throw new CompilationError('Unsupported static initializer expression', target.sourceName);
+    const floating = terminals.find((part) => part.token === 'FloatingConstant');
+    if (floating && terminals.every((part) => part === floating || ['+', '-'].includes(part.value)))
+      return (terminals[0].value === '-' ? -1 : 1) * parseCFloatingLiteral(floating.value);
+    return evaluateConstantExpression(node, moduleModel.enumValues);
+  };
+  const children = (type) => {
+    if (type.isArray) {
+      const element = getArrayElementDescriptor(type);
+      const stride = getSymbolSize(element);
+      return Array.from({ length: type.arrayLength }, (_, index) => ({ type: element, offset: index * stride }));
+    }
+    if (type.isStruct) {
+      const layout = resolveStructLayout(type.structName || null, moduleModel, type.structLayout || null);
+      if (!layout) throw new CompilationError('Unknown static aggregate layout', target.sourceName);
+      return layout.fields.map((field) => ({ type: field, offset: field.offset }));
+    }
+    return null;
+  };
+  const consume = (type, entries, state, at) => {
+    const fields = children(type);
+    if (!fields) {
+      if (state.index < entries.length) {
+        const node = entries[state.index++];
+        const list = firstNonterminal(node, 'initializerList');
+        if (list) write(type, node, at);
+        else writeScalar(type, scalarValue(node, type), at);
+      }
+      return;
+    }
+    for (const field of fields) {
+      if (state.index >= entries.length) break;
+      const node = entries[state.index];
+      const string = field.type.isArray && getStringLiteralInitializerValues(node);
+      if (firstNonterminal(node, 'initializerList') || string) {
+        ++state.index;
+        write(field.type, node, at + field.offset);
+      } else consume(field.type, entries, state, at + field.offset);
+    }
+  };
+  const write = (type, node, at) => {
+    const string = type.isArray && getStringLiteralInitializerValues(node);
+    if (string) {
+      if (type.baseWatType !== 'i8' || (type.pointerDepth || 0) > 0 || string.length > type.arrayLength)
+        throw new CompilationError('Invalid static string array initializer', target.sourceName);
+      for (let index = 0; index < string.length; ++index) bytes[at + index] = string[index] & 255;
+      return;
+    }
+    const entries = getInitializerListEntries(node);
+    if (entries.some((entry) => entry.designation))
+      throw new CompilationError('Static designated initializers are not supported yet', target.sourceName);
+    const state = { index: 0 };
+    consume(type, entries.map((entry) => entry.initializer), state, at);
+    if (state.index < entries.length)
+      throw new CompilationError('Too many static initializer elements', target.sourceName);
+  };
+  write(target, initializer, offset);
+}
+
 function ensureGlobalMemorySlot(symbol, moduleModel) {
   if (!symbol || !moduleModel) {
     return null;
@@ -7291,7 +7376,16 @@ function ensureGlobalMemorySlot(symbol, moduleModel) {
   const offset = alignTo(moduleModel.nextDataOffset || 0, alignment);
   const bytes = new Array(size).fill(0);
 
-  if (symbol.isArray && Array.isArray(symbol.initializerBytes)) {
+  // Reserve before resolving pointer fields: aggregate tables can reference
+  // each other or themselves, including declarations appearing later.
+  moduleModel.dataSegments.push({ offset, bytes });
+  moduleModel.nextDataOffset = offset + bytes.length;
+  moduleModel.usesLinearMemory = true;
+  symbol.globalDataOffset = offset;
+
+  if ((symbol.isArray || symbol.isStruct) && symbol.initializer) {
+    encodeStaticAggregateInitializer(symbol, symbol.initializer, bytes, 0, moduleModel);
+  } else if (symbol.isArray && Array.isArray(symbol.initializerBytes)) {
     for (let index = 0; index < Math.min(size, symbol.initializerBytes.length); index += 1) {
       bytes[index] = Number(symbol.initializerBytes[index]) & 0xFF;
     }
@@ -7306,10 +7400,6 @@ function ensureGlobalMemorySlot(symbol, moduleModel) {
     }
   }
 
-  moduleModel.dataSegments.push({ offset, bytes });
-  moduleModel.nextDataOffset = offset + bytes.length;
-  moduleModel.usesLinearMemory = true;
-  symbol.globalDataOffset = offset;
   return offset;
 }
 

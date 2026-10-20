@@ -27,6 +27,15 @@ The project uses two local submodules:
 
 ## Repository Structure
 
+Static arrays and structs retain their positional aggregate initializers in
+linear memory, including nested braces, zero filling, strings and references
+to static tables/objects. Static local aggregates are initialized once. This
+supports MaiaCC's generated lexer instruction and pattern tables. Unsupported
+static expressions and excess elements produce diagnostics. Static designated
+initializers remain unsupported. Struct-pointer increments use the pointee
+layout size. `compiler/tests/test-static-aggregate-initializers.js` exercises
+these contracts in actual WebAssembly execution.
+
 - `compiler/`: parser integration, semantic analysis, lowering, WAT generation, tests.
 - `grammar/`: C grammar source files.
 - `tools/`: parser generation scripts, runtime helpers, browser runner.
