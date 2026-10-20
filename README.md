@@ -36,6 +36,10 @@ initializers remain unsupported. Struct-pointer increments use the pointee
 layout size. `compiler/tests/test-static-aggregate-initializers.js` exercises
 these contracts in actual WebAssembly execution.
 
+Function pointers returning `void` retain a no-result WebAssembly signature,
+including local variables, indexed pointers and nested struct callbacks.
+`compiler/tests/test-void-callbacks.js` covers those calls and typed arguments.
+
 - `compiler/`: parser integration, semantic analysis, lowering, WAT generation, tests.
 - `grammar/`: C grammar source files.
 - `tools/`: parser generation scripts, runtime helpers, browser runner.

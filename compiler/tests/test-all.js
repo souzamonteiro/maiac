@@ -14,6 +14,7 @@ const scripts = [
   'test-large-example-e2e.js',
   'test-phase3-initializers-diagnosis.js',
   'test-static-aggregate-initializers.js',
+  'test-void-callbacks.js',
   'test-phase4-abstract-declarators-diagnosis.js',
   'test-phase5-preprocessor-edgecases.js',
   'test-phase6-selection-statements-diagnosis.js',

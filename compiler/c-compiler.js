@@ -1324,6 +1324,13 @@ function extractDeclaratorInfo(declaratorNode, moduleModel = null) {
   const isVoidParameterList = hasParameterTypeList && isExplicitVoidParameterList(parameterList);
 
   const params = extractParameters(parameterList, moduleModel);
+  const scopedDirectDeclarator = getIdentifierScopedDirectDeclarator(declaratorNode);
+  const scopedDeclarator = findAll(declaratorNode, (candidate) => isNonterminal(candidate, 'declarator'))
+    .find((candidate) => firstNonterminal(candidate, 'directDeclarator') === scopedDirectDeclarator);
+  // Parenthesized object declarators carry their pointer beside the identifier,
+  // outside the return-type prefix. Do not count stars in callback parameters.
+  const nestedObjectPointerDepth = !identifierScopedFnSuffix && scopedDeclarator
+    && scopedDeclarator !== declaratorNode ? countLeadingPointerDepthInDeclarator(scopedDeclarator) : 0;
   const seenParamNames = new Set();
   for (const param of params) {
     if (!param || !param.sourceName) {
@@ -1341,7 +1348,7 @@ function extractDeclaratorInfo(declaratorNode, moduleModel = null) {
   return {
     sourceName: identifier.value,
     name: sanitizeIdentifier(identifier.value),
-    pointerDepth: countLeadingPointerDepthInDeclarator(declaratorNode),
+    pointerDepth: countLeadingPointerDepthInDeclarator(declaratorNode) + nestedObjectPointerDepth,
     params,
     isVariadic,
     hasParameterTypeList,
@@ -4046,10 +4053,7 @@ function expressionProducesValue(node, context) {
     const postfixSuffix = postfixExpression ? firstNonterminal(postfixExpression, 'postfixSuffix') : null;
 
     if (postfixSuffix) {
-      const primaryExpression = firstNonterminal(postfixExpression, 'primaryExpression');
-      const calleeName = extractIdentifierFromNode(primaryExpression);
-      const fn = calleeName ? context.module.functionsByName.get(calleeName) : null;
-      return !fn || fn.resultType !== null || !!fn.returnsStructByValue;
+      return inferExpressionType(postfixExpression, context) !== null;
     }
 
     return true;
@@ -4111,6 +4115,10 @@ function inferExpressionType(node, context) {
   if (nodeName === 'postfixExpression') {
     const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
     if (accessInfo) {
+      if (nonterminalChildren(node, 'postfixSuffix').some((suffix) => !!firstTerminal(suffix, 'TOKEN__28_'))) {
+        const callable = buildIndirectCallableMetadata(accessInfo.symbol, context);
+        if (callable) return callable.returnsStructByValue ? 'i32' : callable.resultType;
+      }
       return accessInfo.resultIsAddress ? 'i32' : accessInfo.watType;
     }
 
@@ -4124,6 +4132,20 @@ function inferExpressionType(node, context) {
       && firstCallSuffixIndex < firstMemberSuffixIndex;
     const hasCallSuffix = firstCallSuffixIndex >= 0;
     const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName && hasCallSuffix && !memberAccessAfterCall) {
+      const calleePath = getMemberAccessPathBeforeFirstCall(node);
+      if (calleePath.length > 0) {
+        const access = resolvePostfixMemberAccess(baseName, calleePath, context);
+        const callable = access && buildIndirectCallableMetadata(access.field, context);
+        if (callable) return callable.returnsStructByValue ? 'i32' : callable.resultType;
+      } else {
+        const symbol = resolveSymbol(baseName, context);
+        if (symbol && (symbol.pointerDepth || 0) > 0) {
+          const callable = buildIndirectCallableMetadata(symbol, context);
+          return callable.returnsStructByValue ? 'i32' : callable.resultType;
+        }
+      }
+    }
     if (baseName && memberAccessPath.length > 0 && !memberAccessAfterCall && !hasCallSuffix) {
       const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
       if (memberAccess) {
@@ -6308,7 +6330,8 @@ function buildIndirectCallableMetadata(symbol, context) {
   const userParamTypes = Array.isArray(symbol.params)
     ? symbol.params.map((param) => toWatType(param.watType || 'i32'))
     : [];
-  const resultType = returnsStructByValue
+  const returnsVoid = returnPointerDepth === 0 && String(symbol.cType || '').trim() === 'void';
+  const resultType = returnsStructByValue || returnsVoid
     ? null
     : toWatType((returnPointerDepth > 0 || symbol.typeKind === 'struct')
       ? 'i32'
@@ -6554,7 +6577,7 @@ function compilePostfixExpression(node, context, keepValue) {
         callInstructions.push(...compileExpression(argumentNode, context, { keepValue: true }));
       }
 
-      const indirectResultType = (callableMetadata && callableMetadata.resultType !== null)
+      const indirectResultType = callableMetadata
         ? callableMetadata.resultType
         : 'i32';
       const typeIndex = ensureFunctionType(
