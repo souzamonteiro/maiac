@@ -21,6 +21,7 @@ const cases = [
       p=patterns; c=p->code+1;
       if(p->count!=2 || p->entry!=1 || c->op!=1 || c->first!=43) return 1;
       ++p; if(p->count!=2 || p->entry!=0 || p->code!=code) return 2;
+      p=patterns+1; if(p->count!=2 || p->entry!=0 || p->code!=code) return 3;
       return 0;
     }`, 0],
   ['partially initialized rows preserve braces and zero padding', `

@@ -5905,7 +5905,9 @@ function getPointerElementSize(node, context) {
   if (simpleIdentifier) {
     const symbol = resolveSymbol(simpleIdentifier, context);
     if (symbol) {
-      if ((symbol.pointerDepth || 0) === 1 && (symbol.structName || symbol.structLayout)) {
+      const pointerDepth = symbol.pointerDepth || 0;
+      if ((pointerDepth === 1 || (pointerDepth === 0 && symbol.isArray))
+          && (symbol.structName || symbol.structLayout)) {
         const structLayout = resolveStructLayout(
           symbol.structName || null,
           context.module,
