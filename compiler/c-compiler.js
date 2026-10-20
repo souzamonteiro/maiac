@@ -1926,6 +1926,7 @@ function buildModuleModel(ast, options = {}) {
         name: declaratorInfo.name,
         exportName: declaratorInfo.sourceName,
         cType: returnTypeInfo.cType,
+        returnPointerDepth: declaratorInfo.pointerDepth || 0,
         resultType,
         params: declaratorInfo.isVariadic
           ? [...declaratorInfo.params, createVariadicBaseParam()]
@@ -4132,6 +4133,15 @@ function inferExpressionType(node, context) {
       && firstCallSuffixIndex < firstMemberSuffixIndex;
     const hasCallSuffix = firstCallSuffixIndex >= 0;
     const baseName = getSimpleIdentifierName(primaryExpression);
+    if (baseName && memberAccessAfterCall) {
+      const fn = context.module.functionsByName.get(baseName);
+      if (fn && fn.returnPointerDepth === 1) {
+        const access = resolveMemberAccessFromAddress(getMemberAccessPathAfterFirstCall(node), {
+          symbol: { structLayout: fn.structReturnLayout }, baseIsPointerValue: true
+        }, context);
+        return access.isStruct || access.isArray ? 'i32' : toWatType(access.watType);
+      }
+    }
     if (baseName && hasCallSuffix && !memberAccessAfterCall) {
       const calleePath = getMemberAccessPathBeforeFirstCall(node);
       if (calleePath.length > 0) {
@@ -5203,7 +5213,7 @@ function resolveMemberAccessFromAddress(memberAccessPath, baseAccessInfo, contex
       throw new CompilationError(`Unknown struct field '${accessStep.fieldName}' in struct`, 'member-access');
     }
 
-    if (accessStep.isArrow) {
+    if (accessStep.isArrow && !(i === 0 && baseAccessInfo.baseIsPointerValue)) {
       addressInstructions.push('i32.load');
     }
 
@@ -6837,7 +6847,8 @@ function compilePostfixExpression(node, context, keepValue) {
     const isTimeLocaleHost = !!timeLocaleHost;
     const isSetjmpHost = !!setjmpHost;
 
-    if (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost || isCtypeHost || isTimeLocaleHost || isSetjmpHost) {
+    const hasGuestDefinition = hostFn && !hostFn.declaredOnly && !hostFn.isHostImport;
+    if (!hasGuestDefinition && (isNamedHostImport || isVariadicStdIoHost || isFixedStdIoHost || isCtypeHost || isTimeLocaleHost || isSetjmpHost)) {
       let importDef;
 
       if (isVariadicStdIoHost) {
@@ -7160,6 +7171,18 @@ function compilePostfixExpression(node, context, keepValue) {
   }
 
   instructions.push(`call $${sanitizeIdentifier(calleeName)}`);
+
+  if (memberAccessAfterCall && fn.returnPointerDepth === 1) {
+    const access = resolveMemberAccessFromAddress(memberAccessPathAfterCall, {
+      symbol: { structLayout: fn.structReturnLayout }, baseIsPointerValue: true
+    }, context);
+    instructions.push(...access.addressInstructions);
+    if (!access.isStruct && !access.isArray) {
+      instructions.push(getLoadOpcodeForType(access.watType));
+    }
+    if (!keepValue) instructions.push('drop');
+    return instructions;
+  }
 
   // Apply any chained call suffixes: e.g., getOp()(3,4) where getOp() returns a fn ptr.
   if (chainedCallSuffixes.length > 0) {

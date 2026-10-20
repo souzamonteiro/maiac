@@ -1,4 +1,4 @@
-#define NULL ((void*)0)
+#include "../include/string.h"
 
 static char *strtok_state = (char *)0;
 
@@ -10,10 +10,10 @@ static int char_in_set(char c, const char *set) {
 	return 0;
 }
 
-void *memcpy(void *s1, const void *s2, int n) {
+void *memcpy(void *s1, const void *s2, size_t n) {
 	unsigned char *dst;
 	const unsigned char *src;
-	int i;
+	size_t i;
 
 	if (s1 == s2 || n == 0) return s1;
 
@@ -25,10 +25,10 @@ void *memcpy(void *s1, const void *s2, int n) {
 	return s1;
 }
 
-void *memmove(void *s1, const void *s2, int n) {
+void *memmove(void *s1, const void *s2, size_t n) {
 	unsigned char *dst;
 	const unsigned char *src;
-	int i;
+	size_t i;
 
 	if (s1 == s2 || n == 0) return s1;
 
@@ -49,15 +49,15 @@ void *memmove(void *s1, const void *s2, int n) {
 }
 
 char *strcpy(char *s1, const char *s2) {
-	int len;
+	size_t len;
 	len = strlen(s2);
 	memcpy(s1, s2, len + 1);
 	return s1;
 }
 
-char *strncpy(char *s1, const char *s2, int n) {
-	int copy_len;
-	int src_len;
+char *strncpy(char *s1, const char *s2, size_t n) {
+	size_t copy_len;
+	size_t src_len;
 
 	if (n <= 0) return s1;
 
@@ -75,8 +75,8 @@ char *strncpy(char *s1, const char *s2, int n) {
 }
 
 char *strcat(char *s1, const char *s2) {
-	int len1;
-	int len2;
+	size_t len1;
+	size_t len2;
 
 	len1 = strlen(s1);
 	len2 = strlen(s2);
@@ -84,9 +84,9 @@ char *strcat(char *s1, const char *s2) {
 	return s1;
 }
 
-char *strncat(char *s1, const char *s2, int n) {
-	int len1;
-	int i;
+char *strncat(char *s1, const char *s2, size_t n) {
+	size_t len1;
+	size_t i;
 
 	len1 = strlen(s1);
 	i = 0;
@@ -102,10 +102,10 @@ char *strncat(char *s1, const char *s2, int n) {
 	return s1;
 }
 
-int memcmp(const void *s1, const void *s2, int n) {
+int memcmp(const void *s1, const void *s2, size_t n) {
 	const unsigned char *a;
 	const unsigned char *b;
-	int i;
+	size_t i;
 
 	a = (const unsigned char *)s1;
 	b = (const unsigned char *)s2;
@@ -130,8 +130,8 @@ int strcoll(const char *s1, const char *s2) {
 	return strcmp(s1, s2);
 }
 
-int strncmp(const char *s1, const char *s2, int n) {
-	int i;
+int strncmp(const char *s1, const char *s2, size_t n) {
+	size_t i;
 	for (i = 0; i < n; i++) {
 		unsigned char a;
 		unsigned char b;
@@ -143,9 +143,9 @@ int strncmp(const char *s1, const char *s2, int n) {
 	return 0;
 }
 
-int strxfrm(char *s1, const char *s2, int n) {
-	int len;
-	int copy_len;
+size_t strxfrm(char *s1, const char *s2, size_t n) {
+	size_t len;
+	size_t copy_len;
 
 	len = strlen(s2);
 	if (n == 0) return len;
@@ -163,10 +163,10 @@ int strxfrm(char *s1, const char *s2, int n) {
 	return len;
 }
 
-void *memchr(const void *s, int c, int n) {
+void *memchr(const void *s, int c, size_t n) {
 	const unsigned char *p;
 	unsigned char target;
-	int i;
+	size_t i;
 
 	p = (const unsigned char *)s;
 	target = (unsigned char)c;
@@ -187,8 +187,8 @@ char *strchr(const char *s, int c) {
 	return NULL;
 }
 
-int strcspn(const char *s1, const char *s2) {
-	int i;
+size_t strcspn(const char *s1, const char *s2) {
+	size_t i;
 	i = 0;
 	while (s1[i] != '\0' && !char_in_set(s1[i], s2)) {
 		i++;
@@ -217,8 +217,8 @@ char *strrchr(const char *s, int c) {
 	return (char *)last;
 }
 
-int strspn(const char *s1, const char *s2) {
-	int i;
+size_t strspn(const char *s1, const char *s2) {
+	size_t i;
 	i = 0;
 	while (s1[i] != '\0' && char_in_set(s1[i], s2)) {
 		i++;
@@ -281,10 +281,10 @@ char *strtok(char *s1, const char *s2) {
 	return start;
 }
 
-void *memset(void *s, int c, int n) {
+void *memset(void *s, int c, size_t n) {
 	unsigned char *p;
 	unsigned char v;
-	int i;
+	size_t i;
 
 	p = (unsigned char *)s;
 	v = (unsigned char)c;
@@ -304,9 +304,9 @@ char *strerror(int errnum) {
 	return unknown;
 }
 
-int strlen(const char *s) {
+size_t strlen(const char *s) {
 	const char *p;
 	p = s;
 	while (*p != '\0') p++;
-	return (int)(p - s);
+	return (size_t)(p - s);
 }

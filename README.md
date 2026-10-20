@@ -39,6 +39,14 @@ these contracts in actual WebAssembly execution.
 Function pointers returning `void` retain a no-result WebAssembly signature,
 including local variables, indexed pointers and nested struct callbacks.
 `compiler/tests/test-void-callbacks.js` covers those calls and typed arguments.
+It also verifies member access after functions returning struct pointers,
+including nested fields and floating values.
+
+The string library definitions use the `size_t` signatures in their public
+header. Guest function definitions take precedence over standard host imports,
+so linking the C library executes its C implementation in WebAssembly.
+`compiler/tests/test-string-library-contracts.js` checks header compatibility
+with strict C89 and runs the linked functions without host string imports.
 
 - `compiler/`: parser integration, semantic analysis, lowering, WAT generation, tests.
 - `grammar/`: C grammar source files.

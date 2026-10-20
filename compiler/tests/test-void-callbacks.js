@@ -8,6 +8,22 @@ const definitions = `
   void callback(void *context, unsigned int value) {int *target; target=context; *target=value;}
 `;
 const cases = [
+  ['member after a function returning a struct pointer', `
+    struct Token {int prefix; int type;}; static struct Token token={99,4};
+    struct Token *peek(void) {return &token;}
+    int test_entry(void) {return peek()->type;}
+  `, 4],
+  ['floating member after a struct pointer return', `
+    struct Token {int prefix; double value;}; static struct Token token={99,1.25};
+    struct Token *peek(void) {return &token;}
+    int test_entry(void) {return (int)(peek()->value * 4.0);}
+  `, 5],
+  ['nested arrow and dot after a struct pointer return', `
+    struct Inner {int value;}; struct Token {int prefix; struct Inner inner; struct Token *next;};
+    static struct Token second={1,{37},0}; static struct Token first={2,{17},&second};
+    struct Token *peek(void) {return &first;}
+    int test_entry(void) {return peek()->next->inner.value;}
+  `, 37],
   ['void callback stored in a struct', `
     ${definitions}
     int test_entry(void) {struct Events e; int value; value=0; e.context=&value; e.call=callback; e.call(e.context,17); return value;}
@@ -39,4 +55,4 @@ for (const [name, source, expected] of cases) {
   assert.equal(instance.exports.test_entry(), expected, name);
   console.log(`PASS ${name}`);
 }
-console.log(`Void callbacks: ${cases.length} checks passed`);
+console.log(`Callbacks and struct pointer returns: ${cases.length} checks passed`);
