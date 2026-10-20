@@ -41,6 +41,9 @@ including local variables, indexed pointers and nested struct callbacks.
 `compiler/tests/test-void-callbacks.js` covers those calls and typed arguments.
 It also verifies member access after functions returning struct pointers,
 including nested fields and floating values.
+Struct-pointer casts retain their target layout, including typedef names.
+Arithmetic on pointer fields uses the pointee size, so a `char*` buffer advances
+one byte per character during repeated string appends.
 
 The string library definitions use the `size_t` signatures in their public
 header. Guest function definitions take precedence over standard host imports,

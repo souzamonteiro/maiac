@@ -8,6 +8,11 @@ const definitions = `
   void callback(void *context, unsigned int value) {int *target; target=context; *target=value;}
 `;
 const cases = [
+  ['member through a cast from void to a typedef struct pointer', `
+    typedef struct Trace {int prefix; unsigned int count;} Trace;
+    unsigned int checkpoint(void *context) {return ((Trace*)context)->count;}
+    int test_entry(void) {Trace trace; trace.prefix=99; trace.count=41; return checkpoint(&trace);}
+  `, 41],
   ['member after a function returning a struct pointer', `
     struct Token {int prefix; int type;}; static struct Token token={99,4};
     struct Token *peek(void) {return &token;}

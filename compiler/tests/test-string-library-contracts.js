@@ -13,8 +13,15 @@ execFileSync(process.env.CC || 'clang', [
   '-ffreestanding', '-fsyntax-only', sourcePath,
 ]);
 const source = fs.readFileSync(sourcePath, 'utf8') + `
+struct Output {char *data; size_t length;};
+void append(struct Output *output, const char *text, size_t length) {
+  memcpy(output->data + output->length, text, length);
+  output->length += length;
+  output->data[output->length] = 0;
+}
 int test_entry(void) {
   char buffer[16];
+  struct Output output;
   size_t (*length)(const char *);
   size_t (*span)(const char *, const char *);
   length = strlen;
@@ -35,6 +42,11 @@ int test_entry(void) {
   if (memchr(buffer, 'p', 4) != buffer + 2) return 9;
   if (strlen("") || strspn("", "ab") || strcspn("", "!")) return 10;
   if (strxfrm(buffer, "longer", 0) != 6) return 11;
+  output.data = buffer;
+  output.length = 0;
+  append(&output, "abc", 3);
+  append(&output, "def", 3);
+  if (strcmp(buffer, "abcdef")) return 12;
   return 0;
 }
 `;
@@ -42,4 +54,4 @@ const result = compileSource(source, { sourcePath, resolveSystemIncludes: true, 
 assert.ok(result.wasm, result.validationError && result.validationError.message);
 const instance = new WebAssembly.Instance(new WebAssembly.Module(Buffer.from(result.wasm)), {});
 assert.equal(instance.exports.test_entry(), 0);
-console.log('String library: strict C89 header compatibility and 11 guest checks passed');
+console.log('String library: strict C89 header compatibility and 12 guest checks passed');

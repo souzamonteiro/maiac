@@ -5522,6 +5522,16 @@ function isReadOnlyIndirectTarget(node, context) {
 }
 
 function inferStructPointeeLayout(node, context) {
+  const cast = unwrapSingleNonterminalChain(node) || node;
+  if (isNonterminal(cast, 'castExpression')) {
+    const typeName = firstNonterminal(cast, 'typeName');
+    if (typeName) {
+      const type = extractTypeInfoFromTypeNameWithContext(typeName, context);
+      return type.pointerDepth === 1 && type.typeKind === 'struct'
+        ? resolveStructLayout(type.structName, context.module, type.structLayout || null)
+        : null;
+    }
+  }
   const identifierName = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
   const symbol = identifierName ? resolveSymbol(identifierName, context) : null;
   if (!symbol || (symbol.pointerDepth || 0) <= 0 || !symbol.structName) {
@@ -5980,7 +5990,7 @@ function getPointerElementSize(node, context) {
             );
             if (structLayout) return structLayout.size || 4;
           }
-          return getTypeSize(memberAccess.watType || 'i32');
+          return getTypeSize(memberAccess.pointerDepth > 1 ? 'i32' : (memberAccess.baseWatType || 'i32'));
         }
       }
     }
