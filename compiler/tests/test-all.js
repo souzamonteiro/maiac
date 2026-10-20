@@ -16,6 +16,7 @@ const scripts = [
   'test-static-aggregate-initializers.js',
   'test-void-callbacks.js',
   'test-string-library-contracts.js',
+  'test-stdlib-allocator.js',
   'test-phase4-abstract-declarators-diagnosis.js',
   'test-phase5-preprocessor-edgecases.js',
   'test-phase6-selection-statements-diagnosis.js',

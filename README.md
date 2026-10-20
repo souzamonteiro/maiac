@@ -50,6 +50,10 @@ header. Guest function definitions take precedence over standard host imports,
 so linking the C library executes its C implementation in WebAssembly.
 `compiler/tests/test-string-library-contracts.js` checks header compatibility
 with strict C89 and runs the linked functions without host string imports.
+`compiler/tests/test-stdlib-allocator.js` exercises the C allocator through
+repeated growth, shrinkage and free cycles, byte preservation and actual WASM
+memory growth. Pointer arithmetic on casts resolves typedef struct layouts;
+narrow integer casts retain the target width before integer promotion.
 
 - `compiler/`: parser integration, semantic analysis, lowering, WAT generation, tests.
 - `grammar/`: C grammar source files.

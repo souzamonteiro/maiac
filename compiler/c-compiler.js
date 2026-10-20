@@ -4618,7 +4618,7 @@ function compileCastExpression(node, context, keepValue) {
 
   const operandCandidates = nonterminalChildren(node).filter((child) => child !== typeNameNode);
   const operandNode = operandCandidates.length > 0 ? operandCandidates[operandCandidates.length - 1] : null;
-  const targetTypeInfo = extractTypeInfoFromTypeName(typeNameNode);
+  const targetTypeInfo = extractTypeInfoFromTypeNameWithContext(typeNameNode, context);
   const operandInstructions = operandNode
     ? compileExpression(operandNode, context, { keepValue: true })
     : ['i32.const 0'];
@@ -4642,7 +4642,17 @@ function compileCastExpression(node, context, keepValue) {
   }
 
   // Preserve true void-cast semantics: (void)expr should not force an i32 value.
-  return coerceInstructionsToType(operandInstructions, operandType, targetTypeInfo.watType, context);
+  const converted = coerceInstructionsToType(operandInstructions, operandType, targetTypeInfo.watType, context);
+  const cType = String(targetTypeInfo.cType || '').trim();
+  const narrowBytes = getCTypeSizeForSizeof(cType);
+  if (!(targetTypeInfo.pointerDepth > 0) && narrowBytes < 4) {
+    const bits = narrowBytes * 8;
+    if (targetTypeInfo.isUnsigned || cType === 'char') {
+      return converted.concat(`i32.const ${(1 << bits) - 1}`, 'i32.and');
+    }
+    return converted.concat(`i32.const ${32 - bits}`, 'i32.shl', `i32.const ${32 - bits}`, 'i32.shr_s');
+  }
+  return converted;
 }
 
 function compileUnaryExpression(node, context, keepValue) {
@@ -5879,7 +5889,7 @@ function isPointerLikeNode(node, context) {
 
   if (isNonterminal(node, 'castExpression')) {
     const typeName = firstNonterminal(node, 'typeName');
-    if (typeName) return (extractTypeInfoFromTypeName(typeName).pointerDepth || 0) > 0;
+    if (typeName) return (extractTypeInfoFromTypeNameWithContext(typeName, context).pointerDepth || 0) > 0;
   }
   if (isNonterminal(node, 'primaryExpression')) {
     const expression = firstNonterminal(node, 'expression');
@@ -5930,7 +5940,7 @@ function getPointerElementSize(node, context) {
   if (isNonterminal(node, 'castExpression')) {
     const typeName = firstNonterminal(node, 'typeName');
     if (typeName) {
-      const castType = extractTypeInfoFromTypeName(typeName);
+      const castType = extractTypeInfoFromTypeNameWithContext(typeName, context);
       if (castType.pointerDepth > 1) return 4;
       const layout = castType.structName
         ? resolveStructLayout(castType.structName, context.module, castType.structLayout || null)
