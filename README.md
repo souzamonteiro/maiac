@@ -54,6 +54,9 @@ with strict C89 and runs the linked functions without host string imports.
 repeated growth, shrinkage and free cycles, byte preservation and actual WASM
 memory growth. Pointer arithmetic on casts resolves typedef struct layouts;
 narrow integer casts retain the target width before integer promotion.
+Void functions restore their linear stack frame on implicit fallthrough as well
+as explicit returns. `compiler/tests/test-void-fallthrough-frames.js` verifies
+the stack pointer and caller locals across 20,000 nested calls.
 
 - `compiler/`: parser integration, semantic analysis, lowering, WAT generation, tests.
 - `grammar/`: C grammar source files.

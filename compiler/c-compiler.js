@@ -2446,8 +2446,8 @@ function compileFunctionBody(functionNode, functionModel, moduleModel) {
     } else if (functionModel.resultType === 'f64') {
       functionModel.instructions.push('f64.const 0');
     }
-    functionModel.instructions.push(...buildFunctionEpilogue(context), 'return');
   }
+  functionModel.instructions.push(...buildFunctionEpilogue(context), 'return');
 
   moduleModel.usesLinearMemory = moduleModel.usesLinearMemory || context.usesLinearMemory;
 }
