@@ -5689,6 +5689,19 @@ function inferStructPointeeLayout(node, context) {
   return resolveStructLayout(symbol.structName, context.module, symbol.structLayout || null);
 }
 
+// A fully indexed struct object is an aggregate value, not its first i32 field.
+// Pointer arrays still select scalar pointer slots; subarrays remain addresses.
+function getIndexedStructValueLayout(accessInfo, context) {
+  if (!accessInfo || accessInfo.resultIsAddress) return null;
+  const symbol = accessInfo.symbol;
+  const structElement = symbol && (symbol.isArray
+    ? (symbol.pointerDepth || 0) === 0
+    : (symbol.pointerDepth || 0) === 1);
+  return structElement && (symbol.structName || symbol.structLayout)
+    ? resolveStructLayout(symbol.structName || null, context.module, symbol.structLayout || null)
+    : null;
+}
+
 function getStructAssignmentSourceAddress(node, context) {
   const unwrapped = unwrapSingleNonterminalChain(node) || node;
 
@@ -5745,7 +5758,8 @@ function resolveLValue(node, context, options = {}) {
         kind: 'indirect',
         addressInstructions: accessInfo.addressInstructions,
         watType: accessInfo.watType,
-        readOnly: accessIsReadOnly
+        readOnly: accessIsReadOnly,
+        aggregateByteSize: getIndexedStructValueLayout(accessInfo, context)?.size || 0
       };
     }
 
@@ -6741,6 +6755,9 @@ function compilePostfixExpression(node, context, keepValue) {
       return instructions;
     }
     
+    // Struct expressions carry their complete object's address, like subarrays.
+    if (getIndexedStructValueLayout(accessInfo, context)) return instructions;
+
     // No member access, just return indexed access result
     if (accessInfo.resultIsAddress) {
       return instructions;

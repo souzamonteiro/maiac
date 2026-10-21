@@ -115,5 +115,66 @@ int test_entry(void) {
     33
   );
 
+  runCase('indexed struct destination copies every field and preserves its neighbor', `
+struct Cell {int op; unsigned int first; unsigned int count;};
+int test_entry(void) {
+  struct Cell array[2]; struct Cell source;
+  array[0].op=-1;array[0].first=0;array[0].count=0;
+  array[1].op=99;array[1].first=98;array[1].count=97;
+  source.op=3;source.first=46;source.count=7;array[0]=source;
+  return !(array[0].op==3 && array[0].first==46 && array[0].count==7
+    && array[1].op==99 && array[1].first==98 && array[1].count==97);
+}`, 0);
+  runCase('indexed source and destination evaluate subscripts once', `
+struct Cell {int op; int first; int count;};
+int test_entry(void) {
+  struct Cell source[2];struct Cell target[2];int i;int j;
+  source[0].op=3;source[0].first=46;source[0].count=7;
+  source[1].op=1;source[1].first=2;source[1].count=3;
+  target[0].op=99;target[0].first=98;target[0].count=97;
+  target[1].op=0;target[1].first=0;target[1].count=0;
+  i=1;j=0;target[i++]=source[j++];
+  return !(i==2 && j==1 && target[1].op==3 && target[1].first==46 && target[1].count==7
+    && target[0].op==99 && source[0].count==7);
+}`, 0);
+  runCase('struct pointer indexing copies values through a function parameter', `
+struct Cell {int op; int first; int count;};
+void copy(struct Cell *target, const struct Cell *source) {target[1]=source[0];}
+int test_entry(void) {
+  struct Cell a[2];struct Cell b[1];a[1].op=0;a[1].first=0;a[1].count=0;
+  b[0].op=3;b[0].first=46;b[0].count=7;copy(a,b);
+  return !(a[1].op==3 && a[1].first==46 && a[1].count==7);
+}`, 0);
+  runCase('nested member arrays are complete struct values on both sides', `
+struct Cell {int op; int first; int count;};
+struct Owner {struct Cell items[2];struct Cell *pointer;};
+int test_entry(void) {
+  struct Owner left;struct Owner right;struct Owner *a;struct Owner *b;struct Cell value;
+  a=&left;b=&right;left.pointer=left.items;right.pointer=right.items;
+  right.items[1].op=3;right.items[1].first=46;right.items[1].count=7;
+  left.items[0].op=0;left.items[0].first=0;left.items[0].count=0;
+  a->items[0]=b->pointer[1];value=a->items[0];
+  return !(value.op==3 && value.first==46 && value.count==7 && left.items[0].count==7);
+}`, 0);
+  runCase('multidimensional struct array copy retains the final element layout', `
+struct Cell {int x;int y;};
+int test_entry(void) {
+  struct Cell a[2][2];struct Cell source;
+  source.x=11;source.y=22;a[1][1]=source;source.x=0;source.y=0;source=a[1][1];
+  return !(source.x==11 && source.y==22);
+}`, 0);
+  runCase('struct pointer array assignment remains a pointer-sized store', `
+struct Cell {int x;int y;};
+int test_entry(void) {
+  struct Cell a;struct Cell b;struct Cell *items[2];a.x=11;a.y=22;b.x=33;b.y=44;
+  items[0]=&a;items[1]=&b;items[0]=items[1];
+  return !(items[0]==&b && items[1]==&b && a.x==11 && a.y==22 && items[0]->y==44);
+}`, 0);
+  const assert = require('node:assert/strict');
+  assert.throws(() => compileSource(`
+struct Cell {int x;int y;};
+int test_entry(void) {const struct Cell a[1]={{1,2}};struct Cell b;b.x=3;b.y=4;a[0]=b;return 0;}
+`), /read-only/i, 'Const indexed struct objects remain read-only');
+
   console.log('struct assignment by value tests: PASS');
 })();
