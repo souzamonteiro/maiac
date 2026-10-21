@@ -1004,6 +1004,16 @@ function getSizeOfExpressionNode(node, context) {
     if (nested.length !== 1 || (terminals.length !== 0 && !parentheses)) break;
     stringOperand = nested[0];
   }
+  // sizeof observes the dereferenced aggregate type without evaluating it.
+  // Descending to its identifier would measure the pointer instead.
+  if (isNonterminal(stringOperand, 'unaryExpression')) {
+    const operator = firstNonterminal(stringOperand, 'unaryOperator');
+    if (operator && firstTerminal(operator)?.token === 'TOKEN__2A_') {
+      const operand = nonterminalChildren(stringOperand).find(child => child !== operator);
+      const layout = inferStructPointeeLayout(operand, context);
+      if (layout) return layout.size || 4;
+    }
+  }
   const simpleIdentifier = getSimpleIdentifierName(node) || extractIdentifierFromNode(node);
   if (simpleIdentifier) {
     if (simpleIdentifier === 'NULL') {

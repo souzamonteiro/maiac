@@ -200,5 +200,20 @@ int test_entry(void) {
   return 0;
 }`, 0);
 
+  runCase('sizeof dereferenced structs clears the complete reused object without evaluation', `
+struct State {unsigned char path[1024];int live;};
+static void clear_bytes(void *memory,unsigned int count){unsigned char *p=(unsigned char*)memory;unsigned int i;for(i=0;i<count;++i)p[i]=0;}
+static void reset(struct State *state){clear_bytes(state,sizeof(*state));}
+int test_entry(void){
+  struct State value;struct State *p;const struct State *q;int i;
+  p=&value;q=p;
+  if(sizeof(*p)!=1028 || sizeof(*q)!=1028)return 1;
+  if(sizeof(*(struct State *)0)!=1028)return 2;
+  if(sizeof(*(p++))!=1028 || p!=&value)return 3;
+  for(i=0;i<3;++i){value.path[0]='x';value.path[1023]='z';value.live=99;reset(p);
+    if(value.path[0]||value.path[1023]||value.live)return 4;}
+  return 0;
+}`, 0);
+
   console.log('struct assignment by value tests: PASS');
 })();

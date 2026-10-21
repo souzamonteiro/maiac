@@ -48,3 +48,19 @@ byte/struct/double-pointer field arithmetic, and integer casts that stop pointer
 scaling. Focused tests and `npm run test:full` PASS (bundle plus 13/13 extra
 diagnostics); log /tmp/maia-c-member-stride-full.log. Generated example artifacts
 remain uncommitted and excluded from publication.
+
+## Reinitialization through sizeof a dereferenced struct
+
+The strengthened walker tests exposed retained state after root traversal.
+`sizeof(*state)` descended to the pointer identifier and returned 4 rather than
+the complete pointed-to struct size. A memset using that result cleared only the
+first word. The sizeof expression now resolves a dereferenced struct's existing
+pointee layout before considering a simple identifier. It does not emit operand
+evaluation. This is a narrow aggregate-expression correction, not a claim that
+every possible sizeof expression is implemented.
+
+The regression covers const pointers, a cast null pointer, a postfix increment
+that must remain unevaluated, and three complete poison/reset/readback cycles of
+a 1028-byte struct. Focused validation and `npm run test:full` PASS (complete bundle and 13/13
+extra diagnostics); log /tmp/maia-c-sizeof-struct-full.log. The large compiler
+example also compiles to valid WASM.
