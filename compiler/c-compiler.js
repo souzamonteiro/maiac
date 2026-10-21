@@ -6042,7 +6042,7 @@ function isPointerLikeNode(node, context) {
     const baseName = getSimpleIdentifierName(primaryExpression);
     if (baseName && memberAccessPath.length > 0) {
       const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
-      return !!memberAccess && (memberAccess.isStruct || memberAccess.isArray || memberAccess.pointerDepth > 0);
+      return !!memberAccess && (memberAccess.isStruct || memberAccess.isArray || (memberAccess.field?.pointerDepth || 0) > 0);
     }
   }
 
@@ -6110,12 +6110,13 @@ function getPointerElementSize(node, context) {
     if (baseName && memberAccessPath.length > 0) {
       const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
       if (memberAccess) {
+        const field = memberAccess.field;
         if (memberAccess.isArray) {
-          const dims = Array.isArray(memberAccess.arrayDimensions) ? memberAccess.arrayDimensions.slice(1) : [];
-          return getStrideForAccess(memberAccess.watType || 'i32', dims);
+          const dims = Array.isArray(field?.arrayDimensions) ? field.arrayDimensions.slice(1) : [];
+          const elementType = (field?.pointerDepth || 0) > 0 ? 'i32' : (field?.baseWatType || field?.watType || 'i32');
+          return getIndexedStrideForAccess(field, elementType, dims, context);
         }
-        if (memberAccess.pointerDepth > 0) {
-          const field = memberAccess.field;
+        if ((field?.pointerDepth || 0) > 0) {
           if ((field.pointerDepth || 0) === 1 && field.structName) {
             const structLayout = resolveStructLayout(
               field.structName,
@@ -6124,7 +6125,7 @@ function getPointerElementSize(node, context) {
             );
             if (structLayout) return structLayout.size || 4;
           }
-          return getTypeSize(memberAccess.pointerDepth > 1 ? 'i32' : (memberAccess.baseWatType || 'i32'));
+          return getTypeSize(field.pointerDepth > 1 ? 'i32' : (field.baseWatType || 'i32'));
         }
       }
     }

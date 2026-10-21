@@ -176,5 +176,29 @@ struct Cell {int x;int y;};
 int test_entry(void) {const struct Cell a[1]={{1,2}};struct Cell b;b.x=3;b.y=4;a[0]=b;return 0;}
 `), /read-only/i, 'Const indexed struct objects remain read-only');
 
+  runCase('member-array arithmetic retains byte, struct and row element sizes', `
+struct Item {int a;int b;int c;};
+struct Buffer {unsigned char text[64];struct Item items[4];struct Item rows[2][3];struct Item *slots[4];};
+int test_entry(void) {
+  struct Buffer value;
+  if((unsigned int)(value.text+5)-(unsigned int)value.text!=5)return 1;
+  if((unsigned int)(value.items+1)-(unsigned int)value.items!=12)return 2;
+  if((unsigned int)(value.rows+1)-(unsigned int)value.rows!=36)return 3;
+  if((unsigned int)(value.slots+1)-(unsigned int)value.slots!=4)return 4;
+  return 0;
+}`, 0);
+  runCase('pointer fields use pointee sizes and integer casts stop scaling', `
+struct Item {int a;int b;int c;};
+struct Buffer {unsigned char *text;struct Item *items;struct Item **slots;};
+int test_entry(void) {
+  struct Buffer value;unsigned char bytes[64];struct Item items[4];struct Item *slots[4];
+  value.text=bytes;value.items=items;value.slots=slots;
+  if((unsigned int)(value.text+5)-(unsigned int)value.text!=5)return 1;
+  if((unsigned int)(value.items+1)-(unsigned int)value.items!=12)return 2;
+  if((unsigned int)(value.slots+1)-(unsigned int)value.slots!=4)return 3;
+  if((unsigned int)value.items+1-(unsigned int)value.items!=1)return 4;
+  return 0;
+}`, 0);
+
   console.log('struct assignment by value tests: PASS');
 })();

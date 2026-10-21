@@ -31,3 +31,20 @@ Full log: /tmp/maia-c-struct-copy-full.log. Test-produced example artifacts are
 preserved uncommitted and excluded from the fix publication. Consumers follow the published
 MaiaC -> MaiaCpp -> MaiaJS/MaiaGlob -> MaiaOS gitlink sequence, without npm,
 version changes or MaiaOS feature publication.
+
+## Member-array and pointer-field arithmetic
+
+The shell's component traversal then exposed a second addressing defect:
+`value.text + 5` advanced 20 bytes for a byte-array member; a 12-byte struct-array
+member advanced only 4 bytes per element. Member access carries its element type,
+array dimensions and pointer depth on the resolved field, whereas the former
+stride calculation read the address-valued wrapper. Pointer fields were also
+missing from pointer classification. The correction reads the field metadata and
+uses the existing indexed-stride calculation. No library workaround, API or
+grammar change is needed.
+
+Regressions assert byte, struct, multidimensional row and pointer-array strides,
+byte/struct/double-pointer field arithmetic, and integer casts that stop pointer
+scaling. Focused tests and `npm run test:full` PASS (bundle plus 13/13 extra
+diagnostics); log /tmp/maia-c-member-stride-full.log. Generated example artifacts
+remain uncommitted and excluded from publication.
