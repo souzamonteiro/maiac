@@ -5,7 +5,7 @@
 (module
   (import "env" "printf" (func $imp_printf (param f64 f64 f64 f64 f64 f64 f64 f64) (result i32)))
 
-  (memory $mem 1)
+  (memory $mem 2)
 
   (table $fn_table 3 funcref)
 
@@ -377,6 +377,11 @@
         br $bubble_sort_for_loop_2
       end
     end
+    local.get $__parent_frame
+    global.set $__frame_ptr
+    local.get $__frame
+    global.set $__stack_ptr
+    return
   )
 
   ;; function main

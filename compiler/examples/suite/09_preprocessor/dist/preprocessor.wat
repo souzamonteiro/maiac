@@ -6,7 +6,7 @@
   (import "env" "printf" (func $imp_printf (param f64 f64 f64 f64 f64 f64 f64 f64) (result i32)))
   (import "env" "strcmp" (func $imp_strcmp (param i32 i32) (result i32)))
 
-  (memory $mem 1)
+  (memory $mem 2)
 
   (table $fn_table 1 funcref)
 

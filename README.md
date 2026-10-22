@@ -2,6 +2,20 @@
 
 MaiaC is a C-to-WebAssembly compiler focused on a practical C89 subset and a browser/Node execution workflow.
 
+
+## Versioned example artifacts
+
+The project owner explicitly requests committing the generated example artifacts
+for GitHub review, including mobile access. Keep the tracked outputs under
+`compiler/examples/` alongside their sources: generated C (where applicable),
+WAT, WASM and distribution manifests. Regenerate using `npm run test:full`,
+review the diff and validate the outputs before publication. WAT and paired WASM
+must agree; manifest timestamps may change during generation.
+
+This policy covers the documented example outputs, not temporary build folders,
+caches or unrelated test scratch files. Do not hand-edit generated code. Artifact
+publication does not imply a release-version change or npm publication.
+
 ## Process Documentation
 
 Mandatory cross-repository synchronization workflow:

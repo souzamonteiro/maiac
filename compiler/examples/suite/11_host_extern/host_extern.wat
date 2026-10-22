@@ -7,7 +7,7 @@
   (import "env" "__Math__sqrt" (func $imp___Math__sqrt (param f64) (result f64)))
   (import "env" "__Math__floor" (func $imp___Math__floor (param f64) (result i32)))
 
-  (memory $mem 1)
+  (memory $mem 2)
 
   (table $fn_table 1 funcref)
 
