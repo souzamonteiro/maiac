@@ -17,6 +17,7 @@ const scripts = [
   'test-adjacent-string-literals.js',
   'test-struct-return-temporaries.js',
   'test-integer-literal-signedness.js',
+  'test-unsigned-compound-assignment.js',
   'test-struct-pointer-indirection.js',
   'test-void-callbacks.js',
   'test-void-fallthrough-frames.js',

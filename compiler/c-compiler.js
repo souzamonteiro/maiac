@@ -5874,22 +5874,77 @@ function resolveLValue(node, context, options = {}) {
   throw new CompilationError('Unsupported assignment target', getNodeName(node));
 }
 
-function getCompoundAssignmentOpcode(operatorValue, watType = 'i32') {
+function getCompoundAssignmentOpcode(operatorValue, watType = 'i32', useUnsigned = false) {
   const effectiveType = toWatType(watType || 'i32');
 
   switch (operatorValue) {
     case '+=': return getTypedArithmeticOpcode('add', effectiveType);
     case '-=': return getTypedArithmeticOpcode('sub', effectiveType);
     case '*=': return getTypedArithmeticOpcode('mul', effectiveType);
-    case '/=': return getTypedArithmeticOpcode('div', effectiveType);
-    case '%=': return getTypedArithmeticOpcode('rem', effectiveType);
+    case '/=': return getTypedArithmeticOpcode('div', effectiveType, useUnsigned);
+    case '%=': return getTypedArithmeticOpcode('rem', effectiveType, useUnsigned);
     case '<<=': return effectiveType === 'i64' ? 'i64.shl' : 'i32.shl';
-    case '>>=': return effectiveType === 'i64' ? 'i64.shr_s' : 'i32.shr_s';
+    case '>>=': return `${effectiveType === 'i64' ? 'i64' : 'i32'}.shr_${useUnsigned ? 'u' : 's'}`;
     case '&=': return effectiveType === 'i64' ? 'i64.and' : 'i32.and';
     case '^=': return effectiveType === 'i64' ? 'i64.xor' : 'i32.xor';
     case '|=': return effectiveType === 'i64' ? 'i64.or' : 'i32.or';
     default: return null;
   }
+}
+
+// Compound integer operations need promoted operand signedness, not just the
+// storage's WAT width. Unsigned char/short fit in this target's signed int.
+function getCompoundIntegerOperand(node, context) {
+  const expression = unwrapSingleNonterminalChain(node) || node;
+  let metadata = null;
+  if (isNonterminal(expression, 'primaryExpression')) {
+    const inner = firstNonterminal(expression, 'expression');
+    if (inner) return getCompoundIntegerOperand(inner, context);
+  }
+  if (isNonterminal(expression, 'castExpression')) {
+    const name = firstNonterminal(expression, 'typeName');
+    if (name) metadata = extractTypeInfoFromTypeNameWithContext(name, context);
+  }
+  if (isNonterminal(expression, 'postfixExpression')) {
+    const indexed = getIndexedAccessInfoFromPostfix(expression, context);
+    const path = getMemberAccessPathFromPostfix(expression);
+    const base = getSimpleIdentifierName(firstNonterminal(expression, 'primaryExpression'));
+    if (indexed) metadata = path.length
+      ? resolveMemberAccessFromAddress(path, indexed, context)?.field : indexed.symbol;
+    else if (base && path.length) metadata = resolvePostfixMemberAccess(base, path, context)?.field;
+    else if (base && nonterminalChildren(expression, 'postfixSuffix').some(suffix => firstTerminal(suffix, 'TOKEN__28_')))
+      metadata = context.module.functionsByName.get(base);
+  }
+  if (isNonterminal(expression, 'unaryExpression')) {
+    const operator = firstNonterminal(expression, 'unaryOperator');
+    if (operator && firstTerminal(operator, 'TOKEN__2A_')) {
+      const operand = nonterminalChildren(expression).find(child => child !== operator);
+      const name = getSimpleIdentifierName(operand) || extractIdentifierFromNode(operand);
+      metadata = name ? resolveSymbol(name, context) : null;
+    }
+  }
+  if (!metadata) {
+    const name = getSimpleIdentifierName(expression);
+    if (name) metadata = resolveSymbol(name, context);
+  }
+  const unsigned = metadata ? isUnsignedCType(metadata.cType) : inferExpressionUnsignedness(node, context);
+  const narrow = metadata && /\b(char|short)\b/.test(metadata.cType || '');
+  return {
+    type: toWatType(inferExpressionType(node, context) || 'i32'),
+    unsigned: narrow ? false : unsigned,
+    // Narrow loads may be sign-extended by storage lowering; promote their
+    // unsigned value before arithmetic without changing other load paths.
+    mask: narrow && /\bunsigned\b/.test(metadata.cType || '')
+      ? (/\bchar\b/.test(metadata.cType) ? 255 : 65535) : 0
+  };
+}
+
+function coerceCompoundInteger(instructions, operand, target, context) {
+  let result = [...instructions];
+  if (operand.mask) result.push(`i32.const ${operand.mask}`, 'i32.and');
+  if (operand.type === 'i32' && target === 'i64' && operand.unsigned)
+    return result.concat('i64.extend_i32_u');
+  return coerceInstructionsToType(result, operand.type, target, context);
 }
 
 function normalizeInstructionArray(instructions) {
@@ -5944,8 +5999,9 @@ function compileAssignmentExpression(node, context, options = {}) {
   const lvalueType = lvalue.watType || 'i32';
   const rhsType = inferExpressionType(rightNode, context) || lvalueType;
 
+  const rawRhsInstructions = compileExpression(rightNode, context, { keepValue: true });
   let rhsInstructions = coerceInstructionsToType(
-    compileExpression(rightNode, context, { keepValue: true }),
+    rawRhsInstructions,
     rhsType,
     lvalueType,
     context
@@ -5955,13 +6011,30 @@ function compileAssignmentExpression(node, context, options = {}) {
     const currentValueInstructions = lvalue.kind === 'symbol'
       ? normalizeInstructionArray(emitLoadInstruction(lvalue.name, context))
       : [...lvalue.addressInstructions, getLoadOpcodeForType(lvalueType)];
-    const compoundOpcode = getCompoundAssignmentOpcode(operatorValue, lvalueType);
+    const typedInteger = ['/=', '%=', '>>='].includes(operatorValue)
+      && ['i32', 'i64'].includes(toWatType(lvalueType))
+      && ['i32', 'i64'].includes(toWatType(rhsType));
+    let compoundOpcode;
+    if (typedInteger) {
+      const left = getCompoundIntegerOperand(leftNode, context);
+      const right = getCompoundIntegerOperand(rightNode, context);
+      const operationType = operatorValue === '>>=' ? left.type : selectCommonWatType(left.type, right.type);
+      const useUnsigned = operatorValue === '>>=' ? left.unsigned
+        : left.type === right.type ? left.unsigned || right.unsigned
+          : (left.type === operationType ? left.unsigned : right.unsigned);
+      const current = coerceCompoundInteger(currentValueInstructions, left, operationType, context);
+      // Keep the RHS in its own type until the usual arithmetic conversions.
+      const rhs = coerceCompoundInteger(rawRhsInstructions, right, operationType, context);
+      compoundOpcode = getCompoundAssignmentOpcode(operatorValue, operationType, useUnsigned);
+      rhsInstructions = coerceInstructionsToType([...current, ...rhs, compoundOpcode], operationType, lvalueType, context);
+    } else {
+      compoundOpcode = getCompoundAssignmentOpcode(operatorValue, lvalueType);
+      rhsInstructions = currentValueInstructions.concat(rhsInstructions, compoundOpcode);
+    }
 
     if (!compoundOpcode) {
       throw new CompilationError(`Unsupported assignment operator '${operatorValue}'`, getNodeName(node));
     }
-
-    rhsInstructions = currentValueInstructions.concat(rhsInstructions, compoundOpcode);
   }
 
   if (lvalue.kind === 'symbol') {

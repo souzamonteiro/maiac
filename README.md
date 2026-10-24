@@ -56,6 +56,11 @@ Assignments through `struct **` update pointer storage, while assignments throug
 `struct *` retain whole-struct copying. The pointer-indirection regression checks
 linked-list tails, adjacent canaries and dereferenced member updates in WASM.
 
+Unsigned `/=`, `%=` and `>>=` retain promoted integer signedness, including
+mixed operands and 64-bit values. The regression compares C89 native results
+with WASM across scalar, pointer, array and struct storage; see
+[compound integer assignment](docs/UNSIGNED_COMPOUND_ASSIGNMENT.md).
+
 Static arrays and structs retain their positional aggregate initializers in
 linear memory, including nested braces, zero filling, strings and references
 to static tables/objects. Static local aggregates are initialized once. This
