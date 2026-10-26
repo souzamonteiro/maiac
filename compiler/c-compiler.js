@@ -465,6 +465,19 @@ function resolveStructLayout(structName, moduleModel, inlineLayout = null, seenL
   return layout ? finalizeStructLayout(layout, moduleModel, seenLayouts) : null;
 }
 
+// Dot access requires a struct object, but its storage need not be a stack frame.
+// Use the same backing allocation as address-of and pointer aliases.
+function getStructObjectAddress(symbol, context) {
+  if (!symbol.isStruct || (symbol.pointerDepth || 0) > 0 || symbol.isArray) {
+    throw new CompilationError(`Struct member access requires a struct object ('${symbol.sourceName}')`, context.function.sourceName);
+  }
+  const address = getAddressableStorageInstructionsForSymbol(symbol, context);
+  if (!address) {
+    throw new CompilationError(`Struct member access requires addressable storage ('${symbol.sourceName}')`, context.function.sourceName);
+  }
+  return address;
+}
+
 function resolveMemberAccess(name, context) {
   const parts = String(name || '').split('.').filter(Boolean);
   if (parts.length < 2) {
@@ -477,13 +490,10 @@ function resolveMemberAccess(name, context) {
     throw new CompilationError(`Unknown base symbol '${baseName}'`, context.function.sourceName);
   }
 
-  if (baseSymbol.stackOffset == null) {
-    throw new CompilationError(`Struct member access is currently supported only for frame-backed locals and parameters ('${baseName}')`, context.function.sourceName);
-  }
-
   let index = 1;
   let structLayout = null;
   let addressInstructions = null;
+  let readOnly = !!baseSymbol.isConst;
 
   if (parts[index] === '__arrow__') {
     if ((baseSymbol.pointerDepth || 0) <= 0) {
@@ -500,13 +510,14 @@ function resolveMemberAccess(name, context) {
       context,
       { keepValue: true }
     );
+    readOnly = !!baseSymbol.pointeeIsConst;
     index += 1;
   } else {
+    addressInstructions = getStructObjectAddress(baseSymbol, context);
     structLayout = resolveStructLayout(baseSymbol.structName, context.module, baseSymbol.structLayout || null);
     if (!structLayout) {
       throw new CompilationError(`Unknown struct layout for '${baseName}'`, context.function.sourceName);
     }
-    addressInstructions = emitAddressOfSymbol(baseName, context);
   }
 
   let field = null;
@@ -536,6 +547,7 @@ function resolveMemberAccess(name, context) {
       }
 
       addressInstructions = addressInstructions.concat(getLoadOpcodeForType(field.watType || 'i32'));
+      readOnly = !!field.pointeeIsConst;
       index += 2;
       continue;
     }
@@ -562,6 +574,7 @@ function resolveMemberAccess(name, context) {
     baseSymbol,
     field,
     addressInstructions,
+    readOnly,
     watType: field ? getStorageTypeForSymbol(field) : getStorageTypeForSymbol(baseSymbol),
     baseWatType: field ? (field.baseWatType || field.watType || 'i32') : (baseSymbol.baseWatType || baseSymbol.watType || 'i32'),
     pointerDepth: field ? (field.pointerDepth || 0) : (baseSymbol.pointerDepth || 0),
@@ -5222,6 +5235,8 @@ function resolvePostfixMemberAccess(baseName, memberAccessPath, context) {
   let addressInstructions = null;
   let structLayout = null;
   let currentField = null;
+  let readOnly = memberAccessPath[0].isArrow
+    ? !!baseSymbol.pointeeIsConst : !!baseSymbol.isConst;
 
   if (memberAccessPath[0].isArrow) {
     if ((baseSymbol.pointerDepth || 0) <= 0) {
@@ -5237,17 +5252,11 @@ function resolvePostfixMemberAccess(baseName, memberAccessPath, context) {
       { keepValue: true }
     );
   } else {
-    if (baseSymbol.stackOffset == null) {
-      throw new CompilationError(
-        `Struct member access is currently supported only for frame-backed locals and parameters ('${baseName}')`,
-        context.function.sourceName
-      );
-    }
+    addressInstructions = getStructObjectAddress(baseSymbol, context);
     structLayout = resolveStructLayout(baseSymbol.structName, context.module, baseSymbol.structLayout || null);
     if (!structLayout) {
       throw new CompilationError(`Unknown struct layout for '${baseName}'`, context.function.sourceName);
     }
-    addressInstructions = emitAddressOfSymbol(baseName, context);
   }
 
   for (let index = 0; index < memberAccessPath.length; index += 1) {
@@ -5258,6 +5267,7 @@ function resolvePostfixMemberAccess(baseName, memberAccessPath, context) {
         throw new CompilationError(`Field '${currentField ? currentField.sourceName : '?'}' is not a pointer and cannot use '->'`, context.function.sourceName);
       }
       addressInstructions = addressInstructions.concat(getLoadOpcodeForType(currentField.watType || 'i32'));
+      readOnly = !!currentField.pointeeIsConst;
       structLayout = resolveStructLayout(currentField.structName, context.module, currentField.structLayout || null);
       if (!structLayout) {
         throw new CompilationError(`Unknown pointed struct layout for field '${currentField.sourceName}'`, context.function.sourceName);
@@ -5287,6 +5297,7 @@ function resolvePostfixMemberAccess(baseName, memberAccessPath, context) {
     baseSymbol,
     field: currentField,
     addressInstructions,
+    readOnly,
     watType: currentField ? getStorageTypeForSymbol(currentField) : getStorageTypeForSymbol(baseSymbol),
     baseWatType: currentField ? (currentField.baseWatType || currentField.watType || 'i32') : (baseSymbol.baseWatType || baseSymbol.watType || 'i32'),
     pointerDepth: currentField ? (currentField.pointerDepth || 0) : 0,
@@ -5788,6 +5799,7 @@ function resolveLValue(node, context, options = {}) {
         kind: 'indirect',
         addressInstructions: memberAccess.addressInstructions,
         watType: memberAccess.watType,
+        readOnly: memberAccess.readOnly,
         aggregateByteSize: memberAccess.isStruct && memberAccess.structLayout
           ? (memberAccess.structLayout.size || 0)
           : 0
@@ -5826,6 +5838,7 @@ function resolveLValue(node, context, options = {}) {
         kind: 'indirect',
         addressInstructions: memberAccess.addressInstructions,
         watType: memberAccess.watType,
+        readOnly: memberAccess.readOnly,
         aggregateByteSize: memberAccess.isStruct && memberAccess.structLayout
           ? (memberAccess.structLayout.size || 0)
           : 0
@@ -6873,6 +6886,7 @@ function compilePostfixExpression(node, context, keepValue) {
           return emitUpdateLValueInstructions({
             kind: 'indirect',
             addressInstructions: memberAccess.addressInstructions,
+            readOnly: memberAccess.readOnly,
             watType: memberAccess.watType || 'i32'
           }, delta, context, { prefix: false, keepValue });
         }

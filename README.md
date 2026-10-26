@@ -70,6 +70,11 @@ initializers remain unsupported. Struct-pointer increments use the pointee
 layout size. `compiler/tests/test-static-aggregate-initializers.js` exercises
 these contracts in actual WebAssembly execution.
 
+Direct fields of global/static structs and static locals use the same linear
+storage as pointer aliases, including nested fields, address-of and updates.
+See [static struct members](docs/STATIC_STRUCT_MEMBERS.md) for the regression
+matrix and the separate remaining global-pointer initializer limitation.
+
 Function pointers returning `void` retain a no-result WebAssembly signature,
 including local variables, indexed pointers and nested struct callbacks.
 `compiler/tests/test-void-callbacks.js` covers those calls and typed arguments.

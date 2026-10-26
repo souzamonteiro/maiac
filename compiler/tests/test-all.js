@@ -14,6 +14,7 @@ const scripts = [
   'test-large-example-e2e.js',
   'test-phase3-initializers-diagnosis.js',
   'test-static-aggregate-initializers.js',
+  'test-static-struct-members.js',
   'test-adjacent-string-literals.js',
   'test-struct-return-temporaries.js',
   'test-integer-literal-signedness.js',
