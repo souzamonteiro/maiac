@@ -74,6 +74,9 @@ Direct fields of global/static structs and static locals use the same linear
 storage as pointer aliases, including nested fields, address-of and updates.
 See [static struct members](docs/STATIC_STRUCT_MEMBERS.md) for the regression
 matrix and the separate remaining global-pointer initializer limitation.
+Numeric casts in static initializers also preserve the converted operand across
+aggregate and scalar storage; see [constant casts](docs/STATIC_CONSTANT_CASTS.md)
+for native/WASM regressions and the bounded exact-integer range.
 
 Function pointers returning `void` retain a no-result WebAssembly signature,
 including local variables, indexed pointers and nested struct callbacks.

@@ -1048,6 +1048,7 @@ function evaluateConstantExpression(node, constants = new Map()) {
 
   if (node.kind === 'terminal') {
     if (node.token === 'IntegerConstant') return parseCIntegerLiteral(node.value);
+    if (node.token === 'FloatingConstant') return parseCFloatingLiteral(node.value);
     if (node.token === 'CharacterConstant') return parseCCharacterLiteral(node.value);
     if (node.token === 'Identifier') {
       if (constants.has(node.value)) {
@@ -1065,6 +1066,35 @@ function evaluateConstantExpression(node, constants = new Map()) {
   const nestedChildren = nonterminalChildren(node);
   const pieces = childNodes(node).filter((child) => child.kind === 'nonterminal' || child.kind === 'terminal');
 
+  if (nodeName === 'castExpression') {
+    const typeName = firstNonterminal(node, 'typeName');
+    if (typeName) {
+      const type = extractTypeInfoFromTypeName(typeName);
+      const operand = nestedChildren.find((child) => child !== typeName);
+      const value = evaluateConstantExpression(operand, constants);
+      if (type.isStruct || (type.pointerDepth === 0 && type.baseWatType === null) || !Number.isFinite(value)) {
+        throw new CompilationError('Unsupported constant cast', 'constantExpression');
+      }
+      if (type.pointerDepth > 0 && value !== 0) {
+        throw new CompilationError('Unsupported non-null pointer constant cast', 'constantExpression');
+      }
+      if (type.pointerDepth === 0 && type.watType === 'f32') return Math.fround(value);
+      if (type.pointerDepth === 0 && type.watType === 'f64') return value;
+      const integer = Math.trunc(value);
+      if (!Number.isSafeInteger(integer)) {
+        throw new CompilationError('Constant cast operand exceeds exact integer range', 'constantExpression');
+      }
+      const bits = type.pointerDepth > 0 ? 32 : 8 * getCTypeSizeForSizeof(type.cType);
+      const narrowed = type.isUnsigned || type.pointerDepth > 0
+        ? BigInt.asUintN(bits, BigInt(integer)) : BigInt.asIntN(bits, BigInt(integer));
+      const result = Number(narrowed);
+      if (!Number.isSafeInteger(result)) {
+        throw new CompilationError('Constant cast result exceeds exact integer range', 'constantExpression');
+      }
+      return result;
+    }
+  }
+
   if (['expression', 'assignmentExpression'].includes(nodeName) && nestedChildren.length > 0) {
     return evaluateConstantExpression(nestedChildren[nestedChildren.length - 1], constants);
   }
@@ -1076,7 +1106,7 @@ function evaluateConstantExpression(node, constants = new Map()) {
     // A bare terminal child (e.g. an identifier used as an enum constant inside a designator)
     const valueTerminal = childNodes(node).find(
       (child) => child.kind === 'terminal' &&
-        ['Identifier', 'IntegerConstant', 'CharacterConstant'].includes(child.token)
+        ['Identifier', 'IntegerConstant', 'FloatingConstant', 'CharacterConstant'].includes(child.token)
     );
     if (valueTerminal) {
       return evaluateConstantExpression(valueTerminal, constants);
@@ -1879,9 +1909,11 @@ function buildGlobalInitializerExpression(initializerNode, globalDef, moduleMode
       && terminals[0].token === 'StringLiteral' && moduleModel) {
     return `(i32.const ${registerStringLiteral(terminals[0].value, moduleModel).offset})`;
   }
-  if (assignmentExpression && !hasStringLiteral && ['i32', 'i64'].includes(globalDef.watType)) {
-    const value = evaluateConstantExpression(assignmentExpression);
-    const opcode = globalDef.watType === 'i64' ? 'i64.const' : 'i32.const';
+  const hasConstantCast = !!findFirst(initializerNode, (node) =>
+    isNonterminal(node, 'castExpression') && firstNonterminal(node, 'typeName'));
+  if (assignmentExpression && !hasStringLiteral && (['i32', 'i64'].includes(globalDef.watType) || hasConstantCast)) {
+    const value = evaluateConstantExpression(assignmentExpression, moduleModel ? moduleModel.enumValues : new Map());
+    const opcode = `${globalDef.watType}.const`;
     return `(${opcode} ${value})`;
   }
 
