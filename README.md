@@ -41,6 +41,10 @@ The project uses two local submodules:
 
 ## Repository Structure
 
+Raw Unicode scalars in narrow string literals use UTF-8 execution bytes, while
+octal/hex escapes remain explicit bytes. See [UTF-8 literals](docs/UTF8_STRING_LITERALS.md)
+for byte sizes, native/WASM regression coverage and the selected scope.
+
 Adjacent string literals retain their C89 concatenation semantics, including
 escape boundaries, static pointer/aggregate initialization and array sizes.
 Generated grammar rules recognize the fragments; semantic processing combines

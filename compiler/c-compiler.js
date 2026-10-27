@@ -663,7 +663,19 @@ function parseCStringLiteral(text) {
 
     if (char !== '\\') {
       const codePoint = body.codePointAt(index);
-      values.push(codePoint);
+      // Raw narrow-string scalars use UTF-8. Numeric escapes below remain
+      // explicit byte values and must not be re-encoded as Unicode text.
+      if (codePoint <= 0x7F) {
+        values.push(codePoint);
+      } else if (codePoint <= 0x7FF) {
+        values.push(0xC0 | (codePoint >>> 6), 0x80 | (codePoint & 0x3F));
+      } else if (codePoint <= 0xFFFF) {
+        values.push(0xE0 | (codePoint >>> 12),
+          0x80 | ((codePoint >>> 6) & 0x3F), 0x80 | (codePoint & 0x3F));
+      } else {
+        values.push(0xF0 | (codePoint >>> 18), 0x80 | ((codePoint >>> 12) & 0x3F),
+          0x80 | ((codePoint >>> 6) & 0x3F), 0x80 | (codePoint & 0x3F));
+      }
       if (codePoint > 0xFFFF) {
         index += 1;
       }

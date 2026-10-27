@@ -347,6 +347,8 @@ StringLiteral ::= '"' SChar* '"'
 
 SChar ::= [!#-[]
         | [#x5D-#x7E]
+        | [#x80-#xD7FF]
+        | [#xE000-#x10FFFF]
         | #x20
         | #x9
         | EscapeSequence

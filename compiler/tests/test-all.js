@@ -17,6 +17,7 @@ const scripts = [
   'test-static-struct-members.js',
   'test-static-constant-casts.js',
   'test-adjacent-string-literals.js',
+  'test-utf8-string-literals.js',
   'test-struct-return-temporaries.js',
   'test-integer-literal-signedness.js',
   'test-unsigned-compound-assignment.js',
