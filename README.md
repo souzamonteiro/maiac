@@ -268,6 +268,20 @@ Expected result: host calls such as `__console__log` and `__Math__sqrt` execute 
 	- `webc --dist` browser runner page
 	- `webc --dist` node runner scripts
 
+## Compiler API diagnostic output
+
+`parseCSource(source, options)` and `compileSource(source, options)` accept
+`serializeParseTrees: false` for callers that need the AST or compiled module
+without diagnostic JSON/XML strings. This explicit opt-out returns `json: null`
+and `xml: null`; the full `ast`, `collector` and `normalizedSource` remain present.
+Preprocessing, parsing, semantic checks, WAT/WASM generation and execution are
+unchanged. This avoids host string-size limits for large generated programs.
+Omitting the option or passing `true` preserves the existing diagnostic strings.
+The CLI keeps its current behavior; no new CLI flag is introduced.
+
+Verify with `node compiler/tests/test-optional-parse-serialization.js`, also
+included in `npm test` and `npm run test:full`.
+
 ## Compiler CLI
 
 Main CLI entrypoint:

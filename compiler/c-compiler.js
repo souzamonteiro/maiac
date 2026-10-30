@@ -1704,8 +1704,8 @@ function parseCSource(source, options = {}) {
 
   return {
     ast: collector.root,
-    json: collector.toJSON(),
-    xml: collector.toXml(),
+    json: options.serializeParseTrees === false ? null : collector.toJSON(),
+    xml: options.serializeParseTrees === false ? null : collector.toXml(),
     collector,
     normalizedSource
   };
@@ -8134,7 +8134,8 @@ function compileSource(source, options = {}) {
   const parsed = parseCSource(source, {
     sourcePath: options.sourcePath || null,
     includeDirs,
-    resolveSystemIncludes: options.resolveSystemIncludes === true
+    resolveSystemIncludes: options.resolveSystemIncludes === true,
+    serializeParseTrees: options.serializeParseTrees
   });
   const moduleModel = buildModuleModel(parsed.ast);
   const wat = emitter(moduleModel, options);
