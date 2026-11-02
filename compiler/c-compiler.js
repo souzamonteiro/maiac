@@ -6145,11 +6145,29 @@ function emitStructAssignmentInstructions(destAddressInstructions, srcAddressIns
   return instructions;
 }
 
+// Retain the selected pointer operand through an additive expression. The
+// arithmetic lowering still diagnoses invalid pointer combinations itself.
+function getAdditivePointerOperand(node, context) {
+  if (!isNonterminal(node, 'additiveExpression')) return null;
+  const pieces = childNodes(node).filter(child => child.kind === 'nonterminal' || child.kind === 'terminal');
+  if (pieces.length < 3) return null;
+  let pointer = isPointerLikeNode(pieces[0], context) ? pieces[0] : null;
+  for (let index = 1; index + 1 < pieces.length; index += 2) {
+    const right = pieces[index + 1];
+    const rightPointer = isPointerLikeNode(right, context);
+    if (pointer && rightPointer) pointer = null; // pointer difference is ptrdiff_t
+    else if (rightPointer) pointer = right;
+  }
+  return pointer;
+}
+
 function isPointerLikeNode(node, context) {
   const unwrapped = unwrapSingleNonterminalChain(node);
   if (unwrapped && unwrapped !== node) {
     return isPointerLikeNode(unwrapped, context);
   }
+
+  if (isNonterminal(node, 'additiveExpression')) return !!getAdditivePointerOperand(node, context);
 
   if (isNonterminal(node, 'castExpression')) {
     const typeName = firstNonterminal(node, 'typeName');
@@ -6173,15 +6191,18 @@ function isPointerLikeNode(node, context) {
 
   if (isNonterminal(node, 'postfixExpression')) {
     const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
-    if (accessInfo) {
+    const memberAccessPath = getMemberAccessPathFromPostfix(node);
+    if (accessInfo && memberAccessPath.length === 0) {
       return accessInfo.resultIsAddress;
     }
 
     const primaryExpression = firstNonterminal(node, 'primaryExpression');
-    const memberAccessPath = getMemberAccessPathFromPostfix(node);
     const baseName = getSimpleIdentifierName(primaryExpression);
-    if (baseName && memberAccessPath.length > 0) {
-      const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+    if ((accessInfo || baseName) && memberAccessPath.length > 0) {
+      // A trailing member selects the pointer type, not the indexed struct itself.
+      const memberAccess = accessInfo
+        ? resolveMemberAccessFromAddress(memberAccessPath, accessInfo, context)
+        : resolvePostfixMemberAccess(baseName, memberAccessPath, context);
       return !!memberAccess && (memberAccess.isStruct || memberAccess.isArray || (memberAccess.field?.pointerDepth || 0) > 0);
     }
   }
@@ -6200,6 +6221,9 @@ function getPointerElementSize(node, context) {
   if (unwrapped && unwrapped !== node) {
     return getPointerElementSize(unwrapped, context);
   }
+
+  const additivePointer = getAdditivePointerOperand(node, context);
+  if (additivePointer) return getPointerElementSize(additivePointer, context);
 
   if (isNonterminal(node, 'castExpression')) {
     const typeName = firstNonterminal(node, 'typeName');
@@ -6240,15 +6264,17 @@ function getPointerElementSize(node, context) {
 
   if (isNonterminal(node, 'postfixExpression')) {
     const accessInfo = getIndexedAccessInfoFromPostfix(node, context);
-    if (accessInfo) {
+    const memberAccessPath = getMemberAccessPathFromPostfix(node);
+    if (accessInfo && memberAccessPath.length === 0) {
       return getStrideForAccess(accessInfo.watType, accessInfo.resultObjectDimensions.slice(1));
     }
 
     const primaryExpression = firstNonterminal(node, 'primaryExpression');
-    const memberAccessPath = getMemberAccessPathFromPostfix(node);
     const baseName = getSimpleIdentifierName(primaryExpression);
-    if (baseName && memberAccessPath.length > 0) {
-      const memberAccess = resolvePostfixMemberAccess(baseName, memberAccessPath, context);
+    if ((accessInfo || baseName) && memberAccessPath.length > 0) {
+      const memberAccess = accessInfo
+        ? resolveMemberAccessFromAddress(memberAccessPath, accessInfo, context)
+        : resolvePostfixMemberAccess(baseName, memberAccessPath, context);
       if (memberAccess) {
         const field = memberAccess.field;
         if (memberAccess.isArray) {

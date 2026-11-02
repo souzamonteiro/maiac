@@ -39,6 +39,9 @@ The project uses two local submodules:
 - MaiaCC: grammar-to-parser generation.
 - MaiaWASM: WAT assembler and validation pipeline.
 
+Pointer-valued fields selected after struct array indexing retain pointer identity
+and element stride in arithmetic. See [indexed pointer members](docs/INDEXED_POINTER_MEMBERS.md).
+
 ## Repository Structure
 
 Raw Unicode scalars in narrow string literals use UTF-8 execution bytes, while
