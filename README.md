@@ -42,6 +42,10 @@ The project uses two local submodules:
 Pointer-valued fields selected after struct array indexing retain pointer identity
 and element stride in arithmetic. See [indexed pointer members](docs/INDEXED_POINTER_MEMBERS.md).
 
+Parentheses around a function name preserve its declaration/definition identity,
+while function-pointer objects remain distinct. See
+[parenthesized declarators](docs/PARENTHESIZED_FUNCTION_DECLARATORS.md).
+
 ## Repository Structure
 
 Raw Unicode scalars in narrow string literals use UTF-8 execution bytes, while

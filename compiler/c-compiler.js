@@ -1513,12 +1513,24 @@ function getIdentifierScopedDirectDeclarator(declaratorNode) {
 }
 
 function getIdentifierScopedDeclaratorSuffixes(declaratorNode) {
-  const scopedDirectDeclarator = getIdentifierScopedDirectDeclarator(declaratorNode);
-  if (!scopedDirectDeclarator) {
-    return [];
+  // Follow the declarator spine, never parameter declarators. Parentheses
+  // around a bare name are transparent: (f)(int) still declares a function.
+  // A pointer or an earlier suffix binds first: (*f)(int) is an object,
+  // and (*getOp())(int) gets its parameters from the inner () suffix.
+  function visit(node) {
+    const direct = firstNonterminal(node, 'directDeclarator');
+    if (!direct) return { suffixes: [], bound: false };
+    const base = firstNonterminal(direct, 'directDeclaratorBase');
+    const nested = base && firstNonterminal(base, 'declarator');
+    const inner = nested ? visit(nested) : { suffixes: [], bound: false };
+    const suffixes = inner.bound ? inner.suffixes
+      : nonterminalChildren(direct, 'directDeclaratorSuffix');
+    return {
+      suffixes,
+      bound: inner.bound || suffixes.length > 0 || countLeadingPointerDepthInDeclarator(node) > 0
+    };
   }
-
-  return nonterminalChildren(scopedDirectDeclarator, 'directDeclaratorSuffix');
+  return visit(declaratorNode).suffixes;
 }
 
 function hasArrayDeclaratorSuffix(declaratorNode) {
