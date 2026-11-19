@@ -2,6 +2,7 @@ class ParseTreeCollector {
   constructor() {
     this.stack = [];
     this.root = null;
+    this.lastClosedNode = null;
   }
 
   parse(parser, inputLabel = 'input') {
@@ -30,28 +31,25 @@ class ParseTreeCollector {
   }
 
   checkpoint() {
+    const len = this.stack.length;
     return {
-      stackLength: this.stack.length,
-      childCounts: this.stack.map((node) => Array.isArray(node.children) ? node.children.length : 0),
+      stackLength: len,
+      topChildCount: len > 0 ? this.stack[len - 1].children.length : 0,
       root: this.root
     };
   }
 
   restore(mark) {
     if (!mark) return;
-
     while (this.stack.length > mark.stackLength) {
       this.stack.pop();
     }
-
-    for (let index = 0; index < this.stack.length; index += 1) {
-      const node = this.stack[index];
-      const childCount = mark.childCounts[index] ?? 0;
-      if (Array.isArray(node.children) && node.children.length > childCount) {
-        node.children.length = childCount;
+    if (mark.stackLength > 0) {
+      const top = this.stack[mark.stackLength - 1];
+      if (top && top.children.length > mark.topChildCount) {
+        top.children.length = mark.topChildCount;
       }
     }
-
     this.root = mark.root || null;
   }
 
@@ -72,7 +70,18 @@ class ParseTreeCollector {
   endNonterminal() {
     const node = this.stack.pop();
     if (!node) return;
+    this.lastClosedNode = node;
 
+    if (this.stack.length === 0) {
+      this.root = node;
+    } else {
+      this.stack[this.stack.length - 1].children.push(node);
+    }
+  }
+
+  appendNode(node) {
+    if (!node) return;
+    this.lastClosedNode = node;
     if (this.stack.length === 0) {
       this.root = node;
     } else {
