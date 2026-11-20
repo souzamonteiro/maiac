@@ -1242,6 +1242,7 @@ async function main() {
       sourcePath: inputPath,
       validate:   opts.validate,
       printWat:   false,
+      serializeParseTrees: Boolean(opts.printJson || opts.jsonOut || opts.printXml || opts.xmlOut),
       resolveSystemIncludes: opts.resolveSystemIncludes,
     });
   } catch (err) {
