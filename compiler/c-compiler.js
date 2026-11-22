@@ -1989,7 +1989,7 @@ function buildModuleModel(ast, options = {}) {
     definedEnumTags: new Set(),
     externVariableDeclarations: new Map(),
     stringLiterals: new Map(),
-    nextDataOffset: 16
+    nextDataOffset: 1024
   };
 
   moduleModel.functionTypes = new Map();
