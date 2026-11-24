@@ -8169,14 +8169,25 @@ function compileSource(source, options = {}) {
     ...(options.includeDirs || [])
   ];
 
-  const parsed = parseCSource(source, {
+  let parsed = parseCSource(source, {
     sourcePath: options.sourcePath || null,
     includeDirs,
     resolveSystemIncludes: options.resolveSystemIncludes === true,
     serializeParseTrees: options.serializeParseTrees
   });
-  const moduleModel = buildModuleModel(parsed.ast);
+  let moduleModel = buildModuleModel(parsed.ast);
+  if (options.releaseIntermediateModels === true) {
+    parsed.ast = null;
+  }
   const wat = emitter(moduleModel, options);
+
+  // Collect annotated host-import descriptors so callers can generate the
+  // corresponding JS env wrapper without parsing the WAT themselves.
+  const hostImports = (moduleModel.imports || [])
+    .filter((imp) => imp.hostInfo != null);
+  if (options.releaseIntermediateModels === true) {
+    moduleModel = null;
+  }
 
   let wasm = null;
   let validationError = null;
@@ -8191,11 +8202,6 @@ function compileSource(source, options = {}) {
       }
     }
   }
-
-  // Collect annotated host-import descriptors so callers can generate the
-  // corresponding JS env wrapper without parsing the WAT themselves.
-  const hostImports = (moduleModel.imports || [])
-    .filter((imp) => imp.hostInfo != null);
 
   return {
     ...parsed,
