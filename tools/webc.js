@@ -1236,18 +1236,53 @@ async function main() {
     return;
   }
 
+  const useSubprocessAssemble = opts.validate !== false && source.length > 500000;
+  if (useSubprocessAssemble) console.error('[webc] phase 1: compileSource...');
   let result;
   try {
     result = compileSource(source, {
       sourcePath: inputPath,
-      validate:   opts.validate,
+      validate:   useSubprocessAssemble ? false : opts.validate,
       printWat:   false,
       serializeParseTrees: Boolean(opts.printJson || opts.jsonOut || opts.printXml || opts.xmlOut),
       resolveSystemIncludes: opts.resolveSystemIncludes,
+      releaseIntermediateModels: true,
     });
   } catch (err) {
     console.error(`[webc] Compilation error: ${err.message}`);
     process.exit(1);
+  }
+  if (useSubprocessAssemble) console.error('[webc] phase 2: WatAssembler subprocess...');
+
+  if (useSubprocessAssemble && result.wat) {
+    const os = require('os');
+    const tmpWat = path.join(os.tmpdir(), `webc_wat_${process.pid}.wat`);
+    const tmpWasm = path.join(os.tmpdir(), `webc_wasm_${process.pid}.wasm`);
+    const assemblerPath = path.join(ROOT, 'maiawasm', 'assembler', 'wat-assembler.js');
+    try {
+      fs.writeFileSync(tmpWat, result.wat, 'utf8');
+      result.wat = opts.wat ? result.wat : null;
+      const asmScript = [
+        'const fs = require("fs");',
+        `const WatAssembler = require(${JSON.stringify(assemblerPath)});`,
+        `const wat = fs.readFileSync(${JSON.stringify(tmpWat)}, "utf8");`,
+        'const wasm = new WatAssembler().assemble(wat);',
+        'new WebAssembly.Module(wasm);',
+        `fs.writeFileSync(${JSON.stringify(tmpWasm)}, wasm);`
+      ].join('\n');
+      const asmRun = spawnSync(process.execPath, ['--max-old-space-size=4096', '-e', asmScript], {
+        stdio: ['ignore', 'inherit', 'pipe'],
+        encoding: 'utf8',
+      });
+      if (asmRun.status !== 0) {
+        result.validationError = new Error((asmRun.stderr || '').trim() || `WatAssembler exited with ${asmRun.status}`);
+      } else {
+        result.wasm = fs.readFileSync(tmpWasm);
+      }
+    } finally {
+      try { fs.unlinkSync(tmpWat); } catch (_) {}
+      try { fs.unlinkSync(tmpWasm); } catch (_) {}
+    }
   }
 
   // Always persist WAT when requested, even if validation/assembly fails.
