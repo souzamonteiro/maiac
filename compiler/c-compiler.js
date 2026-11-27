@@ -2119,9 +2119,10 @@ function buildModuleModel(ast, options = {}) {
           }
           moduleModel.functionSignaturesByName.set(itemDef.sourceName, declarationSignature);
 
-          // Functions whose names begin with '__' are host-provided imports.
+          // Functions whose names begin with '__' are host-provided imports,
+          // unless they are actually defined in this translation unit.
           // Register them so call sites can emit the correct WAT call.
-          if (parseHostExternName(itemDef.sourceName)) {
+          if (!definedFunctionNames.has(itemDef.sourceName) && parseHostExternName(itemDef.sourceName)) {
             registerHostExternImport(itemDef, moduleModel);
             continue;
           }
